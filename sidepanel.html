@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>ChatGPT Sidecar</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand__mark" aria-hidden="true">S</span>
+          <div>
+            <h1>Sidecar</h1>
+            <p>Chat starter</p>
+          </div>
+        </div>
+        <button class="icon-button" id="clear-chat" type="button" title="Start a new chat">
+          <span aria-hidden="true">＋</span>
+          <span class="sr-only">Start a new chat</span>
+        </button>
+      </header>
+
+      <section class="conversation" id="conversation" aria-live="polite">
+        <div class="welcome" id="welcome">
+          <span class="welcome__spark" aria-hidden="true">✦</span>
+          <h2>What can I help with?</h2>
+          <p>This interface is local for now. Try a prompt to see how the UI behaves.</p>
+
+          <div class="suggestions" aria-label="Suggested prompts">
+            <button class="suggestion" type="button">Explain this page simply</button>
+            <button class="suggestion" type="button">Help me brainstorm</button>
+            <button class="suggestion" type="button">Summarize an idea</button>
+          </div>
+        </div>
+      </section>
+
+      <form class="composer" id="composer">
+        <label class="sr-only" for="message-input">Message Sidecar</label>
+        <textarea
+          id="message-input"
+          name="message"
+          rows="1"
+          maxlength="4000"
+          placeholder="Message Sidecar"
+          required
+        ></textarea>
+        <button class="send-button" type="submit" aria-label="Send message">
+          <span aria-hidden="true">↑</span>
+        </button>
+      </form>
+
+      <p class="disclaimer">Demo UI only — no messages leave your browser.</p>
+    </main>
+
+    <template id="message-template">
+      <article class="message">
+        <div class="message__avatar" aria-hidden="true"></div>
+        <div class="message__content"></div>
+      </article>
+    </template>
+
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

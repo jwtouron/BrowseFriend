@@ -1,42 +1,57 @@
-# ChatGPT Sidecar
+# BrowseFriend
 
-A minimal Chrome side-panel extension with a local chat interface. It has no API integration, authentication, storage, or background service yet.
+BrowseFriend is a local-first Chrome side-panel companion. It currently provides the chat UI and a supported **Continue with ChatGPT** connection; live model responses and page access are intentionally deferred.
+
+## Authentication boundary
+
+The extension never receives OAuth credentials. Its service worker talks to a Node.js native-messaging host that runs OpenAI's loopback sign-in flow and returns only display-safe account state. Tokens are encrypted with a random key protected by macOS Keychain or Linux Secret Service.
+
+BrowseFriend does not create product accounts, subscriptions, or billing. It does not read ChatGPT cookies, conversations, or private endpoints. The official flow can use eligible ChatGPT plan usage but does not expose existing ChatGPT history.
+
+## Prerequisites
+
+- Google Chrome 141 or newer on macOS or desktop Linux.
+- Node.js 22.12 or newer.
+- Linux only: Secret Service plus `secret-tool` (usually the `libsecret-tools` package).
+- A ChatGPT account eligible for Sign in with ChatGPT plan usage.
+
+The official DevKit is licensed for noncommercial use. BrowseFriend is currently a personal, noncommercial project; review [NOTICE.md](NOTICE.md) before redistributing it.
+
+## Install for development
+
+```sh
+git submodule update --init
+npm run setup:devkit
+npm run install:host
+```
+
+If Homebrew installed versioned Node on macOS, first run:
+
+```sh
+export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
+```
+
+Then open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select this repository. The checked-in manifest key gives development builds the stable ID expected by the native host. Reload the extension after code changes.
+
+Moving the repository invalidates the installed launcher path; rerun `npm run install:host`. To unregister the companion without deleting saved account data, run `npm run uninstall:host`.
+
+## Use
+
+Open BrowseFriend from Chrome's toolbar. Signed-out users see **Continue with ChatGPT**. OpenAI handles account and workspace selection in the browser, then returns to the local companion. Once connected, **Settings → Account** shows the selected identity, plan-access state, usage link, and logout action.
+
+If the panel reports that the companion is unavailable, rerun `npm run install:host`, reload the extension, and select **Retry**.
+
+## Development commands
+
+```sh
+npm test              # Run protocol, encryption, and configuration tests.
+npm run lint          # Check JavaScript syntax.
+npm run setup:devkit  # Install and build the pinned OpenAI local SDK.
+python3 -m json.tool manifest.json
+```
+
+The extension remains plain HTML, CSS, and JavaScript with no browser-side build. Native-host code lives in `native-host/`; tests live in `tests/`; OpenAI's pinned DevKit lives in `vendor/sign-in-with-chatgpt-devkit/`.
 
 ## Product direction
 
-The long-term goal is a browser companion that understands the page beside it. It should be able to answer questions about the current page, summarize or explain selected content, and eventually navigate and interact with sites on the user's behalf.
-
-Build toward that goal in visible, permissioned stages:
-
-1. Read explicitly requested page context and show what will be shared.
-2. Answer questions about the page with clear source references.
-3. Propose page actions before performing them.
-4. Require confirmation for consequential actions such as submitting forms, making purchases, or sending messages.
-
-The product name is still a working decision; `ChatGPT Sidecar` is only the current development label.
-
-### Account scope
-
-This is a personal, local-first utility—not a subscription service. It should not create its own user accounts, billing, or plans. The intended connection UI is a single **Continue with ChatGPT** action that opens OpenAI's hosted sign-in page. There, users authenticate using whichever method is attached to their ChatGPT account, including Google when available. The extension does not need a separate Google OAuth flow.
-
-OpenAI currently documents ChatGPT-plan access for open-source and locally running projects. Its reference implementation uses a local runtime and loopback callback, so compatibility with a standalone Chrome extension must be verified before authentication is implemented. Do not substitute scraping, shared cookies, or private `chatgpt.com` endpoints. Anonymous use is only a possible future feature if OpenAI provides a supported path that does not require this project to operate accounts or billing.
-
-## Try it in Chrome
-
-1. Open `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Select **Load unpacked** and choose this repository folder.
-4. Pin **ChatGPT Sidecar** and click its toolbar icon to open or close the panel.
-5. Try the local interface.
-
-After changing a file, return to `chrome://extensions` and click the extension's reload button. Refreshing the side panel is sometimes also necessary.
-
-## How the pieces fit
-
-- `manifest.json` declares a Manifest V3 extension and points Chrome to the side-panel page.
-- `sidepanel.html` contains semantic UI structure and a reusable message template.
-- `styles.css` controls the responsive light/dark appearance.
-- `sidepanel.js` handles local interactions, closes the panel through Chrome's Side Panel API, and safely inserts messages with `textContent`.
-- `service-worker.js` configures the toolbar icon to toggle the side panel.
-
-The next plumbing step is to validate the official ChatGPT sign-in boundary. Never put a long-lived API secret in extension code: users can inspect every shipped file. Page access will also require carefully scoped host permissions and a content script; add those only with the corresponding feature.
+BrowseFriend should eventually explain the current page, show exactly what context will be shared, and propose browser actions before performing them. Consequential actions—submissions, purchases, account changes, or messages—must always require explicit confirmation.

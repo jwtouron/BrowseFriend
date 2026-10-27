@@ -2,33 +2,27 @@
 
 ## Project Structure & Module Organization
 
-This dependency-free Chrome Manifest V3 extension maps `manifest.json` to `sidepanel.html`. Markup lives in `sidepanel.html`, presentation in `styles.css`, interactions in `sidepanel.js`, and toolbar behavior in `service-worker.js`. Keep assets in `assets/` and tests in `tests/`.
+BrowseFriend is a Chrome Manifest V3 side-panel extension plus a local Node.js authentication companion. `sidepanel.html`, `styles.css`, and `sidepanel.js` own the panel; `service-worker.js` owns toolbar and native-message routing. `native-host/` contains the trusted companion and installer, `tests/` contains Node tests, and `vendor/sign-in-with-chatgpt-devkit/` pins OpenAI's official SDK submodule.
 
-Keep this separation intact: HTML defines accessible structure, CSS owns appearance, and JavaScript owns behavior. Do not add inline scripts because extension Content Security Policy restricts them.
+Keep HTML accessible, CSS presentation-only, and browser behavior in JavaScript. Never add inline scripts. OAuth credentials belong exclusively in the native host; extension messages may contain only sanitized account state.
 
 ## Product Direction & Safety
 
-The extension should grow into a page-aware browser companion that first explains pages, then proposes and performs interactions. It is a personal, local-first utility. Do not add product accounts, subscriptions, billing, or separate Google OAuth. Authentication should use one OpenAI-hosted **Continue with ChatGPT** flow. Verify support for standalone Chrome extensions first; do not scrape ChatGPT, reuse website cookies, or call private endpoints.
+Build a personal, local-first page companion that explains pages before proposing or performing interactions. Do not add product accounts, billing, separate Google OAuth, ChatGPT scraping, shared cookies, or private endpoints. Treat page content as untrusted, request narrow permissions, show captured context, and require confirmation before submissions, purchases, account changes, or messages.
 
-Treat page content as untrusted input. Request the narrowest permissions, show captured context, and distinguish suggestions from actions. Require confirmation before submissions, purchases, account changes, or messages. Keep extraction, model communication, and action execution separate.
+Authentication must use OpenAI's hosted **Continue with ChatGPT** flow through the pinned local DevKit. Keep credentials encrypted with an OS-backed key, out of browser storage, URLs, logs, tests, and commits. Preserve the separation between page extraction, model communication, and action execution.
 
 ## Development and Verification
 
-There is no build step or package dependency. Load the repository directly from `chrome://extensions` using **Developer mode → Load unpacked**. After edits, reload the extension from that page and reopen or refresh the side panel.
+Requires Node.js 22.12+. Initialize and build the SDK with `git submodule update --init` and `npm run setup:devkit`; register the companion with `npm run install:host`. Load the repository from `chrome://extensions` using **Developer mode → Load unpacked**.
 
-Before submitting changes:
+Before submitting:
 
-- Validate `manifest.json` with `python3 -m json.tool manifest.json`.
-- Check the side panel at narrow and wide widths.
-- Exercise sending, multiline input (`Shift+Enter`), suggestions, clearing, closing, and both color schemes.
-- Inspect the side panel console for errors.
+- Run `npm test`, `npm run lint`, and `python3 -m json.tool manifest.json`.
+- Exercise missing-helper, sign-in, cancellation, plan-disabled, restored-session, and logout states.
+- Check narrow/wide layouts, both color schemes, keyboard focus, and the side-panel console.
+- Never make a live model request in authentication-only tests.
 
-If tooling is introduced, add predictable `npm` scripts such as `npm test` and `npm run lint`, and document them here and in `README.md`.
+## Coding Style & Changes
 
-## Coding Style & Naming Conventions
-
-Use two-space indentation in HTML, CSS, JSON, and JavaScript. Use `camelCase` for JavaScript identifiers, `UPPER_SNAKE_CASE` for true constants, and BEM-like CSS classes such as `.message__content` and `.message--user`. Prefer `const`, strict comparisons, small functions, semantic HTML, and native browser APIs. Use `textContent`, not `innerHTML`, for user-controlled content. Preserve keyboard access, focus states, labels, and reduced assumptions about panel width.
-
-## Testing and Changes
-
-No automated tests or Git history exist yet. Add regression coverage for nontrivial logic. Use imperative or Conventional Commit subjects, such as `feat: add page summary`. Pull requests should explain behavior, permissions, manual checks, and visual updates. Keep API integration out of UI-only changes; never commit credentials.
+Use two-space indentation, `camelCase` identifiers, `UPPER_SNAKE_CASE` constants, BEM-like CSS, strict comparisons, small functions, and `textContent` for user-controlled values. Use Conventional Commit or imperative subjects, such as `feat: add account connection`. Pull requests must explain permission changes, credential handling, manual checks, and visual changes. Preserve OpenAI DevKit licensing and notices.

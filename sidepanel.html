@@ -4,21 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
-    <title>ChatGPT Sidecar</title>
+    <title>BrowseFriend</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main class="app">
       <header class="topbar">
         <div class="brand">
-          <span class="brand__mark" aria-hidden="true">S</span>
+          <span class="brand__mark" aria-hidden="true">B</span>
           <div>
-            <h1>Sidecar</h1>
-            <p>Chat starter</p>
+            <h1>BrowseFriend</h1>
+            <p>Page companion</p>
           </div>
         </div>
         <div class="topbar__actions">
-          <button class="icon-button" id="clear-chat" type="button" title="Start a new chat">
+          <button class="icon-button" id="clear-chat" type="button" title="Start a new chat" hidden>
             <span aria-hidden="true">＋</span>
             <span class="sr-only">Start a new chat</span>
           </button>
@@ -42,36 +42,74 @@
 
       <div class="view-stack" id="view-stack">
         <div class="chat-view" id="chat-view">
-          <section class="conversation" id="conversation" aria-live="polite">
-            <div class="welcome" id="welcome">
-              <span class="welcome__spark" aria-hidden="true">✦</span>
-              <h2>What can I help with?</h2>
-              <p>This interface is local for now. Try a prompt to see how the UI behaves.</p>
+          <section class="auth-loading" id="auth-loading" aria-live="polite">
+            <span class="spinner" aria-hidden="true"></span>
+            <p>Checking your connection…</p>
+          </section>
 
-              <div class="suggestions" aria-label="Suggested prompts">
-                <button class="suggestion" type="button">Explain this page simply</button>
-                <button class="suggestion" type="button">Help me brainstorm</button>
-                <button class="suggestion" type="button">Summarize an idea</button>
+          <section class="auth-view" id="auth-view" aria-labelledby="auth-title" hidden>
+            <div class="auth-card">
+              <span class="auth-card__mark" aria-hidden="true">B</span>
+              <h2 id="auth-title">Connect BrowseFriend</h2>
+              <p id="auth-description">
+                Sign in to use your ChatGPT plan with this local browser companion.
+              </p>
+              <button class="chatgpt-button" id="sign-in" type="button">
+                <img
+                  src="vendor/sign-in-with-chatgpt-devkit/assets/brand/chatgpt-button-black-21.svg"
+                  width="21"
+                  height="21"
+                  alt=""
+                />
+                <span>Continue with ChatGPT</span>
+              </button>
+              <button class="secondary-button" id="cancel-sign-in" type="button" hidden>
+                Cancel
+              </button>
+              <p class="status-message" id="auth-error" role="alert" hidden></p>
+              <div class="companion-help" id="companion-help" hidden>
+                <p>The local companion is not installed or could not start.</p>
+                <code>npm run install:host</code>
+                <button class="secondary-button" id="retry-auth" type="button">Retry</button>
               </div>
+              <p class="auth-card__privacy">
+                Credentials stay in your OS credential store and are never exposed to web pages.
+              </p>
             </div>
           </section>
 
-          <form class="composer" id="composer">
-            <label class="sr-only" for="message-input">Message Sidecar</label>
-            <textarea
-              id="message-input"
-              name="message"
-              rows="1"
-              maxlength="4000"
-              placeholder="Message Sidecar"
-              required
-            ></textarea>
-            <button class="send-button" type="submit" aria-label="Send message">
-              <span aria-hidden="true">↑</span>
-            </button>
-          </form>
+          <div class="chat-content" id="chat-content" hidden>
+            <section class="conversation" id="conversation" aria-live="polite">
+              <div class="welcome" id="welcome">
+                <span class="welcome__spark" aria-hidden="true">✦</span>
+                <h2>What can I help with?</h2>
+                <p>Authentication is connected. Chat remains a local demo for now.</p>
 
-          <p class="disclaimer">Demo UI only — no messages leave your browser.</p>
+                <div class="suggestions" aria-label="Suggested prompts">
+                  <button class="suggestion" type="button">Explain this page simply</button>
+                  <button class="suggestion" type="button">Help me brainstorm</button>
+                  <button class="suggestion" type="button">Summarize an idea</button>
+                </div>
+              </div>
+            </section>
+
+            <form class="composer" id="composer">
+              <label class="sr-only" for="message-input">Message BrowseFriend</label>
+              <textarea
+                id="message-input"
+                name="message"
+                rows="1"
+                maxlength="4000"
+                placeholder="Message BrowseFriend"
+                required
+              ></textarea>
+              <button class="send-button" type="submit" aria-label="Send message">
+                <span aria-hidden="true">↑</span>
+              </button>
+            </form>
+
+            <p class="disclaimer">Demo chat only — messages do not leave your browser yet.</p>
+          </div>
         </div>
 
         <section
@@ -88,11 +126,62 @@
             </button>
             <h2 id="settings-title">Settings</h2>
           </div>
-          <div class="settings-placeholder">
-            <span class="settings-placeholder__icon" aria-hidden="true">⚙</span>
-            <h3>Settings are coming soon</h3>
-            <p>Extension preferences and page interaction controls will live here.</p>
+          <div class="settings-content">
+            <section class="settings-section" aria-labelledby="account-title">
+              <h3 id="account-title">Account</h3>
+              <div class="account-card">
+                <div class="account-card__identity">
+                  <span class="account-card__avatar" aria-hidden="true">B</span>
+                  <div>
+                    <strong id="account-name">Not connected</strong>
+                    <p id="account-email">Connect a ChatGPT account to continue.</p>
+                  </div>
+                </div>
+                <p class="account-card__status" id="account-status">Signed out</p>
+                <div class="account-card__actions">
+                  <button class="chatgpt-button chatgpt-button--compact" id="settings-sign-in" type="button">
+                    <img
+                      src="vendor/sign-in-with-chatgpt-devkit/assets/brand/chatgpt-button-black-21.svg"
+                      width="21"
+                      height="21"
+                      alt=""
+                    />
+                    <span>Continue with ChatGPT</span>
+                  </button>
+                  <a
+                    class="secondary-button secondary-button--link"
+                    id="manage-usage"
+                    href="https://chatgpt.com/settings/usage"
+                    target="_blank"
+                    rel="noreferrer"
+                    hidden
+                  >Manage usage</a>
+                  <button class="danger-button" id="sign-out" type="button" hidden>Log out</button>
+                </div>
+                <p class="status-message" id="settings-auth-error" role="alert" hidden></p>
+              </div>
+            </section>
+
+            <section class="settings-section settings-section--muted">
+              <h3>More settings</h3>
+              <p>Page context and interaction controls will live here.</p>
+            </section>
           </div>
+        </section>
+      </div>
+
+      <div class="modal-backdrop" id="plan-welcome" hidden>
+        <section class="plan-dialog" role="dialog" aria-modal="true" aria-labelledby="plan-title">
+          <span class="plan-dialog__mark" aria-hidden="true">✓</span>
+          <h2 id="plan-title">ChatGPT plan connected</h2>
+          <p>
+            BrowseFriend can use eligible usage from your ChatGPT plan. Live requests are not
+            enabled in this build yet.
+          </p>
+          <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noreferrer">
+            Manage usage
+          </a>
+          <button class="primary-button" id="dismiss-plan-welcome" type="button">Got it</button>
         </section>
       </div>
     </main>

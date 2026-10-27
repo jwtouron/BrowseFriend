@@ -1,33 +1,15 @@
 import { createChatGPT, ChatGPTError } from "../vendor/sign-in-with-chatgpt-devkit/packages/local/dist/index.js";
 import { APP_ID, APP_NAME, appDataDirectory } from "./constants.mjs";
+import { createAuthHandler } from "./auth-handler.mjs";
 import { createCredentialEncryption } from "./credential-encryption.mjs";
 import { createMessageDecoder, encodeMessage } from "./protocol.mjs";
-
-const allowedMethods = new Set(["auth.status", "auth.signIn", "auth.signOut", "auth.cancel"]);
-
-function publicSession(session) {
-  let state = "signed_out";
-  if (session.status === "connecting") state = "signing_in";
-  if (session.status === "connected") state = session.sharing ? "signed_in" : "plan_disabled";
-
-  return {
-    state,
-    profile: session.identity ? {
-      ...(session.identity.name ? { name: session.identity.name } : {}),
-      ...(session.identity.email ? { email: session.identity.email } : {}),
-    } : null,
-    planUsageEnabled: session.sharing,
-    ...(session.error ? { error: session.error } : {}),
-  };
-}
+import { toPublicError, toPublicSession } from "./session.mjs";
 
 function publicError(error) {
-  if (error instanceof ChatGPTError) return error.toJSON();
-  return {
-    code: "native_host_error",
-    message: error instanceof Error ? error.message : "The BrowseFriend companion failed.",
+  if (error instanceof ChatGPTError) return toPublicError(error.toJSON());
+  return toPublicError(null, {
     retryable: true,
-  };
+  });
 }
 
 function send(message) {
@@ -46,50 +28,17 @@ async function main() {
   });
 
   chatgpt.subscribe((session) => {
-    send({ event: "auth.changed", payload: publicSession(session) });
+    send({ event: "auth.changed", payload: toPublicSession(session) });
   });
 
   let queue = Promise.resolve();
-
-  const handle = async (request) => {
-    if (!request || typeof request !== "object" || typeof request.id !== "string" ||
-        typeof request.method !== "string" || !allowedMethods.has(request.method)) {
-      send({
-        id: typeof request?.id === "string" ? request.id : null,
-        ok: false,
-        error: { code: "invalid_request", message: "Unsupported native request.", retryable: false },
-      });
-      return;
-    }
-
-    try {
-      let session;
-      if (request.method === "auth.status") session = await chatgpt.getSession();
-      if (request.method === "auth.signIn") {
-        const current = await chatgpt.getSession();
-        session = await chatgpt.signIn({ reconsent: current.status === "connected" && !current.sharing });
-      }
-      if (request.method === "auth.cancel") {
-        chatgpt.cancelSignIn();
-        session = await chatgpt.getSession();
-      }
-      if (request.method === "auth.signOut") {
-        try {
-          await chatgpt.disconnect();
-          session = await chatgpt.getSession();
-        } catch (error) {
-          session = await chatgpt.getSession();
-          if (!(error instanceof ChatGPTError) || error.code !== "revocation_failed") throw error;
-          send({ id: request.id, ok: true, result: publicSession(session), warning: error.toJSON() });
-          return;
-        }
-      }
-
-      send({ id: request.id, ok: true, result: publicSession(session) });
-    } catch (error) {
-      send({ id: request.id, ok: false, error: publicError(error) });
-    }
-  };
+  const handle = createAuthHandler({
+    chatgpt,
+    send,
+    serializeError: publicError,
+    isRevocationFailure: (error) =>
+      error instanceof ChatGPTError && error.code === "revocation_failed",
+  });
 
   const decode = createMessageDecoder(
     (request) => {

@@ -151,5 +151,8 @@ export async function createCredentialEncryption(platform = process.platform) {
 }
 
 export function createTestCredentialEncryption(key = randomBytes(KEY_BYTES)) {
+  if (!Buffer.isBuffer(key) || key.length !== KEY_BYTES) {
+    throw new Error("Test credential keys must contain exactly 32 bytes.");
+  }
   return createAesProvider(async () => key);
 }

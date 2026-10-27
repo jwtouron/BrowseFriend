@@ -41,3 +41,51 @@ test("native protocol rejects malformed JSON without emitting a message", () => 
   assert.equal(messages.length, 0);
   assert.equal(errors[0]?.message, "Native message is not valid JSON.");
 });
+
+test("native protocol rejects oversized outgoing and incoming messages", () => {
+  assert.throws(
+    () => encodeMessage({ body: "x".repeat(1024 * 1024) }),
+    /exceeds the 1 MiB/,
+  );
+
+  const messages = [];
+  const errors = [];
+  const decode = createMessageDecoder(
+    (message) => messages.push(message),
+    (error) => errors.push(error),
+  );
+  const header = Buffer.alloc(4);
+  header.writeUInt32LE(1024 * 1024 + 1, 0);
+  decode(header);
+
+  assert.deepEqual(messages, []);
+  assert.equal(errors[0]?.message, "Native message exceeds the 1 MiB BrowseFriend limit.");
+});
+
+test("decoder does not misreport consumer exceptions as malformed JSON", () => {
+  const expected = new Error("Consumer failed.");
+  const decode = createMessageDecoder(
+    () => { throw expected; },
+    () => assert.fail("Valid JSON must not produce a decoding error."),
+  );
+
+  assert.throws(() => decode(encodeMessage({ ok: true })), expected);
+});
+
+test("decoder recovers when a malformed frame is followed by a valid frame", () => {
+  const messages = [];
+  const errors = [];
+  const malformedPayload = Buffer.from("not-json");
+  const malformed = Buffer.alloc(malformedPayload.length + 4);
+  malformed.writeUInt32LE(malformedPayload.length, 0);
+  malformedPayload.copy(malformed, 4);
+  const decode = createMessageDecoder(
+    (message) => messages.push(message),
+    (error) => errors.push(error),
+  );
+
+  decode(Buffer.concat([malformed, encodeMessage({ recovered: true })]));
+
+  assert.equal(errors.length, 1);
+  assert.deepEqual(messages, [{ recovered: true }]);
+});

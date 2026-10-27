@@ -18,3 +18,23 @@ test("credential encryption rejects a modified payload", async () => {
 
   await assert.rejects(() => encryption.decrypt(ciphertext));
 });
+
+test("credential encryption uses a fresh nonce for every payload", async () => {
+  const encryption = createTestCredentialEncryption(Buffer.alloc(32, 4));
+  const first = await encryption.encrypt("same plaintext");
+  const second = await encryption.encrypt("same plaintext");
+
+  assert.notDeepEqual(first, second);
+  assert.equal(await encryption.decrypt(first), "same plaintext");
+  assert.equal(await encryption.decrypt(second), "same plaintext");
+});
+
+test("credential encryption rejects unknown formats and incorrect keys", async () => {
+  const encryption = createTestCredentialEncryption(Buffer.alloc(32, 1));
+  const anotherEncryption = createTestCredentialEncryption(Buffer.alloc(32, 2));
+  const ciphertext = await encryption.encrypt("sensitive");
+
+  await assert.rejects(() => encryption.decrypt(Buffer.alloc(10)), /payload is invalid/);
+  await assert.rejects(() => anotherEncryption.decrypt(ciphertext));
+  assert.throws(() => createTestCredentialEncryption(Buffer.alloc(31)), /exactly 32 bytes/);
+});

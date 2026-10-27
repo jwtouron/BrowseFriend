@@ -1,4 +1,7 @@
+import { createAuthView } from "./sidepanel-state.mjs";
+
 // Keep DOM lookups together so the rest of the file reads like a small controller.
+const topbar = document.querySelector(".topbar");
 const conversation = document.querySelector("#conversation");
 const welcome = document.querySelector("#welcome");
 const viewStack = document.querySelector("#view-stack");
@@ -36,6 +39,7 @@ const suggestionButtons = document.querySelectorAll(".suggestion");
 
 const PLAN_WELCOME_KEY = "browsefriend.planWelcomeSeen";
 let currentAuth = { state: "loading", profile: null, planUsageEnabled: false };
+let planWelcomeOpen = false;
 
 function addMessage(text, role) {
   const fragment = messageTemplate.content.cloneNode(true);
@@ -86,56 +90,72 @@ function maybeShowPlanWelcome(previousState, nextState) {
     return;
   }
 
+  planWelcomeOpen = true;
+  topbar.inert = true;
+  viewStack.inert = true;
   planWelcome.hidden = false;
   dismissPlanWelcomeButton.focus({ preventScroll: true });
+}
+
+function dismissPlanWelcome({ remember = true, restoreFocus = true } = {}) {
+  if (!planWelcomeOpen) return;
+
+  if (remember) localStorage.setItem(PLAN_WELCOME_KEY, "true");
+  planWelcomeOpen = false;
+  planWelcome.hidden = true;
+  topbar.inert = false;
+  viewStack.inert = false;
+
+  if (!restoreFocus) return;
+
+  if (viewStack.classList.contains("view-stack--settings")) {
+    (signOutButton.hidden ? closeSettingsButton : signOutButton).focus({ preventScroll: true });
+  } else {
+    (currentAuth.state === "signed_in" ? messageInput : signInButton)
+      .focus({ preventScroll: true });
+  }
 }
 
 function renderAuth(nextAuth, explicitError = null) {
   const previousState = currentAuth.state;
   currentAuth = nextAuth;
-  const connected = ["signed_in", "plan_disabled"].includes(nextAuth.state);
-  const ready = nextAuth.state !== "loading";
-  const signedIn = nextAuth.state === "signed_in";
-  const signingIn = nextAuth.state === "signing_in";
-  const planDisabled = nextAuth.state === "plan_disabled";
-  const error = explicitError || nextAuth.error || null;
-  const companionUnavailable = ["companion_unavailable", "companion_timeout"].includes(error?.code);
+  const closedPlanWelcome = planWelcomeOpen && nextAuth.state !== "signed_in";
+  if (closedPlanWelcome) {
+    dismissPlanWelcome({ remember: false, restoreFocus: false });
+  }
+  const view = createAuthView(nextAuth, explicitError);
 
-  authLoading.hidden = ready;
-  authView.hidden = !ready || signedIn;
-  chatContent.hidden = !signedIn;
-  clearButton.hidden = !signedIn;
+  authLoading.hidden = view.ready;
+  authView.hidden = !view.ready || view.signedIn;
+  chatContent.hidden = !view.signedIn;
+  clearButton.hidden = !view.signedIn;
 
-  authTitle.textContent = planDisabled ? "Enable your ChatGPT plan" : "Connect BrowseFriend";
-  authDescription.textContent = planDisabled
-    ? "Your account is connected, but BrowseFriend needs permission to use your ChatGPT plan."
-    : "Sign in to use your ChatGPT plan with this local browser companion.";
-  signInButtonLabel.textContent = planDisabled ? "Enable ChatGPT plan" : "Continue with ChatGPT";
-  signInButton.disabled = signingIn;
-  settingsSignInButton.disabled = signingIn;
-  cancelSignInButton.hidden = !signingIn;
-  companionHelp.hidden = !companionUnavailable;
-  setStatusMessage(authError, companionUnavailable ? null : error);
+  authTitle.textContent = view.authTitle;
+  authDescription.textContent = view.authDescription;
+  signInButtonLabel.textContent = view.signInLabel;
+  signInButton.disabled = view.signingIn;
+  settingsSignInButton.disabled = view.signingIn;
+  cancelSignInButton.hidden = !view.signingIn;
+  companionHelp.hidden = !view.companionUnavailable;
+  setStatusMessage(authError, view.companionUnavailable ? null : view.error);
 
-  const profileName = nextAuth.profile?.name || (connected ? "ChatGPT account" : "Not connected");
-  const profileEmail = nextAuth.profile?.email ||
-    (connected ? "Connected through OpenAI" : "Connect a ChatGPT account to continue.");
-  accountName.textContent = profileName;
-  accountEmail.textContent = profileEmail;
-  accountStatus.textContent = signedIn
-    ? "ChatGPT plan usage enabled"
-    : planDisabled
-      ? "Signed in — plan usage not enabled"
-      : signingIn
-        ? "Waiting for sign-in"
-        : "Signed out";
-  settingsSignInButton.hidden = signedIn;
-  settingsSignInLabel.textContent = planDisabled ? "Enable ChatGPT plan" : "Continue with ChatGPT";
-  manageUsageLink.hidden = !connected;
-  signOutButton.hidden = !connected;
-  setStatusMessage(settingsAuthError, error);
+  accountName.textContent = view.profileName;
+  accountEmail.textContent = view.profileEmail;
+  accountStatus.textContent = view.accountStatus;
+  settingsSignInButton.hidden = view.signedIn;
+  settingsSignInLabel.textContent = view.signInLabel;
+  manageUsageLink.hidden = !view.connected;
+  signOutButton.hidden = !view.connected;
+  setStatusMessage(settingsAuthError, view.error);
 
   maybeShowPlanWelcome(previousState, nextAuth.state);
+
+  if (closedPlanWelcome) {
+    const focusTarget = viewStack.classList.contains("view-stack--settings")
+      ? (view.ready && !view.signingIn ? settingsSignInButton : closeSettingsButton)
+      : (view.signingIn ? cancelSignInButton : view.ready ? signInButton : openSettingsButton);
+    focusTarget.focus({ preventScroll: true });
+  }
 }
 
 async function requestAuth(method) {
@@ -253,10 +273,10 @@ cancelSignInButton.addEventListener("click", cancelSignIn);
 retryAuthButton.addEventListener("click", refreshAuth);
 signOutButton.addEventListener("click", signOut);
 
-dismissPlanWelcomeButton.addEventListener("click", () => {
-  localStorage.setItem(PLAN_WELCOME_KEY, "true");
-  planWelcome.hidden = true;
-  messageInput.focus({ preventScroll: true });
+dismissPlanWelcomeButton.addEventListener("click", () => dismissPlanWelcome());
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && planWelcomeOpen) dismissPlanWelcome();
 });
 
 chrome.runtime.onMessage.addListener((message) => {

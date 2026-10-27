@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { EXTENSION_ID, EXTENSION_ORIGIN, HOST_NAME } from "../native-host/constants.mjs";
+import {
+  EXTENSION_ID,
+  EXTENSION_ORIGIN,
+  HOST_NAME,
+  appDataDirectory,
+  nativeHostManifestDirectory,
+} from "../native-host/constants.mjs";
 
 test("manifest exposes only the required authentication permission", async () => {
   const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url), "utf8"));
@@ -15,8 +21,11 @@ test("manifest exposes only the required authentication permission", async () =>
 
   assert.equal(manifest.name, "BrowseFriend");
   assert.deepEqual(manifest.permissions.sort(), ["nativeMessaging", "sidePanel"]);
+  assert.equal(manifest.host_permissions, undefined);
   assert.equal(derivedId, EXTENSION_ID);
   assert.equal(EXTENSION_ORIGIN, `chrome-extension://${EXTENSION_ID}/`);
+  await access(new URL(`../${manifest.background.service_worker}`, import.meta.url));
+  await access(new URL(`../${manifest.side_panel.default_path}`, import.meta.url));
 });
 
 test("native host installer supports a non-mutating dry run", () => {
@@ -28,4 +37,24 @@ test("native host installer supports a non-mutating dry run", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, new RegExp(HOST_NAME.replaceAll(".", "\\.")));
   assert.match(result.stdout, new RegExp(EXTENSION_ID));
+});
+
+test("native host paths follow Chrome's user-specific platform conventions", () => {
+  assert.equal(
+    appDataDirectory("darwin", {}, "/Users/tester"),
+    "/Users/tester/Library/Application Support/BrowseFriend",
+  );
+  assert.equal(
+    nativeHostManifestDirectory("darwin", {}, "/Users/tester"),
+    "/Users/tester/Library/Application Support/Google/Chrome/NativeMessagingHosts",
+  );
+  assert.equal(
+    appDataDirectory("linux", {}, "/home/tester"),
+    "/home/tester/.config/browsefriend",
+  );
+  assert.equal(
+    nativeHostManifestDirectory("linux", { XDG_CONFIG_HOME: "/config" }, "/home/tester"),
+    "/config/google-chrome/NativeMessagingHosts",
+  );
+  assert.throws(() => appDataDirectory("win32", {}, "C:\\Users\\tester"), /macOS and Linux/);
 });

@@ -44,11 +44,15 @@ export function createMessageDecoder(onMessage, onError) {
       const payload = buffered.subarray(4, length + 4);
       buffered = buffered.subarray(length + 4);
 
+      let message;
       try {
-        onMessage(JSON.parse(payload.toString("utf8")));
+        message = JSON.parse(payload.toString("utf8"));
       } catch {
         onError(new Error("Native message is not valid JSON."));
+        continue;
       }
+
+      onMessage(message);
     }
   };
 }

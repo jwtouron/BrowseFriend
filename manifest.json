@@ -3,7 +3,7 @@
   "name": "ChatGPT Sidecar",
   "version": "0.1.0",
   "description": "A starter chat interface that lives in Chrome's side panel.",
-  "minimum_chrome_version": "114",
+  "minimum_chrome_version": "141",
   "permissions": ["sidePanel"],
   "side_panel": {
     "default_path": "sidepanel.html"

@@ -35,6 +35,6 @@ After changing a file, return to `chrome://extensions` and click the extension's
 - `manifest.json` declares a Manifest V3 extension and points Chrome to the side-panel page.
 - `sidepanel.html` contains semantic UI structure and a reusable message template.
 - `styles.css` controls the responsive light/dark appearance.
-- `sidepanel.js` handles local interactions and safely inserts messages with `textContent`.
+- `sidepanel.js` handles local interactions, closes the panel through Chrome's Side Panel API, and safely inserts messages with `textContent`.
 
 The next plumbing step is to validate the official ChatGPT sign-in boundary. Never put a long-lived API secret in extension code: users can inspect every shipped file. Page access will also require carefully scoped host permissions and a content script; add those only with the corresponding feature.

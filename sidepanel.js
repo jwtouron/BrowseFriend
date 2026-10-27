@@ -4,6 +4,7 @@ const welcome = document.querySelector("#welcome");
 const composer = document.querySelector("#composer");
 const messageInput = document.querySelector("#message-input");
 const clearButton = document.querySelector("#clear-chat");
+const closeButton = document.querySelector("#close-panel");
 const messageTemplate = document.querySelector("#message-template");
 const suggestionButtons = document.querySelectorAll(".suggestion");
 
@@ -66,4 +67,18 @@ clearButton.addEventListener("click", () => {
   messageInput.value = "";
   resizeInput();
   messageInput.focus();
+});
+
+closeButton.addEventListener("click", async () => {
+  try {
+    const currentWindow = await chrome.windows.getCurrent();
+
+    if (typeof currentWindow.id !== "number") {
+      throw new Error("Chrome did not return a window ID.");
+    }
+
+    await chrome.sidePanel.close({ windowId: currentWindow.id });
+  } catch (error) {
+    console.error("Unable to close the side panel.", error);
+  }
 });

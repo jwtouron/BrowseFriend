@@ -84,6 +84,12 @@ button {
   font-size: 0.72rem;
 }
 
+.topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .icon-button,
 .send-button {
   display: grid;

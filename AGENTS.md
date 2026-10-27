@@ -20,7 +20,7 @@ Before submitting changes:
 
 - Validate `manifest.json` with `python3 -m json.tool manifest.json`.
 - Check the side panel at narrow and wide widths.
-- Exercise sending, multiline input (`Shift+Enter`), suggestions, clearing, and both color schemes.
+- Exercise sending, multiline input (`Shift+Enter`), suggestions, clearing, closing, and both color schemes.
 - Inspect the side panel console for errors.
 
 If tooling is introduced, add predictable `npm` scripts such as `npm test` and `npm run lint`, and document them here and in `README.md`.

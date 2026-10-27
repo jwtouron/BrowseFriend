@@ -180,6 +180,22 @@
               </div>
             </section>
 
+            <section class="settings-section" id="appearance-settings" aria-labelledby="appearance-title">
+              <h3 id="appearance-title">Appearance</h3>
+              <div class="settings-select">
+                <label for="theme-select">Theme</label>
+                <select id="theme-select" disabled>
+                  <option value="system">System</option>
+                  <option value="light">Light</option>
+                  <option value="dark">Dark</option>
+                </select>
+              </div>
+              <p class="settings-note">
+                System follows the color preference exposed by your browser or operating system.
+              </p>
+              <p class="status-message" id="theme-settings-error" role="alert" hidden></p>
+            </section>
+
             <section class="settings-section settings-section--muted">
               <h3>Model</h3>
               <p id="model-status">The first available model will be selected automatically.</p>

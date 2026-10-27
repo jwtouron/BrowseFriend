@@ -3,7 +3,7 @@ import { createAuthView } from "../auth/view-model.js";
 import { createChatClient } from "../chat/client.js";
 import { renderMarkdown } from "../chat/markdown.js";
 import { composerShortcut, createPromptHistory } from "../chat/prompt-history.js";
-import { createDebugModePreference, shouldShowPageContext } from "../settings/debug-mode.js";
+import { applyTheme, createPreferences, shouldShowPageContext } from "../settings/preferences.js";
 import { chatFocusTarget, shouldRestoreComposerFocus } from "./focus.js";
 
 // Keep DOM lookups together so the rest of the file reads like a small controller.
@@ -45,6 +45,8 @@ const settingsAuthError = document.querySelector("#settings-auth-error");
 const planWelcome = document.querySelector("#plan-welcome");
 const dismissPlanWelcomeButton = document.querySelector("#dismiss-plan-welcome");
 const modelStatus = document.querySelector("#model-status");
+const themeSelect = document.querySelector("#theme-select");
+const themeSettingsError = document.querySelector("#theme-settings-error");
 const debugModeSwitch = document.querySelector("#debug-mode");
 const debugSettingsError = document.querySelector("#debug-settings-error");
 const contextViewer = document.querySelector("#context-viewer");
@@ -58,13 +60,14 @@ const PLAN_WELCOME_KEY = "browsefriend.planWelcomeSeen";
 const authClient = createAuthClient(chrome.runtime);
 const chatClient = createChatClient(chrome.runtime);
 const promptHistory = createPromptHistory();
-const debugModePreference = createDebugModePreference({
+const preferences = createPreferences({
   storageArea: chrome.storage.local,
   storageChanged: chrome.storage.onChanged,
 });
 let currentAuth = { state: "loading", profile: null, planUsageEnabled: false };
 let currentChat = { messages: [], model: null, generating: false, error: null };
 let debugMode = false;
+let theme = "system";
 let planWelcomeOpen = false;
 let contextViewerOpen = false;
 const assistantSources = new WeakMap();
@@ -262,18 +265,32 @@ function applyDebugMode(enabled) {
   if (changed) renderChat(currentChat);
 }
 
-async function loadDebugMode() {
+function applyThemePreference(nextTheme) {
+  theme = applyTheme(document.documentElement, nextTheme);
+  themeSelect.value = theme;
+}
+
+async function loadPreferences() {
   debugModeSwitch.disabled = true;
+  themeSelect.disabled = true;
   setStatusMessage(debugSettingsError, null);
+  setStatusMessage(themeSettingsError, null);
   try {
-    applyDebugMode(await debugModePreference.load());
+    const stored = await preferences.load();
+    applyDebugMode(stored.debugMode);
+    applyThemePreference(stored.theme);
   } catch {
     applyDebugMode(false);
+    applyThemePreference("system");
     setStatusMessage(debugSettingsError, {
-      message: "BrowseFriend could not load the Debug mode preference.",
+      message: "BrowseFriend could not load saved settings.",
+    });
+    setStatusMessage(themeSettingsError, {
+      message: "BrowseFriend could not load saved settings.",
     });
   } finally {
     debugModeSwitch.disabled = false;
+    themeSelect.disabled = false;
   }
 }
 
@@ -282,7 +299,7 @@ async function updateDebugMode() {
   debugModeSwitch.disabled = true;
   setStatusMessage(debugSettingsError, null);
   try {
-    applyDebugMode(await debugModePreference.save(requested));
+    applyDebugMode(await preferences.saveDebugMode(requested));
   } catch {
     debugModeSwitch.checked = debugMode;
     setStatusMessage(debugSettingsError, {
@@ -290,6 +307,22 @@ async function updateDebugMode() {
     });
   } finally {
     debugModeSwitch.disabled = false;
+  }
+}
+
+async function updateTheme() {
+  const requested = themeSelect.value;
+  themeSelect.disabled = true;
+  setStatusMessage(themeSettingsError, null);
+  try {
+    applyThemePreference(await preferences.saveTheme(requested));
+  } catch {
+    themeSelect.value = theme;
+    setStatusMessage(themeSettingsError, {
+      message: "BrowseFriend could not save the Theme preference.",
+    });
+  } finally {
+    themeSelect.disabled = false;
   }
 }
 
@@ -508,6 +541,7 @@ settingsSignInButton.addEventListener("click", signIn);
 cancelSignInButton.addEventListener("click", cancelSignIn);
 retryAuthButton.addEventListener("click", refreshAuth);
 signOutButton.addEventListener("click", signOut);
+themeSelect.addEventListener("change", () => void updateTheme());
 debugModeSwitch.addEventListener("change", () => void updateDebugMode());
 
 dismissPlanWelcomeButton.addEventListener("click", () => dismissPlanWelcome());
@@ -533,7 +567,10 @@ chatClient.subscribe((event) => {
   if (event.event === "delta") appendDelta(event.messageId, event.delta);
 });
 
-debugModePreference.subscribe((enabled) => applyDebugMode(enabled));
+preferences.subscribe((update) => {
+  if (Object.hasOwn(update, "debugMode")) applyDebugMode(update.debugMode);
+  if (Object.hasOwn(update, "theme")) applyThemePreference(update.theme);
+});
 
 closeButton.addEventListener("click", async () => {
   try {
@@ -550,7 +587,7 @@ closeButton.addEventListener("click", async () => {
 });
 
 void refreshAuth();
-void loadDebugMode();
+void loadPreferences();
 void chatClient.getState()
   .then(renderChat)
   .catch((error) => {

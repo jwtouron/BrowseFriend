@@ -95,3 +95,21 @@ test("Debug mode is an accessible switch in the final Settings section", async (
   assert.match(html, /id="debug-mode"[^>]*type="checkbox"[^>]*role="switch"/s);
   assert.match(html, /<label for="debug-mode">Debug mode<\/label>/);
 });
+
+test("Appearance offers System, Light, and Dark before the final Debug section", async () => {
+  const [html, styles] = await Promise.all([
+    readFile(htmlUrl, "utf8"),
+    readFile(stylesUrl, "utf8"),
+  ]);
+  const appearance = html.indexOf('id="appearance-settings"');
+  const model = html.indexOf('id="model-status"');
+  const debug = html.indexOf('id="debug-settings"');
+
+  assert.ok(appearance >= 0 && appearance < model && model < debug);
+  assert.match(html, /<label for="theme-select">Theme<\/label>/);
+  assert.match(html, /<option value="system">System<\/option>/);
+  assert.match(html, /<option value="light">Light<\/option>/);
+  assert.match(html, /<option value="dark">Dark<\/option>/);
+  assert.match(styles, /:root\[data-theme="dark"\][^{]*\{[^}]*color-scheme:\s*dark;/s);
+  assert.match(styles, /:root:not\(\[data-theme="light"\]\)/);
+});

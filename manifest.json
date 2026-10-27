@@ -1,16 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "ChatGPT Sidecar",
-  "version": "0.1.0",
-  "description": "A starter chat interface that lives in Chrome's side panel.",
+  "name": "BrowseFriend",
+  "version": "0.2.0",
+  "description": "A local-first web companion that lives in Chrome's side panel.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsXh0Ff/Q3P5yUmUf3Vd9zFJfn+E3m3ABBA6V8pTFypaqNh9hBzTZMUN4M+1DlA16SyWEShGcn7Fu+UbkLeECxvOiDcOu4KCsphSusgGQxV79bTqsBbjTRtEMyL0NUax/x03HYno639bnkzo/pJZBdLhK+bohqqUk6TPIXIor2om/2wmJgytiqXohNwJWLhIEcxso2Cd0f1vlickZoHFDzLrCdT2BxZMB5hw8YkzWpPBXv+P5XyZoX0fI3YNhvfS+ceciyI3z1HACWn1QSflwdW2gPvqaf6hQ/CeVXQUkk87R97sR7+m0PF2cu2YTZCvYFNHG/lEYbaA4B9PREpKNcQIDAQAB",
   "minimum_chrome_version": "141",
   "action": {
-    "default_title": "Toggle Sidecar"
+    "default_title": "Toggle BrowseFriend"
   },
   "background": {
     "service_worker": "service-worker.js"
   },
-  "permissions": ["sidePanel"],
+  "permissions": ["nativeMessaging", "sidePanel"],
   "side_panel": {
     "default_path": "sidepanel.html"
   }

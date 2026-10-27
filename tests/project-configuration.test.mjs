@@ -22,6 +22,7 @@ test("manifest exposes only the required authentication permission", async () =>
   assert.equal(manifest.name, "BrowseFriend");
   assert.deepEqual(manifest.permissions.sort(), ["nativeMessaging", "sidePanel"]);
   assert.equal(manifest.host_permissions, undefined);
+  assert.equal(manifest.background.type, "module");
   assert.equal(derivedId, EXTENSION_ID);
   assert.equal(EXTENSION_ORIGIN, `chrome-extension://${EXTENSION_ID}/`);
   await access(new URL(`../${manifest.background.service_worker}`, import.meta.url));
@@ -37,6 +38,16 @@ test("native host installer supports a non-mutating dry run", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, new RegExp(HOST_NAME.replaceAll(".", "\\.")));
   assert.match(result.stdout, new RegExp(EXTENSION_ID));
+});
+
+test("stable native host entrypoint imports resolve", async () => {
+  const hostUrl = new URL("../native-host/host.mjs", import.meta.url);
+  const source = await readFile(hostUrl, "utf8");
+  const imports = [...source.matchAll(/^import .* from "([^"]+)";/gm)]
+    .map((match) => match[1]);
+
+  assert.ok(imports.length > 0);
+  await Promise.all(imports.map((path) => access(new URL(path, hostUrl))));
 });
 
 test("native host paths follow Chrome's user-specific platform conventions", () => {

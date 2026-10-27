@@ -55,7 +55,7 @@ python3 -m json.tool manifest.json
 advisory-affected `undici` package with the compatible patched version recorded
 in `scripts/setup-devkit.mjs`.
 
-The extension remains plain HTML, CSS, and JavaScript with no browser-side build. Native-host code lives in `native-host/`; tests live in `tests/`; OpenAI's pinned DevKit lives in `vendor/sign-in-with-chatgpt-devkit/`.
+The extension remains plain HTML, CSS, and JavaScript with no browser-side build. Chrome code lives in `extension/`, with authentication isolated in `extension/auth/`. The companion mirrors that boundary in `native-host/auth/`, while tests follow both subsystems under `tests/`. OpenAI's pinned DevKit lives in `vendor/sign-in-with-chatgpt-devkit/`.
 
 ## Product direction
 

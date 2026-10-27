@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAuthHandler } from "../native-host/auth-handler.mjs";
+import { createAuthHandler } from "../../native-host/auth/handler.mjs";
 
 const disconnected = { status: "disconnected", sharing: false };
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createTestCredentialEncryption } from "../native-host/credential-encryption.mjs";
+import { createTestCredentialEncryption } from "../../native-host/auth/credential-encryption.mjs";
 
 test("credential encryption round-trips without storing plaintext", async () => {
   const encryption = createTestCredentialEncryption(Buffer.alloc(32, 7));

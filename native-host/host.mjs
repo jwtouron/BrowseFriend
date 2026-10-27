@@ -1,9 +1,9 @@
 import { createChatGPT, ChatGPTError } from "../vendor/sign-in-with-chatgpt-devkit/packages/local/dist/index.js";
 import { APP_ID, APP_NAME, appDataDirectory } from "./constants.mjs";
-import { createAuthHandler } from "./auth-handler.mjs";
-import { createCredentialEncryption } from "./credential-encryption.mjs";
-import { createMessageDecoder, encodeMessage } from "./protocol.mjs";
-import { toPublicError, toPublicSession } from "./session.mjs";
+import { createAuthHandler } from "./auth/handler.mjs";
+import { createCredentialEncryption } from "./auth/credential-encryption.mjs";
+import { toPublicError, toPublicSession } from "./auth/session.mjs";
+import { createMessageDecoder, encodeMessage } from "./messaging/protocol.mjs";
 
 function publicError(error) {
   if (error instanceof ChatGPTError) return toPublicError(error.toJSON());

@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
-import vm from "node:vm";
+import { installAuthBridge } from "../../extension/auth/background-bridge.js";
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
@@ -18,7 +17,7 @@ function createEvent() {
   };
 }
 
-async function createHarness({ postMessageError = null } = {}) {
+function createHarness({ postMessageError = null } = {}) {
   const posted = [];
   const broadcasts = [];
   const nativeMessages = createEvent();
@@ -46,14 +45,10 @@ async function createHarness({ postMessageError = null } = {}) {
       broadcasts.push(message);
     },
   };
-  const context = vm.createContext({
-    chrome: {
-      runtime,
-      sidePanel: { async setPanelBehavior() {} },
-    },
-    console,
-    crypto: { randomUUID: () => `request-${posted.length + 1}` },
-    setTimeout(callback, delay) {
+  installAuthBridge({
+    runtime,
+    randomUUID: () => `request-${posted.length + 1}`,
+    setTimer(callback, delay) {
       const id = nextTimerId;
       nextTimerId += 1;
       timers.set(id, {
@@ -65,12 +60,10 @@ async function createHarness({ postMessageError = null } = {}) {
       });
       return id;
     },
-    clearTimeout(id) {
+    clearTimer(id) {
       timers.delete(id);
     },
   });
-  const source = await readFile(new URL("../service-worker.js", import.meta.url), "utf8");
-  vm.runInContext(source, context, { filename: "service-worker.js" });
 
   return {
     broadcasts,
@@ -92,7 +85,7 @@ function dispatch(harness, message, senderId = "browsefriend-test") {
   return { keepChannelOpen, response };
 }
 
-test("service worker forwards allowed extension requests and correlates responses", async () => {
+test("auth bridge forwards allowed extension requests and correlates responses", async () => {
   const harness = await createHarness();
   const pending = dispatch(harness, { channel: "auth", method: "auth.status" });
 
@@ -112,7 +105,7 @@ test("service worker forwards allowed extension requests and correlates response
   });
 });
 
-test("service worker rejects foreign senders and unknown methods", async () => {
+test("auth bridge rejects foreign senders and unknown methods", async () => {
   const harness = await createHarness();
 
   const foreign = dispatch(
@@ -127,7 +120,7 @@ test("service worker rejects foreign senders and unknown methods", async () => {
   assert.deepEqual(harness.posted, []);
 });
 
-test("service worker broadcasts safe authentication state events", async () => {
+test("auth bridge broadcasts safe authentication state events", async () => {
   const harness = await createHarness();
   const pending = dispatch(harness, { channel: "auth", method: "auth.status" });
   const state = { state: "signed_in", profile: { name: "Person" }, planUsageEnabled: true };
@@ -165,7 +158,7 @@ test("native disconnect rejects pending extension requests", async () => {
   });
 });
 
-test("service worker returns a retryable timeout and forgets the request", async () => {
+test("auth bridge returns a retryable timeout and forgets the request", async () => {
   const harness = await createHarness();
   const pending = dispatch(harness, { channel: "auth", method: "auth.status" });
   const [timer] = harness.timers.values();

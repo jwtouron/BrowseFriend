@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAuthView } from "../sidepanel-state.mjs";
+import { createAuthView } from "../../extension/auth/view-model.js";
 
 test("signed-in view enables chat and account controls", () => {
   const view = createAuthView({

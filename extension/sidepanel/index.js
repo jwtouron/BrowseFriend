@@ -1,4 +1,5 @@
-import { createAuthView } from "./sidepanel-state.mjs";
+import { createAuthClient } from "../auth/client.js";
+import { createAuthView } from "../auth/view-model.js";
 
 // Keep DOM lookups together so the rest of the file reads like a small controller.
 const topbar = document.querySelector(".topbar");
@@ -38,6 +39,7 @@ const messageTemplate = document.querySelector("#message-template");
 const suggestionButtons = document.querySelectorAll(".suggestion");
 
 const PLAN_WELCOME_KEY = "browsefriend.planWelcomeSeen";
+const authClient = createAuthClient(chrome.runtime);
 let currentAuth = { state: "loading", profile: null, planUsageEnabled: false };
 let planWelcomeOpen = false;
 
@@ -158,20 +160,10 @@ function renderAuth(nextAuth, explicitError = null) {
   }
 }
 
-async function requestAuth(method) {
-  const response = await chrome.runtime.sendMessage({ channel: "auth", method });
-  if (!response?.ok) throw response?.error || {
-    code: "companion_unavailable",
-    message: "The BrowseFriend companion is unavailable.",
-    retryable: true,
-  };
-  return response;
-}
-
 async function refreshAuth() {
   renderAuth({ state: "loading", profile: null, planUsageEnabled: false });
   try {
-    const response = await requestAuth("auth.status");
+    const response = await authClient.getStatus();
     renderAuth(response.result);
   } catch (error) {
     renderAuth({ state: "signed_out", profile: null, planUsageEnabled: false }, error);
@@ -181,7 +173,7 @@ async function refreshAuth() {
 async function signIn() {
   renderAuth({ ...currentAuth, state: "signing_in", error: null });
   try {
-    const response = await requestAuth("auth.signIn");
+    const response = await authClient.signIn();
     renderAuth(response.result, response.warning);
   } catch (error) {
     if (error.code === "cancelled") {
@@ -195,7 +187,7 @@ async function signIn() {
 async function cancelSignIn() {
   cancelSignInButton.disabled = true;
   try {
-    const response = await requestAuth("auth.cancel");
+    const response = await authClient.cancelSignIn();
     renderAuth(response.result);
   } catch (error) {
     renderAuth({ ...currentAuth, state: "signed_out" }, error);
@@ -214,7 +206,7 @@ function clearConversation() {
 async function signOut() {
   signOutButton.disabled = true;
   try {
-    const response = await requestAuth("auth.signOut");
+    const response = await authClient.signOut();
     clearConversation();
     renderAuth(response.result, response.warning);
     showChat();
@@ -279,11 +271,10 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && planWelcomeOpen) dismissPlanWelcome();
 });
 
-chrome.runtime.onMessage.addListener((message) => {
-  if (message?.channel !== "auth") return;
-  if (message.event === "changed") renderAuth(message.state);
-  if (message.event === "disconnected") {
-    renderAuth({ state: "signed_out", profile: null, planUsageEnabled: false }, message.error);
+authClient.subscribe((event) => {
+  if (event.type === "changed") renderAuth(event.state);
+  if (event.type === "disconnected") {
+    renderAuth({ state: "signed_out", profile: null, planUsageEnabled: false }, event.error);
   }
 });
 

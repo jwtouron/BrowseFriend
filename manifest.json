@@ -9,10 +9,11 @@
     "default_title": "Toggle BrowseFriend"
   },
   "background": {
-    "service_worker": "service-worker.js"
+    "service_worker": "extension/background/service-worker.js",
+    "type": "module"
   },
   "permissions": ["nativeMessaging", "sidePanel"],
   "side_panel": {
-    "default_path": "sidepanel.html"
+    "default_path": "extension/sidepanel/index.html"
   }
 }

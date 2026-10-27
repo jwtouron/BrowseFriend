@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { toPublicError, toPublicSession } from "../native-host/session.mjs";
+import { toPublicError, toPublicSession } from "../../native-host/auth/session.mjs";
 
 test("public session exposes only display-safe account fields", () => {
   const session = toPublicSession({

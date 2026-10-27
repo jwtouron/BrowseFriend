@@ -436,12 +436,11 @@ button {
 }
 
 .composer {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
+  display: flex;
   align-items: end;
   gap: 8px;
   margin: 0 12px;
-  padding: 8px 8px 8px 14px;
+  padding: 8px 14px;
   border: 1px solid var(--border);
   border-radius: 18px;
   background: var(--surface);
@@ -453,7 +452,9 @@ button {
 }
 
 textarea {
-  width: 100%;
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
   max-height: 160px;
   padding: 7px 0;
   resize: none;
@@ -467,6 +468,11 @@ textarea {
 
 textarea::placeholder {
   color: var(--text-muted);
+}
+
+.composer-clear,
+.send-button {
+  flex: 0 0 34px;
 }
 
 .composer-clear {

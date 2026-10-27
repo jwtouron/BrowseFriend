@@ -4,6 +4,7 @@ import test from "node:test";
 
 const htmlUrl = new URL("../../extension/sidepanel/index.html", import.meta.url);
 const scriptUrl = new URL("../../extension/sidepanel/index.js", import.meta.url);
+const stylesUrl = new URL("../../extension/sidepanel/styles.css", import.meta.url);
 const backgroundUrl = new URL("../../extension/background/service-worker.js", import.meta.url);
 const repositoryUrl = new URL("../../", htmlUrl);
 
@@ -75,4 +76,10 @@ test("composer exposes accessible history and clear controls", async () => {
   const html = await readFile(htmlUrl, "utf8");
   assert.match(html, /id="message-input"[^>]*aria-keyshortcuts="[^"]*Control\+P[^"]*"/s);
   assert.match(html, /id="clear-message"[^>]*aria-label="Clear message"/s);
+});
+
+test("composer keeps its trailing action anchored with symmetric padding", async () => {
+  const styles = await readFile(stylesUrl, "utf8");
+  assert.match(styles, /\.composer\s*\{[^}]*display:\s*flex;[^}]*padding:\s*8px 14px;/s);
+  assert.match(styles, /\.composer-clear,\s*\.send-button\s*\{[^}]*flex:\s*0 0 34px;/s);
 });

@@ -1,9 +1,14 @@
 // Keep DOM lookups together so the rest of the file reads like a small controller.
 const conversation = document.querySelector("#conversation");
 const welcome = document.querySelector("#welcome");
+const viewStack = document.querySelector("#view-stack");
+const chatView = document.querySelector("#chat-view");
+const settingsView = document.querySelector("#settings-view");
 const composer = document.querySelector("#composer");
 const messageInput = document.querySelector("#message-input");
 const clearButton = document.querySelector("#clear-chat");
+const openSettingsButton = document.querySelector("#open-settings");
+const closeSettingsButton = document.querySelector("#close-settings");
 const closeButton = document.querySelector("#close-panel");
 const messageTemplate = document.querySelector("#message-template");
 const suggestionButtons = document.querySelectorAll(".suggestion");
@@ -24,6 +29,26 @@ function addMessage(text, role) {
 function resizeInput() {
   messageInput.style.height = "auto";
   messageInput.style.height = `${messageInput.scrollHeight}px`;
+}
+
+function showSettings() {
+  viewStack.classList.add("view-stack--settings");
+  chatView.inert = true;
+  chatView.setAttribute("aria-hidden", "true");
+  settingsView.inert = false;
+  settingsView.setAttribute("aria-hidden", "false");
+  openSettingsButton.setAttribute("aria-expanded", "true");
+  closeSettingsButton.focus({ preventScroll: true });
+}
+
+function showChat() {
+  viewStack.classList.remove("view-stack--settings");
+  settingsView.inert = true;
+  settingsView.setAttribute("aria-hidden", "true");
+  chatView.inert = false;
+  chatView.setAttribute("aria-hidden", "false");
+  openSettingsButton.setAttribute("aria-expanded", "false");
+  openSettingsButton.focus({ preventScroll: true });
 }
 
 function submitMessage() {
@@ -68,6 +93,9 @@ clearButton.addEventListener("click", () => {
   resizeInput();
   messageInput.focus();
 });
+
+openSettingsButton.addEventListener("click", showSettings);
+closeSettingsButton.addEventListener("click", showChat);
 
 closeButton.addEventListener("click", async () => {
   try {

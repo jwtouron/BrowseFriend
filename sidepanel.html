@@ -22,6 +22,17 @@
             <span aria-hidden="true">＋</span>
             <span class="sr-only">Start a new chat</span>
           </button>
+          <button
+            class="icon-button"
+            id="open-settings"
+            type="button"
+            title="Open settings"
+            aria-controls="settings-view"
+            aria-expanded="false"
+          >
+            <span aria-hidden="true">⚙</span>
+            <span class="sr-only">Open settings</span>
+          </button>
           <button class="icon-button" id="close-panel" type="button" title="Close side panel">
             <span aria-hidden="true">×</span>
             <span class="sr-only">Close side panel</span>
@@ -29,36 +40,61 @@
         </div>
       </header>
 
-      <section class="conversation" id="conversation" aria-live="polite">
-        <div class="welcome" id="welcome">
-          <span class="welcome__spark" aria-hidden="true">✦</span>
-          <h2>What can I help with?</h2>
-          <p>This interface is local for now. Try a prompt to see how the UI behaves.</p>
+      <div class="view-stack" id="view-stack">
+        <div class="chat-view" id="chat-view">
+          <section class="conversation" id="conversation" aria-live="polite">
+            <div class="welcome" id="welcome">
+              <span class="welcome__spark" aria-hidden="true">✦</span>
+              <h2>What can I help with?</h2>
+              <p>This interface is local for now. Try a prompt to see how the UI behaves.</p>
 
-          <div class="suggestions" aria-label="Suggested prompts">
-            <button class="suggestion" type="button">Explain this page simply</button>
-            <button class="suggestion" type="button">Help me brainstorm</button>
-            <button class="suggestion" type="button">Summarize an idea</button>
-          </div>
+              <div class="suggestions" aria-label="Suggested prompts">
+                <button class="suggestion" type="button">Explain this page simply</button>
+                <button class="suggestion" type="button">Help me brainstorm</button>
+                <button class="suggestion" type="button">Summarize an idea</button>
+              </div>
+            </div>
+          </section>
+
+          <form class="composer" id="composer">
+            <label class="sr-only" for="message-input">Message Sidecar</label>
+            <textarea
+              id="message-input"
+              name="message"
+              rows="1"
+              maxlength="4000"
+              placeholder="Message Sidecar"
+              required
+            ></textarea>
+            <button class="send-button" type="submit" aria-label="Send message">
+              <span aria-hidden="true">↑</span>
+            </button>
+          </form>
+
+          <p class="disclaimer">Demo UI only — no messages leave your browser.</p>
         </div>
-      </section>
 
-      <form class="composer" id="composer">
-        <label class="sr-only" for="message-input">Message Sidecar</label>
-        <textarea
-          id="message-input"
-          name="message"
-          rows="1"
-          maxlength="4000"
-          placeholder="Message Sidecar"
-          required
-        ></textarea>
-        <button class="send-button" type="submit" aria-label="Send message">
-          <span aria-hidden="true">↑</span>
-        </button>
-      </form>
-
-      <p class="disclaimer">Demo UI only — no messages leave your browser.</p>
+        <section
+          class="settings-view"
+          id="settings-view"
+          aria-labelledby="settings-title"
+          aria-hidden="true"
+          inert
+        >
+          <div class="settings-view__header">
+            <button class="icon-button" id="close-settings" type="button" title="Back to chat">
+              <span aria-hidden="true">←</span>
+              <span class="sr-only">Back to chat</span>
+            </button>
+            <h2 id="settings-title">Settings</h2>
+          </div>
+          <div class="settings-placeholder">
+            <span class="settings-placeholder__icon" aria-hidden="true">⚙</span>
+            <h3>Settings are coming soon</h3>
+            <p>Extension preferences and page interaction controls will live here.</p>
+          </div>
+        </section>
+      </div>
     </main>
 
     <template id="message-template">

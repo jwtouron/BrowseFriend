@@ -1,12 +1,14 @@
 # BrowseFriend
 
-BrowseFriend is a local-first Chrome side-panel companion. It currently provides the chat UI and a supported **Continue with ChatGPT** connection; live model responses and page access are intentionally deferred.
+BrowseFriend is a local-first Chrome side-panel companion. It provides a supported **Continue with ChatGPT** connection and a read-only Ask mode that shares inspectable semantic context from the active page.
 
 ## Authentication boundary
 
 The extension never receives OAuth credentials. Its service worker talks to a Node.js native-messaging host that runs OpenAI's loopback sign-in flow and returns only display-safe account state. Tokens are encrypted with a random key protected by macOS Keychain or Linux Secret Service.
 
 BrowseFriend does not create product accounts, subscriptions, or billing. It does not read ChatGPT cookies, conversations, or private endpoints. The official flow can use eligible ChatGPT plan usage but does not expose existing ChatGPT history.
+
+Model requests use `store: false`; BrowseFriend keeps the current transcript in Chrome's memory-only session storage. It disappears when Chrome restarts or the extension reloads.
 
 ## Prerequisites
 
@@ -39,6 +41,8 @@ Moving the repository invalidates the installed launcher path; rerun `npm run in
 
 Open BrowseFriend from Chrome's toolbar. Signed-out users see **Continue with ChatGPT**. OpenAI handles account and workspace selection in the browser, then returns to the local companion. Once connected, **Settings → Account** shows the selected identity, plan-access state, usage link, and logout action.
 
+Ask a question to capture the current HTTP or HTTPS page. BrowseFriend sends a bounded semantic snapshot—not raw HTML—and shows an inspectable context attachment beside the message. If the page changes during generation, the completed answer is marked as stale. **New chat** clears the memory-only conversation.
+
 If the panel reports that the companion is unavailable, rerun `npm run install:host`, reload the extension, and select **Retry**.
 
 ## Development commands
@@ -55,7 +59,9 @@ python3 -m json.tool manifest.json
 advisory-affected `undici` package with the compatible patched version recorded
 in `scripts/setup-devkit.mjs`.
 
-The extension remains plain HTML, CSS, and JavaScript with no browser-side build. Chrome code lives in `extension/`, with authentication isolated in `extension/auth/`. The companion mirrors that boundary in `native-host/auth/`, while tests follow both subsystems under `tests/`. OpenAI's pinned DevKit lives in `vendor/sign-in-with-chatgpt-devkit/`.
+The extension remains plain HTML, CSS, and JavaScript with no browser-side build. Chrome code lives in `extension/`; authentication, chat, and page reading are separate features. The companion keeps authentication and model requests separate under `native-host/`. OpenAI's pinned DevKit lives in `vendor/sign-in-with-chatgpt-devkit/`.
+
+See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for current platform and model constraints and [TODO.md](TODO.md) for explicitly deferred work.
 
 ## Product direction
 

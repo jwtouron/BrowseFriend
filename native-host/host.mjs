@@ -4,6 +4,7 @@ import { createAuthHandler } from "./auth/handler.mjs";
 import { createCredentialEncryption } from "./auth/credential-encryption.mjs";
 import { toPublicError, toPublicSession } from "./auth/session.mjs";
 import { createMessageDecoder, encodeMessage } from "./messaging/protocol.mjs";
+import { ALLOWED_MODEL_METHODS, createModelHandler } from "./model/handler.mjs";
 
 function publicError(error) {
   if (error instanceof ChatGPTError) return toPublicError(error.toJSON());
@@ -31,23 +32,42 @@ async function main() {
     send({ event: "auth.changed", payload: toPublicSession(session) });
   });
 
-  let queue = Promise.resolve();
-  const handle = createAuthHandler({
+  let authQueue = Promise.resolve();
+  const handleAuth = createAuthHandler({
     chatgpt,
     send,
     serializeError: publicError,
     isRevocationFailure: (error) =>
       error instanceof ChatGPTError && error.code === "revocation_failed",
   });
+  const handleModel = createModelHandler({ chatgpt, send, serializeError: publicError });
 
   const decode = createMessageDecoder(
     (request) => {
       if (request?.method === "auth.cancel") {
-        void handle(request);
+        void handleAuth(request);
         return;
       }
-      queue = queue.then(() => handle(request)).catch((error) => {
-        console.error("BrowseFriend native request failed.", publicError(error).code);
+      if (request?.method === "model.cancel") {
+        void handleModel(request);
+        return;
+      }
+      if (typeof request?.method === "string" && request.method.startsWith("auth.")) {
+        authQueue = authQueue.then(() => handleAuth(request)).catch((error) => {
+          console.error("BrowseFriend native auth request failed.", publicError(error).code);
+        });
+        return;
+      }
+      if (ALLOWED_MODEL_METHODS.has(request?.method)) {
+        void handleModel(request).catch((error) => {
+          console.error("BrowseFriend native model request failed.", publicError(error).code);
+        });
+        return;
+      }
+      send({
+        id: typeof request?.id === "string" ? request.id : null,
+        ok: false,
+        error: { code: "invalid_request", message: "Unsupported native request.", retryable: false },
       });
     },
     (error) => console.error("BrowseFriend native protocol error.", error.message),

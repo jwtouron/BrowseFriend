@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-BrowseFriend is a Chrome Manifest V3 side-panel extension plus a local Node.js authentication companion. `extension/sidepanel/` owns the panel, `extension/background/` owns the toolbar entrypoint, and `extension/auth/` isolates browser-side authentication. Native authentication lives in `native-host/auth/`, native-message framing in `native-host/messaging/`, and stable host entrypoints remain at the `native-host/` root. Tests mirror these subsystems under `tests/`; `vendor/sign-in-with-chatgpt-devkit/` pins OpenAI's official SDK submodule.
+BrowseFriend is a Chrome Manifest V3 side-panel extension plus a local Node.js companion. `extension/sidepanel/` owns the panel; `extension/auth/`, `extension/chat/`, and `extension/page/read/` isolate browser features. Native authentication and model requests live under `native-host/`; stable host entrypoints remain at its root. Tests mirror these subsystems under `tests/`, and `vendor/sign-in-with-chatgpt-devkit/` pins OpenAI's official SDK submodule.
 
 Keep HTML accessible, CSS presentation-only, and browser behavior in JavaScript. Never add inline scripts. OAuth credentials belong exclusively in the native host; extension messages may contain only sanitized account state.
 
@@ -12,6 +12,10 @@ Build a personal, local-first page companion that explains pages before proposin
 
 Authentication must use OpenAI's hosted **Continue with ChatGPT** flow through the pinned local DevKit. Keep credentials encrypted with an OS-backed key, out of browser storage, URLs, logs, tests, and commits. Preserve the separation between page extraction, model communication, and action execution.
 
+## Roadmap Maintenance
+
+Treat `TODO.md` as the canonical deferred-work list. When the user says a feature might, should, or will be added later, add or reconcile a concrete item there without expanding the current task. When an architectural constraint is discovered or resolved, update `KNOWN_LIMITATIONS.md`. Avoid duplicate roadmap items and preserve relevant decisions, blockers, and safety requirements.
+
 ## Development and Verification
 
 Requires Node.js 22.12+. Initialize and build the SDK with `git submodule update --init` and `npm run setup:devkit`; register the companion with `npm run install:host`. Load the repository from `chrome://extensions` using **Developer mode → Load unpacked**.
@@ -19,7 +23,7 @@ Requires Node.js 22.12+. Initialize and build the SDK with `git submodule update
 Before submitting:
 
 - Run `npm run verify` (syntax, tests, and manifest parsing) and `git diff --check`.
-- Exercise missing-helper, sign-in, cancellation, plan-disabled, restored-session, and logout states.
+- Exercise missing-helper, authentication, page-unavailable, stale-page, streaming, cancellation, restored-chat, New chat, and logout states.
 - Check narrow/wide layouts, both color schemes, keyboard focus, and the side-panel console.
 - Never make a live model request in authentication-only tests.
 

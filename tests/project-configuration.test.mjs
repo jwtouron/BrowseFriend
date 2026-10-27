@@ -11,7 +11,7 @@ import {
   nativeHostManifestDirectory,
 } from "../native-host/constants.mjs";
 
-test("manifest exposes only the required authentication permission", async () => {
+test("manifest exposes only the required extension and page permissions", async () => {
   const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url), "utf8"));
   const digest = createHash("sha256").update(Buffer.from(manifest.key, "base64")).digest();
   const derivedId = [...digest.subarray(0, 16)]
@@ -20,8 +20,8 @@ test("manifest exposes only the required authentication permission", async () =>
     .replace(/[0-9a-f]/g, (digit) => String.fromCharCode(97 + Number.parseInt(digit, 16)));
 
   assert.equal(manifest.name, "BrowseFriend");
-  assert.deepEqual(manifest.permissions.sort(), ["nativeMessaging", "sidePanel"]);
-  assert.equal(manifest.host_permissions, undefined);
+  assert.deepEqual(manifest.permissions.sort(), ["nativeMessaging", "scripting", "sidePanel", "storage"]);
+  assert.deepEqual(manifest.host_permissions.sort(), ["http://*/*", "https://*/*"]);
   assert.equal(manifest.background.type, "module");
   assert.equal(derivedId, EXTENSION_ID);
   assert.equal(EXTENSION_ORIGIN, `chrome-extension://${EXTENSION_ID}/`);

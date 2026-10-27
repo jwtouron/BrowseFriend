@@ -225,16 +225,6 @@
   margin-top: 12px;
 }
 
-.modal-backdrop {
-  position: fixed;
-  z-index: 10;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgb(0 0 0 / 45%);
-}
-
 .plan-dialog {
   width: min(100%, 360px);
   padding: 22px;

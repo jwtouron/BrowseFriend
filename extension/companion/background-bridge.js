@@ -1,9 +1,16 @@
 const NATIVE_HOST = "com.browsefriend.native_host";
-const ALLOWED_AUTH_METHODS = new Set([
+const ALLOWED_METHODS = new Map([
+  ["auth", new Set([
   "auth.status",
   "auth.signIn",
   "auth.signOut",
   "auth.cancel",
+  ])],
+  ["model", new Set([
+    "model.list",
+    "model.stream",
+    "model.cancel",
+  ])],
 ]);
 
 function companionError(message = "The BrowseFriend companion is unavailable.") {
@@ -14,7 +21,7 @@ function companionError(message = "The BrowseFriend companion is unavailable.") 
   };
 }
 
-export function installAuthBridge({
+export function installCompanionBridge({
   runtime,
   randomUUID = () => globalThis.crypto.randomUUID(),
   setTimer = globalThis.setTimeout,
@@ -45,6 +52,12 @@ export function installAuthBridge({
         return;
       }
 
+      if (message?.event === "model.delta") {
+        const pending = pendingRequests.get(message.requestId);
+        pending?.onEvent?.(message);
+        return;
+      }
+
       const pending = pendingRequests.get(message?.id);
       if (!pending) return;
 
@@ -66,7 +79,7 @@ export function installAuthBridge({
     return port;
   }
 
-  function requestCompanion(method) {
+  function requestCompanion(method, params, onEvent, explicitId) {
     return new Promise((resolve, reject) => {
       let port;
       try {
@@ -76,10 +89,25 @@ export function installAuthBridge({
         return;
       }
 
-      const id = randomUUID();
-      const timeoutMs = method === "auth.signIn" ? 11 * 60 * 1000 : 30 * 1000;
+      const id = explicitId || randomUUID();
+      const timeoutMs = method === "auth.signIn"
+        ? 11 * 60 * 1000
+        : method === "model.stream"
+          ? 190 * 1000
+          : 30 * 1000;
       const timeoutId = setTimer(() => {
         pendingRequests.delete(id);
+        if (method === "model.stream") {
+          try {
+            port.postMessage({
+              id: randomUUID(),
+              method: "model.cancel",
+              params: { requestId: id },
+            });
+          } catch {
+            // The timeout below already reports the unavailable companion path.
+          }
+        }
         reject({
           code: "companion_timeout",
           message: "The BrowseFriend companion did not respond in time.",
@@ -87,10 +115,10 @@ export function installAuthBridge({
         });
       }, timeoutMs);
 
-      pendingRequests.set(id, { resolve, reject, timeoutId });
+      pendingRequests.set(id, { resolve, reject, timeoutId, onEvent });
 
       try {
-        port.postMessage({ id, method });
+        port.postMessage({ id, method, ...(params ? { params } : {}) });
       } catch (error) {
         clearTimer(timeoutId);
         pendingRequests.delete(id);
@@ -100,14 +128,16 @@ export function installAuthBridge({
   }
 
   runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (sender.id !== runtime.id || message?.channel !== "auth" ||
-        !ALLOWED_AUTH_METHODS.has(message.method)) {
+    const allowed = ALLOWED_METHODS.get(message?.channel);
+    if (sender.id !== runtime.id || !allowed?.has(message.method)) {
       return false;
     }
 
-    requestCompanion(message.method)
+    requestCompanion(message.method, message.params)
       .then((response) => sendResponse(response))
       .catch((error) => sendResponse({ ok: false, error }));
     return true;
   });
+
+  return { request: requestCompanion };
 }

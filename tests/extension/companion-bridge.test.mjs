@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { installAuthBridge } from "../../extension/auth/background-bridge.js";
+import { installCompanionBridge } from "../../extension/companion/background-bridge.js";
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
@@ -45,7 +45,7 @@ function createHarness({ postMessageError = null } = {}) {
       broadcasts.push(message);
     },
   };
-  installAuthBridge({
+  const companion = installCompanionBridge({
     runtime,
     randomUUID: () => `request-${posted.length + 1}`,
     setTimer(callback, delay) {
@@ -67,6 +67,7 @@ function createHarness({ postMessageError = null } = {}) {
 
   return {
     broadcasts,
+    companion,
     extensionMessages,
     nativeDisconnect,
     nativeMessages,
@@ -85,7 +86,7 @@ function dispatch(harness, message, senderId = "browsefriend-test") {
   return { keepChannelOpen, response };
 }
 
-test("auth bridge forwards allowed extension requests and correlates responses", async () => {
+test("companion bridge forwards allowed extension requests and correlates responses", async () => {
   const harness = await createHarness();
   const pending = dispatch(harness, { channel: "auth", method: "auth.status" });
 
@@ -105,7 +106,7 @@ test("auth bridge forwards allowed extension requests and correlates responses",
   });
 });
 
-test("auth bridge rejects foreign senders and unknown methods", async () => {
+test("companion bridge rejects foreign senders and unknown methods", async () => {
   const harness = await createHarness();
 
   const foreign = dispatch(
@@ -120,7 +121,7 @@ test("auth bridge rejects foreign senders and unknown methods", async () => {
   assert.deepEqual(harness.posted, []);
 });
 
-test("auth bridge broadcasts safe authentication state events", async () => {
+test("companion bridge broadcasts safe authentication state events", async () => {
   const harness = await createHarness();
   const pending = dispatch(harness, { channel: "auth", method: "auth.status" });
   const state = { state: "signed_in", profile: { name: "Person" }, planUsageEnabled: true };
@@ -158,7 +159,7 @@ test("native disconnect rejects pending extension requests", async () => {
   });
 });
 
-test("auth bridge returns a retryable timeout and forgets the request", async () => {
+test("companion bridge returns a retryable timeout and forgets the request", async () => {
   const harness = await createHarness();
   const pending = dispatch(harness, { channel: "auth", method: "auth.status" });
   const [timer] = harness.timers.values();
@@ -204,4 +205,57 @@ test("synchronous native-port failures return a safe companion error", async () 
     },
   });
   assert.equal(harness.timers.size, 0);
+});
+
+test("companion bridge routes model deltas to the matching internal request", async () => {
+  const harness = createHarness();
+  const deltas = [];
+  const pending = harness.companion.request(
+    "model.stream",
+    { prompt: "Question" },
+    (event) => deltas.push(event.delta),
+    "generation-1",
+  );
+  const [timer] = harness.timers.values();
+
+  assert.equal(timer.delay, 190_000);
+  assert.deepEqual(harness.posted, [{
+    id: "generation-1",
+    method: "model.stream",
+    params: { prompt: "Question" },
+  }]);
+
+  harness.nativeMessages.emit({
+    event: "model.delta",
+    requestId: "generation-1",
+    delta: "Partial",
+  });
+  harness.nativeMessages.emit({
+    id: "generation-1",
+    ok: true,
+    result: { completed: true },
+  });
+
+  assert.deepEqual(deltas, ["Partial"]);
+  assert.equal((await pending).ok, true);
+});
+
+test("a timed-out model stream asks the companion to cancel its generation", async () => {
+  const harness = createHarness();
+  const pending = harness.companion.request(
+    "model.stream",
+    { prompt: "Question" },
+    undefined,
+    "generation-1",
+  );
+  const [timer] = harness.timers.values();
+
+  timer.callback();
+
+  await assert.rejects(pending, { code: "companion_timeout" });
+  assert.deepEqual(harness.posted[1], {
+    id: "request-2",
+    method: "model.cancel",
+    params: { requestId: "generation-1" },
+  });
 });

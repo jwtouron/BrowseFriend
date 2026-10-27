@@ -1,5 +1,7 @@
 import { createAuthClient } from "../auth/client.js";
 import { createAuthView } from "../auth/view-model.js";
+import { createChatClient } from "../chat/client.js";
+import { renderMarkdown } from "../chat/markdown.js";
 
 // Keep DOM lookups together so the rest of the file reads like a small controller.
 const topbar = document.querySelector(".topbar");
@@ -17,6 +19,9 @@ const companionHelp = document.querySelector("#companion-help");
 const chatContent = document.querySelector("#chat-content");
 const composer = document.querySelector("#composer");
 const messageInput = document.querySelector("#message-input");
+const sendMessageButton = document.querySelector("#send-message");
+const stopResponseButton = document.querySelector("#stop-response");
+const chatError = document.querySelector("#chat-error");
 const clearButton = document.querySelector("#clear-chat");
 const openSettingsButton = document.querySelector("#open-settings");
 const closeSettingsButton = document.querySelector("#close-settings");
@@ -35,25 +40,117 @@ const accountStatus = document.querySelector("#account-status");
 const settingsAuthError = document.querySelector("#settings-auth-error");
 const planWelcome = document.querySelector("#plan-welcome");
 const dismissPlanWelcomeButton = document.querySelector("#dismiss-plan-welcome");
+const modelStatus = document.querySelector("#model-status");
+const contextViewer = document.querySelector("#context-viewer");
+const closeContextButton = document.querySelector("#close-context");
+const contextSummary = document.querySelector("#context-summary");
+const contextContent = document.querySelector("#context-content");
 const messageTemplate = document.querySelector("#message-template");
 const suggestionButtons = document.querySelectorAll(".suggestion");
 
 const PLAN_WELCOME_KEY = "browsefriend.planWelcomeSeen";
 const authClient = createAuthClient(chrome.runtime);
+const chatClient = createChatClient(chrome.runtime);
 let currentAuth = { state: "loading", profile: null, planUsageEnabled: false };
+let currentChat = { messages: [], model: null, generating: false, error: null };
 let planWelcomeOpen = false;
+let contextViewerOpen = false;
+const assistantSources = new WeakMap();
 
-function addMessage(text, role) {
+function createMessageElement(messageData) {
   const fragment = messageTemplate.content.cloneNode(true);
   const message = fragment.querySelector(".message");
   const avatar = fragment.querySelector(".message__avatar");
   const content = fragment.querySelector(".message__content");
+  const contextButton = fragment.querySelector(".context-chip");
+  const status = fragment.querySelector(".message__status");
 
-  message.classList.add(`message--${role}`);
-  avatar.textContent = role === "user" ? "You" : "B";
-  content.textContent = text; // textContent avoids interpreting user text as HTML.
-  conversation.append(fragment);
+  message.dataset.messageId = messageData.id;
+  message.classList.add(`message--${messageData.role}`);
+  avatar.textContent = messageData.role === "user" ? "You" : "B";
+  if (messageData.role === "assistant") {
+    assistantSources.set(message, messageData.text);
+    renderMarkdown(content, messageData.text);
+  } else {
+    content.textContent = messageData.text;
+  }
+
+  if (messageData.role === "user" && messageData.context) {
+    contextButton.hidden = false;
+    if (messageData.context.available && messageData.context.snapshot) {
+      contextButton.textContent = `Page context · ${messageData.context.title || "Untitled page"}`;
+      contextButton.addEventListener("click", () => showContext(messageData.context));
+    } else if (messageData.context.available) {
+      contextButton.textContent = `Page context expired · ${messageData.context.title || "Untitled page"}`;
+      contextButton.disabled = true;
+    } else {
+      contextButton.textContent = `Page context unavailable · ${messageData.context.error?.message || "Unknown page"}`;
+      contextButton.disabled = true;
+    }
+  }
+
+  const statusText = messageData.status === "streaming" && !messageData.text
+    ? "Thinking…"
+    : messageData.status === "stopped"
+      ? "Stopped"
+      : messageData.status === "error"
+        ? messageData.error?.message || "Response failed"
+        : messageData.stale
+          ? "The page changed after this context was captured."
+          : "";
+  status.hidden = !statusText;
+  status.textContent = statusText;
+  return fragment;
+}
+
+function renderChat(state) {
+  currentChat = state;
+  conversation.querySelectorAll(".message").forEach((message) => message.remove());
+  welcome.hidden = state.messages.length > 0;
+  state.messages.forEach((message) => conversation.append(createMessageElement(message)));
+  messageInput.disabled = state.generating;
+  sendMessageButton.hidden = state.generating;
+  stopResponseButton.hidden = !state.generating;
+  clearButton.hidden = currentAuth.state !== "signed_in";
+  chatError.hidden = !state.error;
+  chatError.textContent = state.error?.message || "";
+  modelStatus.textContent = state.model
+    ? `Using ${state.model.displayName}. Selected automatically for this browser session.${state.historyTruncated ? " Older messages were removed to stay within memory limits." : ""}`
+    : "The first available model will be selected automatically.";
   conversation.scrollTop = conversation.scrollHeight;
+}
+
+function appendDelta(messageId, delta) {
+  const message = [...conversation.querySelectorAll(".message")]
+    .find((element) => element.dataset.messageId === messageId);
+  if (!message) return;
+  const content = message.querySelector(".message__content");
+  const status = message.querySelector(".message__status");
+  const source = `${assistantSources.get(message) || ""}${delta}`;
+  assistantSources.set(message, source);
+  renderMarkdown(content, source);
+  status.hidden = true;
+  conversation.scrollTop = conversation.scrollHeight;
+}
+
+function showContext(context) {
+  if (!context?.snapshot) return;
+  contextViewerOpen = true;
+  topbar.inert = true;
+  viewStack.inert = true;
+  contextSummary.textContent = `${context.title || "Untitled page"} · revision ${context.revision}${context.stale ? " · page changed" : ""}`;
+  contextContent.textContent = JSON.stringify(context.snapshot, null, 2);
+  contextViewer.hidden = false;
+  closeContextButton.focus({ preventScroll: true });
+}
+
+function hideContext() {
+  if (!contextViewerOpen) return;
+  contextViewerOpen = false;
+  contextViewer.hidden = true;
+  topbar.inert = false;
+  viewStack.inert = false;
+  messageInput.focus({ preventScroll: true });
 }
 
 function resizeInput() {
@@ -196,9 +293,9 @@ async function cancelSignIn() {
   }
 }
 
-function clearConversation() {
-  conversation.querySelectorAll(".message").forEach((message) => message.remove());
-  welcome.hidden = false;
+async function clearConversation() {
+  const state = await chatClient.clear();
+  renderChat(state);
   messageInput.value = "";
   resizeInput();
 }
@@ -207,7 +304,7 @@ async function signOut() {
   signOutButton.disabled = true;
   try {
     const response = await authClient.signOut();
-    clearConversation();
+    await clearConversation().catch(() => undefined);
     renderAuth(response.result, response.warning);
     showChat();
   } catch (error) {
@@ -217,22 +314,29 @@ async function signOut() {
   }
 }
 
-function submitMessage() {
+async function submitMessage() {
   const message = messageInput.value.trim();
 
-  if (!message) return;
+  if (!message || currentChat.generating) return;
 
-  welcome.hidden = true;
-  addMessage(message, "user");
-  addMessage("Authentication is connected. Live chat plumbing comes next.", "assistant");
+  chatError.hidden = true;
   messageInput.value = "";
   resizeInput();
-  messageInput.focus();
+  try {
+    const state = await chatClient.send(message);
+    renderChat(state);
+  } catch (error) {
+    messageInput.value = message;
+    resizeInput();
+    chatError.hidden = false;
+    chatError.textContent = error.message || "BrowseFriend could not send that message.";
+  }
+  messageInput.focus({ preventScroll: true });
 }
 
 composer.addEventListener("submit", (event) => {
   event.preventDefault();
-  submitMessage();
+  void submitMessage();
 });
 
 messageInput.addEventListener("input", resizeInput);
@@ -240,7 +344,7 @@ messageInput.addEventListener("input", resizeInput);
 messageInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
-    submitMessage();
+    void submitMessage();
   }
 });
 
@@ -253,8 +357,19 @@ suggestionButtons.forEach((button) => {
 });
 
 clearButton.addEventListener("click", () => {
-  clearConversation();
-  messageInput.focus();
+  hideContext();
+  void clearConversation()
+    .then(() => messageInput.focus())
+    .catch((error) => {
+      chatError.hidden = false;
+      chatError.textContent = error.message || "BrowseFriend could not clear this chat.";
+    });
+});
+stopResponseButton.addEventListener("click", () => {
+  void chatClient.cancel().catch((error) => {
+    chatError.hidden = false;
+    chatError.textContent = error.message || "BrowseFriend could not stop the response.";
+  });
 });
 
 openSettingsButton.addEventListener("click", showSettings);
@@ -266,8 +381,13 @@ retryAuthButton.addEventListener("click", refreshAuth);
 signOutButton.addEventListener("click", signOut);
 
 dismissPlanWelcomeButton.addEventListener("click", () => dismissPlanWelcome());
+closeContextButton.addEventListener("click", hideContext);
 
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && contextViewerOpen) {
+    hideContext();
+    return;
+  }
   if (event.key === "Escape" && planWelcomeOpen) dismissPlanWelcome();
 });
 
@@ -276,6 +396,11 @@ authClient.subscribe((event) => {
   if (event.type === "disconnected") {
     renderAuth({ state: "signed_out", profile: null, planUsageEnabled: false }, event.error);
   }
+});
+
+chatClient.subscribe((event) => {
+  if (event.event === "state") renderChat(event.state);
+  if (event.event === "delta") appendDelta(event.messageId, event.delta);
 });
 
 closeButton.addEventListener("click", async () => {
@@ -292,4 +417,10 @@ closeButton.addEventListener("click", async () => {
   }
 });
 
-refreshAuth();
+void refreshAuth();
+void chatClient.getState()
+  .then(renderChat)
+  .catch((error) => {
+    chatError.hidden = false;
+    chatError.textContent = error.message || "BrowseFriend could not restore this chat.";
+  });

@@ -84,7 +84,7 @@
               <div class="welcome" id="welcome">
                 <span class="welcome__spark" aria-hidden="true">✦</span>
                 <h2>What can I help with?</h2>
-                <p>Authentication is connected. Chat remains a local demo for now.</p>
+                <p>Ask about the current page. BrowseFriend will show the context it shares.</p>
 
                 <div class="suggestions" aria-label="Suggested prompts">
                   <button class="suggestion" type="button">Explain this page simply</button>
@@ -104,12 +104,18 @@
                 placeholder="Message BrowseFriend"
                 required
               ></textarea>
-              <button class="send-button" type="submit" aria-label="Send message">
+              <button class="send-button" id="send-message" type="submit" aria-label="Send message">
                 <span aria-hidden="true">↑</span>
+              </button>
+              <button class="send-button send-button--stop" id="stop-response" type="button" aria-label="Stop response" hidden>
+                <span aria-hidden="true">■</span>
               </button>
             </form>
 
-            <p class="disclaimer">Demo chat only — messages do not leave your browser yet.</p>
+            <p class="status-message chat-error" id="chat-error" role="alert" hidden></p>
+            <p class="disclaimer">
+              Page context is shared with ChatGPT for this response and is treated as untrusted.
+            </p>
           </div>
         </div>
 
@@ -164,8 +170,8 @@
             </section>
 
             <section class="settings-section settings-section--muted">
-              <h3>More settings</h3>
-              <p>Page context and interaction controls will live here.</p>
+              <h3>Model</h3>
+              <p id="model-status">The first available model will be selected automatically.</p>
             </section>
           </div>
         </section>
@@ -176,8 +182,7 @@
           <span class="plan-dialog__mark" aria-hidden="true">✓</span>
           <h2 id="plan-title">ChatGPT plan connected</h2>
           <p>
-            BrowseFriend can use eligible usage from your ChatGPT plan. Live requests are not
-            enabled in this build yet.
+            BrowseFriend can use eligible usage from your ChatGPT plan for page-aware answers.
           </p>
           <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noreferrer">
             Manage usage
@@ -185,12 +190,30 @@
           <button class="primary-button" id="dismiss-plan-welcome" type="button">Got it</button>
         </section>
       </div>
+
+      <div class="modal-backdrop" id="context-viewer" hidden>
+        <section class="context-dialog" role="dialog" aria-modal="true" aria-labelledby="context-title">
+          <div class="context-dialog__header">
+            <h2 id="context-title">Shared page context</h2>
+            <button class="icon-button" id="close-context" type="button" title="Close context">
+              <span aria-hidden="true">×</span>
+              <span class="sr-only">Close shared page context</span>
+            </button>
+          </div>
+          <p id="context-summary"></p>
+          <pre id="context-content" tabindex="0"></pre>
+        </section>
+      </div>
     </main>
 
     <template id="message-template">
       <article class="message">
         <div class="message__avatar" aria-hidden="true"></div>
-        <div class="message__content"></div>
+        <div class="message__body">
+          <div class="message__content"></div>
+          <button class="context-chip" type="button" hidden></button>
+          <p class="message__status" hidden></p>
+        </div>
       </article>
     </template>
 

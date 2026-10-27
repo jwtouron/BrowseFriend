@@ -1,6 +1,20 @@
-import { installAuthBridge } from "../auth/background-bridge.js";
+import { installCompanionBridge } from "../companion/background-bridge.js";
+import { installChatController } from "../chat/background.js";
+import { installPageReader } from "../page/read/background.js";
 
-installAuthBridge({ runtime: chrome.runtime });
+const companion = installCompanionBridge({ runtime: chrome.runtime });
+const pageReader = installPageReader({
+  runtime: chrome.runtime,
+  tabs: chrome.tabs,
+  scripting: chrome.scripting,
+});
+installChatController({
+  runtime: chrome.runtime,
+  storage: chrome.storage.session,
+  companion,
+  pageReader,
+  randomUUID: () => crypto.randomUUID(),
+});
 
 // Make the extension's toolbar icon Chrome's native side-panel toggle.
 chrome.sidePanel

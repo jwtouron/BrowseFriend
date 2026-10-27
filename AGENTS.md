@@ -18,7 +18,7 @@ Requires Node.js 22.12+. Initialize and build the SDK with `git submodule update
 
 Before submitting:
 
-- Run `npm test`, `npm run lint`, and `python3 -m json.tool manifest.json`.
+- Run `npm run verify` (syntax, tests, and manifest parsing) and `git diff --check`.
 - Exercise missing-helper, sign-in, cancellation, plan-disabled, restored-session, and logout states.
 - Check narrow/wide layouts, both color schemes, keyboard focus, and the side-panel console.
 - Never make a live model request in authentication-only tests.

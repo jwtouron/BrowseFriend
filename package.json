@@ -7,10 +7,11 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "setup:devkit": "npm ci --prefix vendor/sign-in-with-chatgpt-devkit && npm install --prefix vendor/sign-in-with-chatgpt-devkit --no-save --package-lock=false undici@7.30.1 && npm run build -w @siwc/local --prefix vendor/sign-in-with-chatgpt-devkit",
+    "setup:devkit": "node scripts/setup-devkit.mjs",
     "install:host": "node native-host/install.mjs",
     "uninstall:host": "node native-host/install.mjs --uninstall",
     "test": "node --test tests/*.test.mjs",
-    "lint": "node --check service-worker.js && node --check sidepanel.js && node --check native-host/host.mjs && node --check native-host/install.mjs"
+    "lint": "node --check service-worker.js && node --check sidepanel.js && node --check sidepanel-state.mjs && node --check native-host/*.mjs && node --check scripts/*.mjs && node --check tests/*.test.mjs",
+    "verify": "npm run lint && npm test && node -e \"JSON.parse(require('node:fs').readFileSync('manifest.json', 'utf8'))\""
   }
 }

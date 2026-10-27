@@ -44,11 +44,16 @@ If the panel reports that the companion is unavailable, rerun `npm run install:h
 ## Development commands
 
 ```sh
-npm test              # Run protocol, encryption, and configuration tests.
+npm test              # Run authentication, bridge, UI, and security tests.
 npm run lint          # Check JavaScript syntax.
+npm run verify        # Run all local syntax, test, and manifest checks.
 npm run setup:devkit  # Install and build the pinned OpenAI local SDK.
 python3 -m json.tool manifest.json
 ```
+
+`setup:devkit` preserves the upstream dependency lock while replacing only the
+advisory-affected `undici` package with the compatible patched version recorded
+in `scripts/setup-devkit.mjs`.
 
 The extension remains plain HTML, CSS, and JavaScript with no browser-side build. Native-host code lives in `native-host/`; tests live in `tests/`; OpenAI's pinned DevKit lives in `vendor/sign-in-with-chatgpt-devkit/`.
 

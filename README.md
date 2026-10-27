@@ -26,7 +26,8 @@ OpenAI currently documents ChatGPT-plan access for open-source and locally runni
 1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
 3. Select **Load unpacked** and choose this repository folder.
-4. Open Chrome's side panel, choose **ChatGPT Sidecar**, and try the interface.
+4. Pin **ChatGPT Sidecar** and click its toolbar icon to open or close the panel.
+5. Try the local interface.
 
 After changing a file, return to `chrome://extensions` and click the extension's reload button. Refreshing the side panel is sometimes also necessary.
 
@@ -36,5 +37,6 @@ After changing a file, return to `chrome://extensions` and click the extension's
 - `sidepanel.html` contains semantic UI structure and a reusable message template.
 - `styles.css` controls the responsive light/dark appearance.
 - `sidepanel.js` handles local interactions, closes the panel through Chrome's Side Panel API, and safely inserts messages with `textContent`.
+- `service-worker.js` configures the toolbar icon to toggle the side panel.
 
 The next plumbing step is to validate the official ChatGPT sign-in boundary. Never put a long-lived API secret in extension code: users can inspect every shipped file. Page access will also require carefully scoped host permissions and a content script; add those only with the corresponding feature.

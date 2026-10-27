@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This dependency-free Chrome Manifest V3 extension maps `manifest.json` to `sidepanel.html`. Markup lives in `sidepanel.html`, presentation in `styles.css`, and interactions in `sidepanel.js`. Keep assets in `assets/` and tests in `tests/`.
+This dependency-free Chrome Manifest V3 extension maps `manifest.json` to `sidepanel.html`. Markup lives in `sidepanel.html`, presentation in `styles.css`, interactions in `sidepanel.js`, and toolbar behavior in `service-worker.js`. Keep assets in `assets/` and tests in `tests/`.
 
 Keep this separation intact: HTML defines accessible structure, CSS owns appearance, and JavaScript owns behavior. Do not add inline scripts because extension Content Security Policy restricts them.
 

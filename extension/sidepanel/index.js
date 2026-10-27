@@ -2,6 +2,8 @@ import { createAuthClient } from "../auth/client.js";
 import { createAuthView } from "../auth/view-model.js";
 import { createChatClient } from "../chat/client.js";
 import { renderMarkdown } from "../chat/markdown.js";
+import { composerShortcut, createPromptHistory } from "../chat/prompt-history.js";
+import { chatFocusTarget, shouldRestoreComposerFocus } from "./focus.js";
 
 // Keep DOM lookups together so the rest of the file reads like a small controller.
 const topbar = document.querySelector(".topbar");
@@ -19,6 +21,7 @@ const companionHelp = document.querySelector("#companion-help");
 const chatContent = document.querySelector("#chat-content");
 const composer = document.querySelector("#composer");
 const messageInput = document.querySelector("#message-input");
+const clearMessageButton = document.querySelector("#clear-message");
 const sendMessageButton = document.querySelector("#send-message");
 const stopResponseButton = document.querySelector("#stop-response");
 const chatError = document.querySelector("#chat-error");
@@ -51,6 +54,7 @@ const suggestionButtons = document.querySelectorAll(".suggestion");
 const PLAN_WELCOME_KEY = "browsefriend.planWelcomeSeen";
 const authClient = createAuthClient(chrome.runtime);
 const chatClient = createChatClient(chrome.runtime);
+const promptHistory = createPromptHistory();
 let currentAuth = { state: "loading", profile: null, planUsageEnabled: false };
 let currentChat = { messages: [], model: null, generating: false, error: null };
 let planWelcomeOpen = false;
@@ -104,7 +108,11 @@ function createMessageElement(messageData) {
 }
 
 function renderChat(state) {
+  const wasGenerating = currentChat.generating;
   currentChat = state;
+  promptHistory.sync(state.messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.text));
   conversation.querySelectorAll(".message").forEach((message) => message.remove());
   welcome.hidden = state.messages.length > 0;
   state.messages.forEach((message) => conversation.append(createMessageElement(message)));
@@ -118,6 +126,22 @@ function renderChat(state) {
     ? `Using ${state.model.displayName}. Selected automatically for this browser session.${state.historyTruncated ? " Older messages were removed to stay within memory limits." : ""}`
     : "The first available model will be selected automatically.";
   conversation.scrollTop = conversation.scrollHeight;
+  if (wasGenerating && !state.generating) {
+    requestAnimationFrame(() => {
+      if (shouldRestoreComposerFocus({
+        wasGenerating,
+        generating: currentChat.generating,
+        documentHasFocus: document.hasFocus(),
+        authState: currentAuth.state,
+        settingsOpen: viewStack.classList.contains("view-stack--settings"),
+        contextViewerOpen,
+        planWelcomeOpen,
+        chatVisible: !chatContent.hidden,
+      })) {
+        messageInput.focus({ preventScroll: true });
+      }
+    });
+  }
 }
 
 function appendDelta(messageId, delta) {
@@ -150,12 +174,48 @@ function hideContext() {
   contextViewer.hidden = true;
   topbar.inert = false;
   viewStack.inert = false;
-  messageInput.focus({ preventScroll: true });
+  focusChatSurface();
 }
 
 function resizeInput() {
   messageInput.style.height = "auto";
   messageInput.style.height = `${messageInput.scrollHeight}px`;
+}
+
+function updateComposerControls() {
+  clearMessageButton.hidden = messageInput.value.length === 0;
+}
+
+function setComposerValue(value, { focus = false } = {}) {
+  messageInput.value = value;
+  resizeInput();
+  updateComposerControls();
+  if (focus) messageInput.focus({ preventScroll: true });
+}
+
+function clearComposer({ focus = true } = {}) {
+  promptHistory.reset();
+  setComposerValue("", { focus });
+}
+
+function focusChatSurface() {
+  const targetName = chatFocusTarget({
+    authState: currentAuth.state,
+    generating: currentChat.generating,
+  });
+  const targets = {
+    composer: messageInput,
+    stop: stopResponseButton,
+    signIn: signInButton,
+    cancelSignIn: cancelSignInButton,
+    settings: openSettingsButton,
+  };
+  const target = targets[targetName];
+  if (!target || target.hidden || target.disabled) {
+    openSettingsButton.focus({ preventScroll: true });
+    return;
+  }
+  target.focus({ preventScroll: true });
 }
 
 function showSettings() {
@@ -175,7 +235,7 @@ function showChat() {
   chatView.inert = false;
   chatView.setAttribute("aria-hidden", "false");
   openSettingsButton.setAttribute("aria-expanded", "false");
-  openSettingsButton.focus({ preventScroll: true });
+  requestAnimationFrame(focusChatSurface);
 }
 
 function setStatusMessage(element, error) {
@@ -296,8 +356,7 @@ async function cancelSignIn() {
 async function clearConversation() {
   const state = await chatClient.clear();
   renderChat(state);
-  messageInput.value = "";
-  resizeInput();
+  clearComposer({ focus: false });
 }
 
 async function signOut() {
@@ -320,18 +379,17 @@ async function submitMessage() {
   if (!message || currentChat.generating) return;
 
   chatError.hidden = true;
-  messageInput.value = "";
-  resizeInput();
+  promptHistory.reset();
+  setComposerValue("");
   try {
     const state = await chatClient.send(message);
     renderChat(state);
   } catch (error) {
-    messageInput.value = message;
-    resizeInput();
+    setComposerValue(message);
     chatError.hidden = false;
     chatError.textContent = error.message || "BrowseFriend could not send that message.";
   }
-  messageInput.focus({ preventScroll: true });
+  if (!currentChat.generating) messageInput.focus({ preventScroll: true });
 }
 
 composer.addEventListener("submit", (event) => {
@@ -339,9 +397,29 @@ composer.addEventListener("submit", (event) => {
   void submitMessage();
 });
 
-messageInput.addEventListener("input", resizeInput);
+messageInput.addEventListener("input", () => {
+  promptHistory.reset();
+  resizeInput();
+  updateComposerControls();
+});
 
 messageInput.addEventListener("keydown", (event) => {
+  const shortcut = composerShortcut(event);
+  if (shortcut === "clear") {
+    event.preventDefault();
+    clearComposer();
+    return;
+  }
+  if (shortcut === "previous" || shortcut === "next") {
+    const value = shortcut === "previous"
+      ? promptHistory.previous(messageInput.value)
+      : promptHistory.next();
+    if (value !== null) {
+      event.preventDefault();
+      setComposerValue(value, { focus: true });
+      return;
+    }
+  }
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
     void submitMessage();
@@ -350,11 +428,12 @@ messageInput.addEventListener("keydown", (event) => {
 
 suggestionButtons.forEach((button) => {
   button.addEventListener("click", () => {
-    messageInput.value = button.textContent;
-    resizeInput();
-    messageInput.focus();
+    promptHistory.reset();
+    setComposerValue(button.textContent, { focus: true });
   });
 });
+
+clearMessageButton.addEventListener("click", () => clearComposer());
 
 clearButton.addEventListener("click", () => {
   hideContext();

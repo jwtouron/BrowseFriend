@@ -437,7 +437,7 @@ button {
 
 .composer {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   align-items: end;
   gap: 8px;
   margin: 0 12px;
@@ -467,6 +467,25 @@ textarea {
 
 textarea::placeholder {
   color: var(--text-muted);
+}
+
+.composer-clear {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 11px;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: 1.1rem;
+}
+
+.composer-clear:hover,
+.composer-clear:focus-visible {
+  color: var(--text);
+  background: var(--surface-muted);
 }
 
 .send-button {

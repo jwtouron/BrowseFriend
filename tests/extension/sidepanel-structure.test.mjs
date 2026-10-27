@@ -70,3 +70,9 @@ test("new-tab links prevent opener access", async () => {
   assert.ok(links.length > 0);
   for (const link of links) assert.match(link, /\brel="[^"]*noreferrer[^"]*"/);
 });
+
+test("composer exposes accessible history and clear controls", async () => {
+  const html = await readFile(htmlUrl, "utf8");
+  assert.match(html, /id="message-input"[^>]*aria-keyshortcuts="[^"]*Control\+P[^"]*"/s);
+  assert.match(html, /id="clear-message"[^>]*aria-label="Clear message"/s);
+});

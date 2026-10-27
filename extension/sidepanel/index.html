@@ -102,8 +102,19 @@
                 rows="1"
                 maxlength="4000"
                 placeholder="Message BrowseFriend"
+                aria-keyshortcuts="ArrowUp ArrowDown Control+P Control+N Control+U"
                 required
               ></textarea>
+              <button
+                class="composer-clear"
+                id="clear-message"
+                type="button"
+                title="Clear message"
+                aria-label="Clear message"
+                hidden
+              >
+                <span aria-hidden="true">×</span>
+              </button>
               <button class="send-button" id="send-message" type="submit" aria-label="Send message">
                 <span aria-hidden="true">↑</span>
               </button>

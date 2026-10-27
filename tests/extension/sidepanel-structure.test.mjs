@@ -83,3 +83,15 @@ test("composer keeps its trailing action anchored with symmetric padding", async
   assert.match(styles, /\.composer\s*\{[^}]*display:\s*flex;[^}]*padding:\s*8px 14px;/s);
   assert.match(styles, /\.composer-clear,\s*\.send-button\s*\{[^}]*flex:\s*0 0 34px;/s);
 });
+
+test("Debug mode is an accessible switch in the final Settings section", async () => {
+  const html = await readFile(htmlUrl, "utf8");
+  const finalSettingsSection = html.lastIndexOf('class="settings-section');
+  const debugSection = html.indexOf('id="debug-settings"');
+
+  assert.ok(finalSettingsSection >= 0);
+  assert.ok(debugSection > finalSettingsSection);
+  assert.ok(debugSection - finalSettingsSection < 200);
+  assert.match(html, /id="debug-mode"[^>]*type="checkbox"[^>]*role="switch"/s);
+  assert.match(html, /<label for="debug-mode">Debug mode<\/label>/);
+});

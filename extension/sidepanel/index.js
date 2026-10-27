@@ -3,6 +3,7 @@ import { createAuthView } from "../auth/view-model.js";
 import { createChatClient } from "../chat/client.js";
 import { renderMarkdown } from "../chat/markdown.js";
 import { composerShortcut, createPromptHistory } from "../chat/prompt-history.js";
+import { createDebugModePreference, shouldShowPageContext } from "../settings/debug-mode.js";
 import { chatFocusTarget, shouldRestoreComposerFocus } from "./focus.js";
 
 // Keep DOM lookups together so the rest of the file reads like a small controller.
@@ -44,6 +45,8 @@ const settingsAuthError = document.querySelector("#settings-auth-error");
 const planWelcome = document.querySelector("#plan-welcome");
 const dismissPlanWelcomeButton = document.querySelector("#dismiss-plan-welcome");
 const modelStatus = document.querySelector("#model-status");
+const debugModeSwitch = document.querySelector("#debug-mode");
+const debugSettingsError = document.querySelector("#debug-settings-error");
 const contextViewer = document.querySelector("#context-viewer");
 const closeContextButton = document.querySelector("#close-context");
 const contextSummary = document.querySelector("#context-summary");
@@ -55,8 +58,13 @@ const PLAN_WELCOME_KEY = "browsefriend.planWelcomeSeen";
 const authClient = createAuthClient(chrome.runtime);
 const chatClient = createChatClient(chrome.runtime);
 const promptHistory = createPromptHistory();
+const debugModePreference = createDebugModePreference({
+  storageArea: chrome.storage.local,
+  storageChanged: chrome.storage.onChanged,
+});
 let currentAuth = { state: "loading", profile: null, planUsageEnabled: false };
 let currentChat = { messages: [], model: null, generating: false, error: null };
+let debugMode = false;
 let planWelcomeOpen = false;
 let contextViewerOpen = false;
 const assistantSources = new WeakMap();
@@ -79,7 +87,7 @@ function createMessageElement(messageData) {
     content.textContent = messageData.text;
   }
 
-  if (messageData.role === "user" && messageData.context) {
+  if (shouldShowPageContext(debugMode, messageData)) {
     contextButton.hidden = false;
     if (messageData.context.available && messageData.context.snapshot) {
       contextButton.textContent = `Page context · ${messageData.context.title || "Untitled page"}`;
@@ -158,7 +166,7 @@ function appendDelta(messageId, delta) {
 }
 
 function showContext(context) {
-  if (!context?.snapshot) return;
+  if (!debugMode || !context?.snapshot) return;
   contextViewerOpen = true;
   topbar.inert = true;
   viewStack.inert = true;
@@ -168,13 +176,13 @@ function showContext(context) {
   closeContextButton.focus({ preventScroll: true });
 }
 
-function hideContext() {
+function hideContext({ restoreFocus = true } = {}) {
   if (!contextViewerOpen) return;
   contextViewerOpen = false;
   contextViewer.hidden = true;
   topbar.inert = false;
   viewStack.inert = false;
-  focusChatSurface();
+  if (restoreFocus) focusChatSurface();
 }
 
 function resizeInput() {
@@ -241,6 +249,48 @@ function showChat() {
 function setStatusMessage(element, error) {
   element.hidden = !error;
   element.textContent = error?.message || "";
+}
+
+function applyDebugMode(enabled) {
+  const nextDebugMode = enabled === true;
+  const changed = debugMode !== nextDebugMode;
+  debugMode = nextDebugMode;
+  debugModeSwitch.checked = debugMode;
+  if (!debugMode && contextViewerOpen) {
+    hideContext({ restoreFocus: document.hasFocus() });
+  }
+  if (changed) renderChat(currentChat);
+}
+
+async function loadDebugMode() {
+  debugModeSwitch.disabled = true;
+  setStatusMessage(debugSettingsError, null);
+  try {
+    applyDebugMode(await debugModePreference.load());
+  } catch {
+    applyDebugMode(false);
+    setStatusMessage(debugSettingsError, {
+      message: "BrowseFriend could not load the Debug mode preference.",
+    });
+  } finally {
+    debugModeSwitch.disabled = false;
+  }
+}
+
+async function updateDebugMode() {
+  const requested = debugModeSwitch.checked;
+  debugModeSwitch.disabled = true;
+  setStatusMessage(debugSettingsError, null);
+  try {
+    applyDebugMode(await debugModePreference.save(requested));
+  } catch {
+    debugModeSwitch.checked = debugMode;
+    setStatusMessage(debugSettingsError, {
+      message: "BrowseFriend could not save the Debug mode preference.",
+    });
+  } finally {
+    debugModeSwitch.disabled = false;
+  }
 }
 
 function maybeShowPlanWelcome(previousState, nextState) {
@@ -458,6 +508,7 @@ settingsSignInButton.addEventListener("click", signIn);
 cancelSignInButton.addEventListener("click", cancelSignIn);
 retryAuthButton.addEventListener("click", refreshAuth);
 signOutButton.addEventListener("click", signOut);
+debugModeSwitch.addEventListener("change", () => void updateDebugMode());
 
 dismissPlanWelcomeButton.addEventListener("click", () => dismissPlanWelcome());
 closeContextButton.addEventListener("click", hideContext);
@@ -482,6 +533,8 @@ chatClient.subscribe((event) => {
   if (event.event === "delta") appendDelta(event.messageId, event.delta);
 });
 
+debugModePreference.subscribe((enabled) => applyDebugMode(enabled));
+
 closeButton.addEventListener("click", async () => {
   try {
     const currentWindow = await chrome.windows.getCurrent();
@@ -497,6 +550,7 @@ closeButton.addEventListener("click", async () => {
 });
 
 void refreshAuth();
+void loadDebugMode();
 void chatClient.getState()
   .then(renderChat)
   .catch((error) => {

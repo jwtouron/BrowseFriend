@@ -2,9 +2,10 @@
 
 ## Project Structure & Module Organization
 
-BrowseFriend is a Chrome Manifest V3 side-panel extension plus a local Node.js companion. `extension/sidepanel/` owns the panel; `extension/auth/`, `extension/chat/`, and `extension/page/read/` isolate browser features. Native authentication and model requests live under `native-host/`; stable host entrypoints remain at its root. Tests mirror these subsystems under `tests/`, and `vendor/sign-in-with-chatgpt-devkit/` pins OpenAI's official SDK submodule.
+BrowseFriend combines a Chrome Manifest V3 side panel with a local Node.js companion. `extension/sidepanel/` owns UI; `extension/auth/`, `extension/chat/`, `extension/settings/`, and `extension/page/read/` isolate browser features. Native authentication and model requests live in `native-host/`, tests mirror subsystems under `tests/`, and `vendor/sign-in-with-chatgpt-devkit/` pins OpenAI's SDK.
 
 Keep HTML accessible, CSS presentation-only, and browser behavior in JavaScript. Never add inline scripts. OAuth credentials belong exclusively in the native host; extension messages may contain only sanitized account state.
+Keep Debug last in Settings. Persist user settings in `chrome.storage.local` and propagate changes between open panels with `chrome.storage.onChanged`.
 
 ## Product Direction & Safety
 

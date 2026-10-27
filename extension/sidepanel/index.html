@@ -184,6 +184,28 @@
               <h3>Model</h3>
               <p id="model-status">The first available model will be selected automatically.</p>
             </section>
+
+            <!-- Keep Debug as the final Settings section. -->
+            <section class="settings-section" id="debug-settings" aria-labelledby="debug-title">
+              <h3 id="debug-title">Debug</h3>
+              <div class="settings-toggle">
+                <div class="settings-toggle__copy">
+                  <label for="debug-mode">Debug mode</label>
+                  <p>Show the exact page context attached to chat messages.</p>
+                </div>
+                <input
+                  class="settings-toggle__control"
+                  id="debug-mode"
+                  type="checkbox"
+                  role="switch"
+                  disabled
+                />
+              </div>
+              <p class="settings-note">
+                This changes visibility only. BrowseFriend captures and sends the same context.
+              </p>
+              <p class="status-message" id="debug-settings-error" role="alert" hidden></p>
+            </section>
           </div>
         </section>
       </div>

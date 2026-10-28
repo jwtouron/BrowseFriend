@@ -26,6 +26,7 @@ export function createChatClient(runtime) {
     send: (text) => request("chat.send", { text }),
     cancel: () => request("chat.cancel"),
     clear: () => request("chat.clear"),
+    getModels: (refresh = false) => request("chat.models", { refresh }),
     subscribe,
   };
 }

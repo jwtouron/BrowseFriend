@@ -102,7 +102,7 @@ test("Appearance offers System, Light, and Dark before the final Debug section",
     readFile(stylesUrl, "utf8"),
   ]);
   const appearance = html.indexOf('id="appearance-settings"');
-  const model = html.indexOf('id="model-status"');
+  const model = html.indexOf('id="model-settings"');
   const debug = html.indexOf('id="debug-settings"');
 
   assert.ok(appearance >= 0 && appearance < model && model < debug);
@@ -112,4 +112,14 @@ test("Appearance offers System, Light, and Dark before the final Debug section",
   assert.match(html, /<option value="dark">Dark<\/option>/);
   assert.match(styles, /:root\[data-theme="dark"\][^{]*\{[^}]*color-scheme:\s*dark;/s);
   assert.match(styles, /:root:not\(\[data-theme="light"\]\)/);
+});
+
+test("Model settings expose Automatic and keep Debug last", async () => {
+  const html = await readFile(htmlUrl, "utf8");
+  const model = html.indexOf('id="model-settings"');
+  const debug = html.indexOf('id="debug-settings"');
+
+  assert.ok(model >= 0 && model < debug);
+  assert.match(html, /<label for="model-select">Model<\/label>/);
+  assert.match(html, /<option value="automatic">Automatic<\/option>/);
 });

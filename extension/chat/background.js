@@ -1,3 +1,5 @@
+import { MODEL_KEY, normalizeModel } from "../settings/preferences.js";
+
 const STORAGE_KEY = "browsefriend.chat.session";
 const MAX_HISTORY_BYTES = 480 * 1024;
 const MAX_SESSION_BYTES = 8 * 1024 * 1024;
@@ -37,8 +39,16 @@ function historyFor(messages) {
   return history;
 }
 
-export function installChatController({ runtime, storage, companion, pageReader, randomUUID }) {
+export function installChatController({
+  runtime,
+  storage,
+  settingsStorage,
+  companion,
+  pageReader,
+  randomUUID,
+}) {
   let statePromise;
+  let modelCatalogPromise = null;
   let saveTimer = null;
 
   async function loadState() {
@@ -102,10 +112,42 @@ export function installChatController({ runtime, storage, companion, pageReader,
     broadcast({ event: "state", state });
   }
 
+  async function listModels(refresh = false) {
+    if (refresh || !modelCatalogPromise) {
+      const request = companion.request("model.list")
+        .then((response) => Array.isArray(response.result?.models) ? response.result.models : []);
+      modelCatalogPromise = request;
+      try {
+        return await request;
+      } catch (error) {
+        if (modelCatalogPromise === request) modelCatalogPromise = null;
+        throw error;
+      }
+    }
+    return modelCatalogPromise;
+  }
+
+  async function resolveModelPreference(models) {
+    const stored = await settingsStorage.get(MODEL_KEY);
+    const preference = normalizeModel(stored?.[MODEL_KEY]);
+    if (preference === "automatic" || models.some((model) => model.slug === preference)) {
+      return preference;
+    }
+    await settingsStorage.set({ [MODEL_KEY]: "automatic" });
+    return "automatic";
+  }
+
+  async function modelOptions(refresh = false) {
+    const models = await listModels(refresh);
+    const preference = await resolveModelPreference(models);
+    return { models, preference };
+  }
+
   async function ensureModel(state) {
-    if (state.model?.slug) return state.model;
-    const response = await companion.request("model.list");
-    const model = response.result?.models?.[0];
+    const { models, preference } = await modelOptions();
+    const model = preference === "automatic"
+      ? models[0]
+      : models.find((candidate) => candidate.slug === preference);
     if (!model) throw {
       code: "model_unavailable",
       message: "This ChatGPT account did not return an available model.",
@@ -261,6 +303,7 @@ export function installChatController({ runtime, storage, companion, pageReader,
     if (message.method === "chat.send") operation = sendMessage(message.text);
     if (message.method === "chat.cancel") operation = cancel();
     if (message.method === "chat.clear") operation = clear();
+    if (message.method === "chat.models") operation = modelOptions(message.refresh === true);
     if (!operation) return false;
     operation
       .then((result) => sendResponse({ ok: true, result }))

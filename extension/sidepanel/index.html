@@ -196,9 +196,18 @@
               <p class="status-message" id="theme-settings-error" role="alert" hidden></p>
             </section>
 
-            <section class="settings-section settings-section--muted">
-              <h3>Model</h3>
-              <p id="model-status">The first available model will be selected automatically.</p>
+            <section class="settings-section" id="model-settings" aria-labelledby="model-title">
+              <h3 id="model-title">Model</h3>
+              <div class="settings-select">
+                <label for="model-select">Model</label>
+                <select id="model-select" disabled>
+                  <option value="automatic">Automatic</option>
+                </select>
+              </div>
+              <p class="settings-note">
+                Automatic uses the first available model. Changes apply to the next response.
+              </p>
+              <p class="status-message" id="model-settings-error" role="alert" hidden></p>
             </section>
 
             <!-- Keep Debug as the final Settings section. -->

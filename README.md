@@ -41,7 +41,9 @@ Moving the repository invalidates the installed launcher path; rerun `npm run in
 
 Open BrowseFriend from Chrome's toolbar. Signed-out users see **Continue with ChatGPT**. OpenAI handles account and workspace selection in the browser, then returns to the local companion. Once connected, **Settings → Account** shows the selected identity, plan-access state, usage link, and logout action.
 
-Ask a question to capture the current HTTP or HTTPS page. BrowseFriend sends a bounded semantic snapshot—not raw HTML—and shows an inspectable context attachment beside the message. If the page changes during generation, the completed answer is marked as stale. **New chat** clears the memory-only conversation.
+Ask a question to capture the current HTTP or HTTPS page. BrowseFriend sends a bounded semantic snapshot—not raw HTML—and Debug mode can show the inspectable context attachment beside the message. If the page changes during generation, the completed answer is marked as stale. **New chat** clears the memory-only conversation.
+
+Settings can use the first available model automatically or persist an explicit model choice. The selected model applies to the next response and does not clear the current chat.
 
 With an empty composer, use Up or Ctrl+P to recall earlier prompts; continue with Up/Down or Ctrl+P/N. Typing starts a fresh draft. Use the × control or Ctrl+U to clear the composer.
 

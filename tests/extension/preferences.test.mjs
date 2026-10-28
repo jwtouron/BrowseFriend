@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DEBUG_MODE_KEY,
+  MODEL_KEY,
   THEME_KEY,
   applyTheme,
   createPreferences,
+  normalizeModel,
   normalizeTheme,
   shouldShowPageContext,
 } from "../../extension/settings/preferences.js";
@@ -43,16 +45,21 @@ test("settings default safely and normalize stored values", async () => {
   assert.deepEqual(await createHarness().preferences.load(), {
     debugMode: false,
     theme: "system",
+    model: "automatic",
   });
   assert.deepEqual(await createHarness({
     [DEBUG_MODE_KEY]: "true",
     [THEME_KEY]: "sepia",
+    [MODEL_KEY]: " ",
   }).preferences.load(), {
     debugMode: false,
     theme: "system",
+    model: "automatic",
   });
   assert.equal(normalizeTheme("light"), "light");
   assert.equal(normalizeTheme("dark"), "dark");
+  assert.equal(normalizeModel("model-1"), "model-1");
+  assert.equal(normalizeModel("x".repeat(201)), "automatic");
 });
 
 test("settings persist normalized local preferences", async () => {
@@ -61,10 +68,12 @@ test("settings persist normalized local preferences", async () => {
   assert.equal(await harness.preferences.saveDebugMode(true), true);
   assert.equal(await harness.preferences.saveTheme("dark"), "dark");
   assert.equal(await harness.preferences.saveTheme("unknown"), "system");
+  assert.equal(await harness.preferences.saveModel("model-2"), "model-2");
   assert.deepEqual(harness.writes, [
     { [DEBUG_MODE_KEY]: true },
     { [THEME_KEY]: "dark" },
     { [THEME_KEY]: "system" },
+    { [MODEL_KEY]: "model-2" },
   ]);
 });
 
@@ -78,10 +87,11 @@ test("settings subscriptions normalize local changes and can unsubscribe", () =>
   harness.storageChanged.emit({
     [DEBUG_MODE_KEY]: { newValue: true },
     [THEME_KEY]: { newValue: "light" },
+    [MODEL_KEY]: { newValue: "model-2" },
   }, "local");
   harness.storageChanged.emit({ [THEME_KEY]: { newValue: "sepia" } }, "local");
   assert.deepEqual(received, [
-    { debugMode: true, theme: "light" },
+    { debugMode: true, theme: "light", model: "model-2" },
     { theme: "system" },
   ]);
 

@@ -3,7 +3,12 @@ import { createAuthView } from "../auth/view-model.js";
 import { createChatClient } from "../chat/client.js";
 import { renderMarkdown } from "../chat/markdown.js";
 import { composerShortcut, createPromptHistory } from "../chat/prompt-history.js";
-import { applyTheme, createPreferences, shouldShowPageContext } from "../settings/preferences.js";
+import {
+  applyTheme,
+  createPreferences,
+  normalizeModel,
+  shouldShowPageContext,
+} from "../settings/preferences.js";
 import { chatFocusTarget, shouldRestoreComposerFocus } from "./focus.js";
 
 // Keep DOM lookups together so the rest of the file reads like a small controller.
@@ -44,7 +49,8 @@ const accountStatus = document.querySelector("#account-status");
 const settingsAuthError = document.querySelector("#settings-auth-error");
 const planWelcome = document.querySelector("#plan-welcome");
 const dismissPlanWelcomeButton = document.querySelector("#dismiss-plan-welcome");
-const modelStatus = document.querySelector("#model-status");
+const modelSelect = document.querySelector("#model-select");
+const modelSettingsError = document.querySelector("#model-settings-error");
 const themeSelect = document.querySelector("#theme-select");
 const themeSettingsError = document.querySelector("#theme-settings-error");
 const debugModeSwitch = document.querySelector("#debug-mode");
@@ -68,6 +74,9 @@ let currentAuth = { state: "loading", profile: null, planUsageEnabled: false };
 let currentChat = { messages: [], model: null, generating: false, error: null };
 let debugMode = false;
 let theme = "system";
+let modelPreference = "automatic";
+let availableModels = [];
+let modelLoadId = 0;
 let planWelcomeOpen = false;
 let contextViewerOpen = false;
 const assistantSources = new WeakMap();
@@ -133,9 +142,6 @@ function renderChat(state) {
   clearButton.hidden = currentAuth.state !== "signed_in";
   chatError.hidden = !state.error;
   chatError.textContent = state.error?.message || "";
-  modelStatus.textContent = state.model
-    ? `Using ${state.model.displayName}. Selected automatically for this browser session.${state.historyTruncated ? " Older messages were removed to stay within memory limits." : ""}`
-    : "The first available model will be selected automatically.";
   conversation.scrollTop = conversation.scrollHeight;
   if (wasGenerating && !state.generating) {
     requestAnimationFrame(() => {
@@ -237,6 +243,7 @@ function showSettings() {
   settingsView.setAttribute("aria-hidden", "false");
   openSettingsButton.setAttribute("aria-expanded", "true");
   closeSettingsButton.focus({ preventScroll: true });
+  if (currentAuth.state === "signed_in") void refreshModels(true);
 }
 
 function showChat() {
@@ -270,6 +277,64 @@ function applyThemePreference(nextTheme) {
   themeSelect.value = theme;
 }
 
+function hasModelOption(value) {
+  return [...modelSelect.options].some((option) => option.value === value);
+}
+
+function applyModelPreference(nextModel) {
+  modelPreference = normalizeModel(nextModel);
+  if (hasModelOption(modelPreference)) modelSelect.value = modelPreference;
+}
+
+function populateModels(models, preference) {
+  availableModels = models;
+  const automaticOption = document.createElement("option");
+  automaticOption.value = "automatic";
+  automaticOption.textContent = "Automatic";
+  const options = [automaticOption];
+  for (const model of models) {
+    const option = document.createElement("option");
+    option.value = model.slug;
+    option.textContent = model.displayName;
+    options.push(option);
+  }
+  modelSelect.replaceChildren(...options);
+  applyModelPreference(preference);
+}
+
+function resetModelsForAuth() {
+  modelLoadId += 1;
+  populateModels([], modelPreference);
+  modelSelect.disabled = true;
+  setStatusMessage(modelSettingsError, null);
+}
+
+async function refreshModels(refresh = true) {
+  if (currentAuth.state !== "signed_in") {
+    resetModelsForAuth();
+    return;
+  }
+  const loadId = ++modelLoadId;
+  modelSelect.disabled = true;
+  setStatusMessage(modelSettingsError, null);
+  try {
+    const result = await chatClient.getModels(refresh);
+    if (loadId !== modelLoadId || currentAuth.state !== "signed_in") return;
+    populateModels(result.models, result.preference);
+    modelSelect.disabled = result.models.length === 0;
+    if (!result.models.length) {
+      setStatusMessage(modelSettingsError, {
+        message: "This ChatGPT account did not return an available model.",
+      });
+    }
+  } catch (error) {
+    if (loadId !== modelLoadId) return;
+    availableModels = [];
+    modelSelect.disabled = true;
+    setStatusMessage(modelSettingsError, error);
+  }
+}
+
 async function loadPreferences() {
   debugModeSwitch.disabled = true;
   themeSelect.disabled = true;
@@ -279,9 +344,11 @@ async function loadPreferences() {
     const stored = await preferences.load();
     applyDebugMode(stored.debugMode);
     applyThemePreference(stored.theme);
+    applyModelPreference(stored.model);
   } catch {
     applyDebugMode(false);
     applyThemePreference("system");
+    applyModelPreference("automatic");
     setStatusMessage(debugSettingsError, {
       message: "BrowseFriend could not load saved settings.",
     });
@@ -323,6 +390,22 @@ async function updateTheme() {
     });
   } finally {
     themeSelect.disabled = false;
+  }
+}
+
+async function updateModel() {
+  const requested = modelSelect.value;
+  modelSelect.disabled = true;
+  setStatusMessage(modelSettingsError, null);
+  try {
+    applyModelPreference(await preferences.saveModel(requested));
+  } catch {
+    modelSelect.value = hasModelOption(modelPreference) ? modelPreference : "automatic";
+    setStatusMessage(modelSettingsError, {
+      message: "BrowseFriend could not save the Model preference.",
+    });
+  } finally {
+    modelSelect.disabled = currentAuth.state !== "signed_in" || availableModels.length === 0;
   }
 }
 
@@ -389,6 +472,12 @@ function renderAuth(nextAuth, explicitError = null) {
   manageUsageLink.hidden = !view.connected;
   signOutButton.hidden = !view.connected;
   setStatusMessage(settingsAuthError, view.error);
+
+  if (nextAuth.state === "signed_in" && previousState !== "signed_in") {
+    void refreshModels(true);
+  } else if (nextAuth.state !== "signed_in") {
+    resetModelsForAuth();
+  }
 
   maybeShowPlanWelcome(previousState, nextAuth.state);
 
@@ -541,6 +630,7 @@ settingsSignInButton.addEventListener("click", signIn);
 cancelSignInButton.addEventListener("click", cancelSignIn);
 retryAuthButton.addEventListener("click", refreshAuth);
 signOutButton.addEventListener("click", signOut);
+modelSelect.addEventListener("change", () => void updateModel());
 themeSelect.addEventListener("change", () => void updateTheme());
 debugModeSwitch.addEventListener("change", () => void updateDebugMode());
 
@@ -570,6 +660,12 @@ chatClient.subscribe((event) => {
 preferences.subscribe((update) => {
   if (Object.hasOwn(update, "debugMode")) applyDebugMode(update.debugMode);
   if (Object.hasOwn(update, "theme")) applyThemePreference(update.theme);
+  if (Object.hasOwn(update, "model")) {
+    applyModelPreference(update.model);
+    if (currentAuth.state === "signed_in" && !hasModelOption(modelPreference)) {
+      void refreshModels(true);
+    }
+  }
 });
 
 closeButton.addEventListener("click", async () => {

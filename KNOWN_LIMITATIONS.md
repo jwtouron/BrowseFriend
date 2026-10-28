@@ -24,7 +24,9 @@ random loopback listener only while completing the hosted OAuth callback.
 
 ## Chat behavior
 
-- BrowseFriend automatically uses the first model returned for the connected account.
+- Automatic model selection uses the first model returned for the connected account. BrowseFriend
+  cannot override reasoning effort because the pinned DevKit does not expose that parameter or
+  each model's supported values.
 - Conversations use `store: false` and do not create ChatGPT history entries. They are held in
   Chrome's memory-only session storage and disappear after browser restart, extension reload,
   extension update, or disable.

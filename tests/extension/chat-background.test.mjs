@@ -10,8 +10,9 @@ function createEvent() {
   };
 }
 
-function createHarness({ streamRequest } = {}) {
+function createHarness({ streamRequest, modelPreference, models, modelListError } = {}) {
   const stored = {};
+  const settingsStored = modelPreference ? { "browsefriend.settings.model": modelPreference } : {};
   const broadcasts = [];
   const companionCalls = [];
   const dirtyListeners = [];
@@ -26,11 +27,16 @@ function createHarness({ streamRequest } = {}) {
     async get(key) { return { [key]: stored[key] }; },
     async set(values) { Object.assign(stored, structuredClone(values)); },
   };
+  const settingsStorage = {
+    async get(key) { return { [key]: settingsStored[key] }; },
+    async set(values) { Object.assign(settingsStored, structuredClone(values)); },
+  };
   const companion = {
     async request(method, params, onEvent, explicitId) {
       companionCalls.push({ method, params: structuredClone(params), explicitId });
       if (method === "model.list") {
-        return { result: { models: [{ slug: "model-1", displayName: "Model One" }] } };
+        if (modelListError) throw modelListError;
+        return { result: { models: models || [{ slug: "model-1", displayName: "Model One" }] } };
       }
       if (method === "model.stream") {
         if (streamRequest) return streamRequest({ method, params, onEvent, explicitId });
@@ -60,11 +66,21 @@ function createHarness({ streamRequest } = {}) {
   const controller = installChatController({
     runtime,
     storage,
+    settingsStorage,
     companion,
     pageReader,
     randomUUID: () => `id-${nextId++}`,
   });
-  return { broadcasts, companionCalls, controller, dirtyListeners, onMessage, runtime, storage };
+  return {
+    broadcasts,
+    companionCalls,
+    controller,
+    dirtyListeners,
+    onMessage,
+    runtime,
+    settingsStored,
+    storage,
+  };
 }
 
 function dispatch(harness, message) {
@@ -185,4 +201,60 @@ test("clearing a chat prevents a cancelled generation from restoring old message
   assert.deepEqual(state.messages, []);
   const stateBroadcasts = harness.broadcasts.filter((message) => message.event === "state");
   assert.deepEqual(stateBroadcasts.at(-1).state.messages, []);
+});
+
+test("model settings select explicit models and reset unavailable choices", async () => {
+  const models = [
+    { slug: "model-1", displayName: "Model One" },
+    { slug: "model-2", displayName: "Model Two" },
+  ];
+  const harness = createHarness({ modelPreference: "model-2", models });
+
+  const options = await dispatch(harness, {
+    channel: "chat",
+    method: "chat.models",
+    refresh: true,
+  });
+  assert.deepEqual(options.result, { models, preference: "model-2" });
+
+  await dispatch(harness, { channel: "chat", method: "chat.send", text: "Question" });
+  await settle();
+  const stream = harness.companionCalls.find((call) => call.method === "model.stream");
+  assert.equal(stream.params.model, "model-2");
+
+  harness.settingsStored["browsefriend.settings.model"] = "model-1";
+  await dispatch(harness, { channel: "chat", method: "chat.send", text: "Next question" });
+  await settle();
+  const streams = harness.companionCalls.filter((call) => call.method === "model.stream");
+  assert.equal(streams.at(-1).params.model, "model-1");
+
+  harness.settingsStored["browsefriend.settings.model"] = "missing-model";
+  const reset = await dispatch(harness, {
+    channel: "chat",
+    method: "chat.models",
+    refresh: true,
+  });
+  assert.equal(reset.result.preference, "automatic");
+  assert.equal(harness.settingsStored["browsefriend.settings.model"], "automatic");
+});
+
+test("model catalog failures and empty catalogs remain safe", async () => {
+  const failed = createHarness({
+    modelListError: { code: "catalog_failed", message: "Models unavailable.", retryable: true },
+  });
+  const failure = await dispatch(failed, {
+    channel: "chat",
+    method: "chat.models",
+    refresh: true,
+  });
+  assert.equal(failure.ok, false);
+  assert.equal(failure.error.code, "catalog_failed");
+
+  const empty = createHarness({ models: [] });
+  const options = await dispatch(empty, {
+    channel: "chat",
+    method: "chat.models",
+    refresh: true,
+  });
+  assert.deepEqual(options.result, { models: [], preference: "automatic" });
 });

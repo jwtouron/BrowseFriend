@@ -1,17 +1,26 @@
 export const DEBUG_MODE_KEY = "browsefriend.settings.debugMode";
 export const THEME_KEY = "browsefriend.settings.theme";
+export const MODEL_KEY = "browsefriend.settings.model";
 export const THEMES = new Set(["system", "light", "dark"]);
 
 export function normalizeTheme(value) {
   return THEMES.has(value) ? value : "system";
 }
 
+export function normalizeModel(value) {
+  if (value === "automatic") return value;
+  if (typeof value !== "string") return "automatic";
+  const normalized = value.trim();
+  return normalized && normalized.length <= 200 ? normalized : "automatic";
+}
+
 export function createPreferences({ storageArea, storageChanged }) {
   async function load() {
-    const stored = await storageArea.get([DEBUG_MODE_KEY, THEME_KEY]);
+    const stored = await storageArea.get([DEBUG_MODE_KEY, THEME_KEY, MODEL_KEY]);
     return {
       debugMode: stored?.[DEBUG_MODE_KEY] === true,
       theme: normalizeTheme(stored?.[THEME_KEY]),
+      model: normalizeModel(stored?.[MODEL_KEY]),
     };
   }
 
@@ -27,6 +36,12 @@ export function createPreferences({ storageArea, storageChanged }) {
     return value;
   }
 
+  async function saveModel(model) {
+    const value = normalizeModel(model);
+    await storageArea.set({ [MODEL_KEY]: value });
+    return value;
+  }
+
   function subscribe(listener) {
     const handleChange = (changes, areaName) => {
       if (areaName !== "local") return;
@@ -37,13 +52,16 @@ export function createPreferences({ storageArea, storageChanged }) {
       if (changes?.[THEME_KEY]) {
         update.theme = normalizeTheme(changes[THEME_KEY].newValue);
       }
+      if (changes?.[MODEL_KEY]) {
+        update.model = normalizeModel(changes[MODEL_KEY].newValue);
+      }
       if (Object.keys(update).length) listener(update);
     };
     storageChanged.addListener(handleChange);
     return () => storageChanged.removeListener(handleChange);
   }
 
-  return { load, saveDebugMode, saveTheme, subscribe };
+  return { load, saveDebugMode, saveTheme, saveModel, subscribe };
 }
 
 export function applyTheme(root, theme) {

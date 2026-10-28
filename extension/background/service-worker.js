@@ -11,6 +11,7 @@ const pageReader = installPageReader({
 installChatController({
   runtime: chrome.runtime,
   storage: chrome.storage.session,
+  settingsStorage: chrome.storage.local,
   companion,
   pageReader,
   randomUUID: () => crypto.randomUUID(),

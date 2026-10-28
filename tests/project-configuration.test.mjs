@@ -64,6 +64,17 @@ test("stable native host entrypoint imports resolve", async () => {
   await Promise.all(imports.map((path) => access(new URL(path, hostUrl))));
 });
 
+test("pinned DevKit response requests disable server-side conversation state", async () => {
+  const source = await readFile(new URL(
+    "../vendor/sign-in-with-chatgpt-devkit/packages/local/dist/responses.js",
+    import.meta.url,
+  ), "utf8");
+
+  assert.match(source, /store:\s*false/);
+  assert.match(source, /stream:\s*true/);
+  assert.doesNotMatch(source, /previous_response_id|conversation:/);
+});
+
 test("native host paths follow Chrome's user-specific platform conventions", () => {
   assert.equal(
     appDataDirectory("darwin", {}, "/Users/tester"),

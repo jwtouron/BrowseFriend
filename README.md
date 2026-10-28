@@ -6,9 +6,9 @@ BrowseFriend is a local-first Chrome side-panel companion. It provides a support
 
 The extension never receives OAuth credentials. Its service worker talks to a Node.js native-messaging host that runs OpenAI's loopback sign-in flow and returns only display-safe account state. Tokens are encrypted with a random key protected by macOS Keychain or Linux Secret Service.
 
-BrowseFriend does not create product accounts, subscriptions, or billing. It does not read ChatGPT cookies, conversations, or private endpoints. The official flow can use eligible ChatGPT plan usage but does not expose existing ChatGPT history.
+BrowseFriend does not create product accounts, subscriptions, or billing. It does not read ChatGPT cookies, conversations, memory, or private endpoints. The official flow can use eligible ChatGPT plan usage but does not grant access to ChatGPT history or memory.
 
-Model requests use `store: false`; BrowseFriend keeps the current transcript in Chrome's memory-only session storage. It disappears when Chrome restarts or the extension reloads.
+Model requests use `store: false`; BrowseFriend supplies only its fixed instructions, local transcript, current page context, and current prompt. The transcript uses one global Chrome session shared by open panels. It disappears when Chrome restarts or the extension reloads.
 
 ## Prerequisites
 

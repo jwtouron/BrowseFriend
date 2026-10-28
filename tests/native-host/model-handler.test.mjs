@@ -58,6 +58,9 @@ test("model handler streams deltas and treats page context as untrusted data", a
   assert.deepEqual(options.input[0], params.history[0]);
   assert.match(options.input[1].content, /<page-context>/);
   assert.equal(options.input[2].content, params.prompt);
+  assert.equal(Object.hasOwn(options, "conversation"), false);
+  assert.equal(Object.hasOwn(options, "previous_response_id"), false);
+  assert.equal(Object.hasOwn(options, "previousResponseId"), false);
   assert.equal(options.reasoning, undefined);
   assert.deepEqual(harness.sent, [
     { event: "model.delta", requestId: "stream", delta: "Hello " },

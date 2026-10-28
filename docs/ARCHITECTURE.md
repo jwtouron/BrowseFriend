@@ -54,13 +54,26 @@ stream results. Page content is wrapped as untrusted data rather than instructio
 navigation advance the page revision, allowing the controller to mark captured context and its
 answer as stale. Retrying a failed response recaptures the page and replaces the failed attempt.
 
+### Model context and instructions
+
+The fixed Responses API instruction string is `MODEL_INSTRUCTIONS` in
+`native-host/model/handler.mjs`. It defines BrowseFriend's read-only role and the boundary that treats
+page content as untrusted data. Each request contains eligible user/assistant transcript pairs, an
+optional current-page context block, and the current prompt, in that order. Earlier page snapshots
+are not copied into transcript history.
+
+The pinned DevKit sends each request with `store: false` and without a `conversation` or
+`previous_response_id`. Sign in with ChatGPT plan access does not grant BrowseFriend access to the
+user's ChatGPT conversations or memory; the model receives only the context BrowseFriend supplies.
+
 ### Settings and state
 
 Theme, accent color, model, and Debug preferences use `chrome.storage.local` and synchronize between
-open panels through `chrome.storage.onChanged`. The active conversation uses `chrome.storage.session`, so it can
-survive service-worker suspension but not a browser restart or extension reload. The companion stores
-account data in the platform application-data directory and encrypts credentials with a key protected
-by macOS Keychain or Linux Secret Service.
+open panels through `chrome.storage.onChanged`. The active conversation uses one global
+`chrome.storage.session` record shared across panels and windows. It survives service-worker
+suspension but not a browser restart or extension reload. New chat and logout clear it. The companion
+stores account data in the platform application-data directory and encrypts credentials with a key
+protected by macOS Keychain or Linux Secret Service.
 
 ## Trust boundaries
 
@@ -69,8 +82,8 @@ by macOS Keychain or Linux Secret Service.
   storage, messages, logs, URLs, tests, or commits.
 - Runtime and native messages accept only known senders and allowlisted operations; public errors and
   account state are sanitized before crossing into the extension.
-- Model requests use `store: false`. BrowseFriend does not read ChatGPT cookies, conversations, or
-  private endpoints.
+- Model requests use `store: false`. BrowseFriend does not read ChatGPT cookies, conversations,
+  memory, or private endpoints.
 - Page extraction, model communication, and future action execution remain separate. Consequential
   actions require explicit user confirmation and stale-target validation.
 

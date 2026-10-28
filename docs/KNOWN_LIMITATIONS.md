@@ -32,6 +32,8 @@ random loopback listener only while completing the hosted OAuth callback.
 - Conversations use `store: false` and do not create ChatGPT history entries. They are held in
   Chrome's memory-only session storage and disappear after browser restart, extension reload,
   extension update, or disable.
+- The current transcript is global across open BrowseFriend panels and Chrome windows. Switching
+  tabs or windows does not select a separate chat; use **New chat** to clear the shared context.
 - Responses are based on a captured page revision. BrowseFriend reports when the page changes but
   does not restart an answer automatically.
 

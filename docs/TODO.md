@@ -26,7 +26,13 @@ current implementation unless a task explicitly promotes them into scope.
 
 ## Chat and models
 
-- [ ] Add persistent local chat history and a UI for reopening and deleting prior chats.
+- [ ] Replace the single global transcript with persistent local chat history and explicit controls
+  for creating, selecting, reopening, and deleting chats across the global side-panel experience.
+- [ ] Add an **Instructions** Settings section before Debug. Keep additive instructions normally
+  editable; show the base `MODEL_INSTRUCTIONS` text disabled until an **Edit** action presents and
+  confirms a safety warning. Include **Reset to default**, persist both values in
+  `chrome.storage.local`, synchronize panels, and keep consequential-action and page-data safety
+  controls enforced in code rather than relying on editable instructions.
 - [ ] Make the header connection indicator open **Settings → Account** and focus the account
   controls while preserving its non-color accessible status.
 - [ ] Add reasoning-effort selection when the pinned DevKit exposes the parameter and each model's

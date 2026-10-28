@@ -31,12 +31,12 @@
           </div>
         </div>
         <div class="topbar__actions">
-          <button class="icon-button" id="clear-chat" type="button" title="Start a new chat" hidden>
+          <button class="icon-button topbar__chat-action" id="clear-chat" type="button" title="Start a new chat" hidden>
             <span aria-hidden="true">＋</span>
             <span class="sr-only">Start a new chat</span>
           </button>
           <button
-            class="icon-button"
+            class="icon-button topbar__chat-action"
             id="open-settings"
             type="button"
             title="Open settings"
@@ -45,6 +45,16 @@
           >
             <span aria-hidden="true">⚙</span>
             <span class="sr-only">Open settings</span>
+          </button>
+          <button
+            class="icon-button topbar__settings-action"
+            id="close-settings"
+            type="button"
+            title="Back to chat"
+            aria-controls="chat-view"
+          >
+            <span aria-hidden="true">←</span>
+            <span class="sr-only">Back to chat</span>
           </button>
           <button class="icon-button" id="close-panel" type="button" title="Close side panel">
             <span aria-hidden="true">×</span>
@@ -144,10 +154,6 @@
           inert
         >
           <div class="settings-view__header">
-            <button class="icon-button" id="close-settings" type="button" title="Back to chat">
-              <span aria-hidden="true">←</span>
-              <span class="sr-only">Back to chat</span>
-            </button>
             <h2 id="settings-title">Settings</h2>
           </div>
           <div class="settings-content">

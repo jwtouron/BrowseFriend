@@ -104,9 +104,37 @@ test("initial chat uses one inline connection and recovery surface", async () =>
   assert.match(html, /class="chat-content" id="chat-content">/);
 });
 
+test("the shared top bar exposes only page-appropriate actions", async () => {
+  const [html, styles] = await Promise.all([
+    readFile(htmlUrl, "utf8"),
+    readFile(stylesUrl, "utf8"),
+  ]);
+  const topbar = html.slice(html.indexOf('<header class="topbar">'), html.indexOf("</header>"));
+  const settings = html.slice(
+    html.indexOf('class="settings-view"'),
+    html.indexOf('class="settings-content"'),
+  );
+
+  assert.match(topbar, /<h1>BrowseFriend<\/h1>/);
+  assert.match(topbar, /Page companion/);
+  assert.match(topbar, /id="connection-status"/);
+  assert.match(topbar, /class="icon-button topbar__chat-action" id="clear-chat"/);
+  assert.match(topbar, /class="icon-button topbar__chat-action"[^>]*id="open-settings"/s);
+  assert.match(topbar, /class="icon-button topbar__settings-action"[^>]*id="close-settings"/s);
+  assert.ok(topbar.indexOf('id="close-settings"') < topbar.indexOf('id="close-panel"'));
+  assert.doesNotMatch(settings, /id="close-settings"/);
+  assert.match(settings, /<h2 id="settings-title">Settings<\/h2>/);
+  assert.doesNotMatch(styles, /\.app:has\(\.view-stack--settings\) \.brand/);
+  assert.match(styles, /\.app:has\(\.view-stack--settings\) \.topbar__chat-action/);
+  assert.match(styles, /\.app:has\(\.view-stack--settings\) \.icon-button\.topbar__settings-action/);
+});
+
 test("composer keeps its trailing action anchored with symmetric padding", async () => {
   const styles = await readFile(stylesUrl, "utf8");
-  assert.match(styles, /\.composer\s*\{[^}]*display:\s*flex;[^}]*padding:\s*8px 14px;/s);
+  assert.match(
+    styles,
+    /\.composer\s*\{[^}]*display:\s*flex;[^}]*margin:\s*10px 12px 0;[^}]*padding:\s*8px 14px;/s,
+  );
   assert.match(styles, /\.composer-clear,\s*\.send-button\s*\{[^}]*flex:\s*0 0 34px;/s);
 });
 

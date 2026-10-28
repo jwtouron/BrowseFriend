@@ -223,6 +223,18 @@ button {
   background: var(--surface-muted);
 }
 
+.icon-button.topbar__settings-action {
+  display: none;
+}
+
+.app:has(.view-stack--settings) .topbar__chat-action {
+  display: none;
+}
+
+.app:has(.view-stack--settings) .icon-button.topbar__settings-action {
+  display: grid;
+}
+
 .conversation {
   min-height: 0;
   overflow-y: auto;
@@ -247,7 +259,6 @@ button {
 .settings-view__header {
   display: flex;
   align-items: center;
-  gap: 8px;
 }
 
 .settings-view__header h2 {
@@ -702,7 +713,7 @@ button {
   display: flex;
   align-items: end;
   gap: 8px;
-  margin: 0 12px;
+  margin: 10px 12px 0;
   padding: 8px 14px;
   border: 1px solid var(--border);
   border-radius: 18px;

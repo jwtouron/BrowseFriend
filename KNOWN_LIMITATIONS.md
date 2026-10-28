@@ -25,8 +25,10 @@ random loopback listener only while completing the hosted OAuth callback.
 ## Chat behavior
 
 - Automatic model selection uses the first model returned for the connected account. BrowseFriend
-  cannot override reasoning effort because the pinned DevKit does not expose that parameter or
-  each model's supported values.
+  currently uses each model's default reasoning effort because the pinned DevKit does not expose
+  `reasoning.effort` or each model's supported values. This could be added with a minimal downstream
+  DevKit patch that forwards an optional effort value; **Model default** should remain available
+  because valid explicit values differ by model.
 - Conversations use `store: false` and do not create ChatGPT history entries. They are held in
   Chrome's memory-only session storage and disappear after browser restart, extension reload,
   extension update, or disable.

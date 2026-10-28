@@ -47,7 +47,7 @@ Ask a question to capture the current HTTP or HTTPS page. BrowseFriend sends a b
 
 Send changes to Stop while a prompt is waiting or generating. Stop leaves connection setup running, restores the prompt as an editable draft, and preserves any partial answer as stopped. Connection and response failures share a Retry action; retrying a response captures fresh page context and replaces the failed attempt.
 
-Settings can use the first available model automatically or persist an explicit model choice. The selected model applies to the next response and does not clear the current chat.
+Appearance settings persist the System, Light, or Dark theme and one of seven accent colors; blue is the default. Settings can also use the first available model automatically or persist an explicit model choice. The selected model applies to the next response and does not clear the current chat.
 
 With an empty composer, use Up or Ctrl+P to recall earlier prompts; continue with Up/Down or Ctrl+P/N. Typing starts a fresh draft. Use the × control or Ctrl+U to clear the composer.
 

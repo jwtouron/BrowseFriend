@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-accent="blue">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -200,6 +200,48 @@
                 System follows the color preference exposed by your browser or operating system.
               </p>
               <p class="status-message" id="theme-settings-error" role="alert" hidden></p>
+
+              <fieldset class="accent-picker" id="accent-picker" disabled>
+                <legend>Accent color</legend>
+                <div class="accent-picker__options">
+                  <label class="accent-swatch accent-swatch--red" title="Red">
+                    <input type="radio" name="accent-color" value="red" />
+                    <span aria-hidden="true"></span>
+                    <span class="sr-only">Red</span>
+                  </label>
+                  <label class="accent-swatch accent-swatch--orange" title="Orange">
+                    <input type="radio" name="accent-color" value="orange" />
+                    <span aria-hidden="true"></span>
+                    <span class="sr-only">Orange</span>
+                  </label>
+                  <label class="accent-swatch accent-swatch--yellow" title="Yellow">
+                    <input type="radio" name="accent-color" value="yellow" />
+                    <span aria-hidden="true"></span>
+                    <span class="sr-only">Yellow</span>
+                  </label>
+                  <label class="accent-swatch accent-swatch--green" title="Green">
+                    <input type="radio" name="accent-color" value="green" />
+                    <span aria-hidden="true"></span>
+                    <span class="sr-only">Green</span>
+                  </label>
+                  <label class="accent-swatch accent-swatch--blue" title="Blue">
+                    <input type="radio" name="accent-color" value="blue" checked />
+                    <span aria-hidden="true"></span>
+                    <span class="sr-only">Blue</span>
+                  </label>
+                  <label class="accent-swatch accent-swatch--purple" title="Purple">
+                    <input type="radio" name="accent-color" value="purple" />
+                    <span aria-hidden="true"></span>
+                    <span class="sr-only">Purple</span>
+                  </label>
+                  <label class="accent-swatch accent-swatch--cyan" title="Cyan">
+                    <input type="radio" name="accent-color" value="cyan" />
+                    <span aria-hidden="true"></span>
+                    <span class="sr-only">Cyan</span>
+                  </label>
+                </div>
+              </fieldset>
+              <p class="status-message" id="accent-settings-error" role="alert" hidden></p>
             </section>
 
             <section class="settings-section" id="model-settings" aria-labelledby="model-title">
@@ -258,8 +300,8 @@
 
     <template id="message-template">
       <article class="message">
-        <div class="message__avatar" aria-hidden="true"></div>
         <div class="message__body">
+          <span class="message__author sr-only"></span>
           <div class="message__content"></div>
           <button class="context-chip" type="button" hidden></button>
           <p class="message__status" hidden></p>

@@ -17,6 +17,20 @@ async function assertImportsExist(moduleUrl) {
   await Promise.all(paths.map((path) => access(new URL(path, moduleUrl))));
 }
 
+function relativeLuminance(hex) {
+  const channels = [0, 2, 4]
+    .map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255)
+    .map((channel) => channel <= 0.04045
+      ? channel / 12.92
+      : ((channel + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+function contrastRatio(first, second) {
+  const values = [relativeLuminance(first), relativeLuminance(second)].sort((a, b) => b - a);
+  return (values[0] + 0.05) / (values[1] + 0.05);
+}
+
 test("side panel IDs are unique and every JavaScript lookup resolves", async () => {
   const [html, script] = await Promise.all([
     readFile(htmlUrl, "utf8"),
@@ -124,6 +138,51 @@ test("Appearance offers System, Light, and Dark before the final Debug section",
   assert.match(html, /<option value="dark">Dark<\/option>/);
   assert.match(styles, /:root\[data-theme="dark"\][^{]*\{[^}]*color-scheme:\s*dark;/s);
   assert.match(styles, /:root:not\(\[data-theme="light"\]\)/);
+});
+
+test("Appearance offers seven accent swatches with Blue selected by default", async () => {
+  const [html, styles] = await Promise.all([
+    readFile(htmlUrl, "utf8"),
+    readFile(stylesUrl, "utf8"),
+  ]);
+  const accentValues = [...html.matchAll(
+    /<input type="radio" name="accent-color" value="([^"]+)"(?: checked)? \/>/g,
+  )].map((match) => match[1]);
+
+  assert.deepEqual(accentValues, [
+    "red",
+    "orange",
+    "yellow",
+    "green",
+    "blue",
+    "purple",
+    "cyan",
+  ]);
+  assert.match(html, /<html lang="en" data-accent="blue">/);
+  assert.match(html, /name="accent-color" value="blue" checked/);
+  for (const accent of accentValues) {
+    assert.match(styles, new RegExp(`:root\\[data-accent="${accent}"\\]`));
+  }
+});
+
+test("accent fills retain readable foreground contrast in both themes", async () => {
+  const styles = await readFile(stylesUrl, "utf8");
+  const palettes = [...styles.matchAll(
+    /:root\[data-accent="([^"]+)"\]\s*\{[^}]*--accent:\s*light-dark\(#([0-9a-f]{6}), #([0-9a-f]{6})\)/g,
+  )];
+
+  assert.equal(palettes.length, 7);
+  for (const [, name, light, dark] of palettes) {
+    assert.ok(contrastRatio(light, "ffffff") >= 4.5, `${name} lacks light-theme contrast.`);
+    assert.ok(contrastRatio(dark, "171817") >= 4.5, `${name} lacks dark-theme contrast.`);
+  }
+});
+
+test("transcript messages have hidden authors instead of visible avatars", async () => {
+  const html = await readFile(htmlUrl, "utf8");
+
+  assert.doesNotMatch(html, /message__avatar/);
+  assert.match(html, /class="message__author sr-only"/);
 });
 
 test("Model settings expose Automatic and keep Debug last", async () => {

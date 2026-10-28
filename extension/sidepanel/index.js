@@ -3,6 +3,7 @@ import { createAuthView } from "../auth/view-model.js";
 import { renderMarkdown } from "../chat/markdown.js";
 import { composerShortcut, createPromptHistory } from "../chat/prompt-history.js";
 import {
+  applyAccent,
   applyTheme,
   createPreferences,
   normalizeModel,
@@ -47,6 +48,9 @@ const modelSelect = document.querySelector("#model-select");
 const modelSettingsError = document.querySelector("#model-settings-error");
 const themeSelect = document.querySelector("#theme-select");
 const themeSettingsError = document.querySelector("#theme-settings-error");
+const accentPicker = document.querySelector("#accent-picker");
+const accentInputs = document.querySelectorAll('input[name="accent-color"]');
+const accentSettingsError = document.querySelector("#accent-settings-error");
 const debugModeSwitch = document.querySelector("#debug-mode");
 const debugSettingsError = document.querySelector("#debug-settings-error");
 const contextViewer = document.querySelector("#context-viewer");
@@ -78,6 +82,7 @@ let currentState = {
 let optimisticSubmission = null;
 let debugMode = false;
 let theme = "system";
+let accent = "blue";
 let modelPreference = "automatic";
 let availableModels = [];
 let contextViewerOpen = false;
@@ -96,14 +101,14 @@ function displayError(error, fallback = "BrowseFriend could not continue.") {
 function createMessageElement(messageData) {
   const fragment = messageTemplate.content.cloneNode(true);
   const message = fragment.querySelector(".message");
-  const avatar = fragment.querySelector(".message__avatar");
+  const author = fragment.querySelector(".message__author");
   const content = fragment.querySelector(".message__content");
   const contextButton = fragment.querySelector(".context-chip");
   const status = fragment.querySelector(".message__status");
 
   message.dataset.messageId = messageData.id;
   message.classList.add(`message--${messageData.role}`);
-  avatar.textContent = messageData.role === "user" ? "You" : "B";
+  author.textContent = messageData.role === "user" ? "You:" : "BrowseFriend:";
   if (messageData.role === "assistant") {
     assistantSources.set(message, messageData.text);
     renderMarkdown(content, messageData.text);
@@ -383,6 +388,13 @@ function applyThemePreference(nextTheme) {
   themeSelect.value = theme;
 }
 
+function applyAccentPreference(nextAccent) {
+  accent = applyAccent(document.documentElement, nextAccent);
+  accentInputs.forEach((input) => {
+    input.checked = input.value === accent;
+  });
+}
+
 function hasModelOption(value) {
   return [...modelSelect.options].some((option) => option.value === value);
 }
@@ -430,21 +442,26 @@ async function refreshModels(refresh = true) {
 async function loadPreferences() {
   debugModeSwitch.disabled = true;
   themeSelect.disabled = true;
+  accentPicker.disabled = true;
   try {
     const stored = await preferences.load();
     applyDebugMode(stored.debugMode);
     applyThemePreference(stored.theme);
+    applyAccentPreference(stored.accent);
     applyModelPreference(stored.model);
   } catch {
     applyDebugMode(false);
     applyThemePreference("system");
+    applyAccentPreference("blue");
     applyModelPreference("automatic");
     const error = { message: "BrowseFriend could not load saved settings." };
     setStatusMessage(debugSettingsError, error);
     setStatusMessage(themeSettingsError, error);
+    setStatusMessage(accentSettingsError, error);
   } finally {
     debugModeSwitch.disabled = false;
     themeSelect.disabled = false;
+    accentPicker.disabled = false;
   }
 }
 
@@ -477,6 +494,22 @@ async function updateTheme() {
     });
   } finally {
     themeSelect.disabled = false;
+  }
+}
+
+async function updateAccent() {
+  const requested = [...accentInputs].find((input) => input.checked)?.value;
+  accentPicker.disabled = true;
+  setStatusMessage(accentSettingsError, null);
+  try {
+    applyAccentPreference(await preferences.saveAccent(requested));
+  } catch {
+    applyAccentPreference(accent);
+    setStatusMessage(accentSettingsError, {
+      message: "BrowseFriend could not save the Accent color preference.",
+    });
+  } finally {
+    accentPicker.disabled = false;
   }
 }
 
@@ -680,6 +713,9 @@ cancelSignInButton.addEventListener("click", () => void cancelSignIn());
 signOutButton.addEventListener("click", () => void signOut());
 modelSelect.addEventListener("change", () => void updateModel());
 themeSelect.addEventListener("change", () => void updateTheme());
+accentInputs.forEach((input) => {
+  input.addEventListener("change", () => void updateAccent());
+});
 debugModeSwitch.addEventListener("change", () => void updateDebugMode());
 closeContextButton.addEventListener("click", hideContext);
 
@@ -695,6 +731,7 @@ appClient.subscribe((event) => {
 preferences.subscribe((update) => {
   if (Object.hasOwn(update, "debugMode")) applyDebugMode(update.debugMode);
   if (Object.hasOwn(update, "theme")) applyThemePreference(update.theme);
+  if (Object.hasOwn(update, "accent")) applyAccentPreference(update.accent);
   if (Object.hasOwn(update, "model")) applyModelPreference(update.model);
 });
 

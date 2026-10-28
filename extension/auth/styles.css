@@ -75,7 +75,7 @@
 .primary-button {
   padding: 9px 18px;
   border: 0;
-  color: white;
+  color: var(--accent-foreground);
   background: var(--accent);
 }
 
@@ -159,7 +159,7 @@
   height: 36px;
   place-items: center;
   border-radius: 50%;
-  color: white;
+  color: var(--accent-foreground);
   background: var(--accent);
   font-weight: 700;
 }

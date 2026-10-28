@@ -56,8 +56,8 @@ answer as stale. Retrying a failed response recaptures the page and replaces the
 
 ### Settings and state
 
-Theme, model, and Debug preferences use `chrome.storage.local` and synchronize between open panels
-through `chrome.storage.onChanged`. The active conversation uses `chrome.storage.session`, so it can
+Theme, accent color, model, and Debug preferences use `chrome.storage.local` and synchronize between
+open panels through `chrome.storage.onChanged`. The active conversation uses `chrome.storage.session`, so it can
 survive service-worker suspension but not a browser restart or extension reload. The companion stores
 account data in the platform application-data directory and encrypts credentials with a key protected
 by macOS Keychain or Linux Secret Service.

@@ -1,10 +1,24 @@
 export const DEBUG_MODE_KEY = "browsefriend.settings.debugMode";
 export const THEME_KEY = "browsefriend.settings.theme";
+export const ACCENT_KEY = "browsefriend.settings.accent";
 export const MODEL_KEY = "browsefriend.settings.model";
 export const THEMES = new Set(["system", "light", "dark"]);
+export const ACCENTS = new Set([
+  "red",
+  "orange",
+  "yellow",
+  "green",
+  "blue",
+  "purple",
+  "cyan",
+]);
 
 export function normalizeTheme(value) {
   return THEMES.has(value) ? value : "system";
+}
+
+export function normalizeAccent(value) {
+  return ACCENTS.has(value) ? value : "blue";
 }
 
 export function normalizeModel(value) {
@@ -16,10 +30,16 @@ export function normalizeModel(value) {
 
 export function createPreferences({ storageArea, storageChanged }) {
   async function load() {
-    const stored = await storageArea.get([DEBUG_MODE_KEY, THEME_KEY, MODEL_KEY]);
+    const stored = await storageArea.get([
+      DEBUG_MODE_KEY,
+      THEME_KEY,
+      ACCENT_KEY,
+      MODEL_KEY,
+    ]);
     return {
       debugMode: stored?.[DEBUG_MODE_KEY] === true,
       theme: normalizeTheme(stored?.[THEME_KEY]),
+      accent: normalizeAccent(stored?.[ACCENT_KEY]),
       model: normalizeModel(stored?.[MODEL_KEY]),
     };
   }
@@ -33,6 +53,12 @@ export function createPreferences({ storageArea, storageChanged }) {
   async function saveTheme(theme) {
     const value = normalizeTheme(theme);
     await storageArea.set({ [THEME_KEY]: value });
+    return value;
+  }
+
+  async function saveAccent(accent) {
+    const value = normalizeAccent(accent);
+    await storageArea.set({ [ACCENT_KEY]: value });
     return value;
   }
 
@@ -52,6 +78,9 @@ export function createPreferences({ storageArea, storageChanged }) {
       if (changes?.[THEME_KEY]) {
         update.theme = normalizeTheme(changes[THEME_KEY].newValue);
       }
+      if (changes?.[ACCENT_KEY]) {
+        update.accent = normalizeAccent(changes[ACCENT_KEY].newValue);
+      }
       if (changes?.[MODEL_KEY]) {
         update.model = normalizeModel(changes[MODEL_KEY].newValue);
       }
@@ -61,13 +90,19 @@ export function createPreferences({ storageArea, storageChanged }) {
     return () => storageChanged.removeListener(handleChange);
   }
 
-  return { load, saveDebugMode, saveTheme, saveModel, subscribe };
+  return { load, saveAccent, saveDebugMode, saveTheme, saveModel, subscribe };
 }
 
 export function applyTheme(root, theme) {
   const normalized = normalizeTheme(theme);
   if (normalized === "system") delete root.dataset.theme;
   else root.dataset.theme = normalized;
+  return normalized;
+}
+
+export function applyAccent(root, accent) {
+  const normalized = normalizeAccent(accent);
+  root.dataset.accent = normalized;
   return normalized;
 }
 

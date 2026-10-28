@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-BrowseFriend combines a Chrome Manifest V3 side panel with a local Node.js companion. `extension/sidepanel/` owns UI; `extension/auth/`, `extension/chat/`, `extension/settings/`, and `extension/page/read/` isolate browser features. Native authentication and model requests live in `native-host/`, tests mirror subsystems under `tests/`, and `vendor/sign-in-with-chatgpt-devkit/` pins OpenAI's SDK.
+BrowseFriend combines a Chrome Manifest V3 side panel with a local Node.js companion. `extension/app/` owns connection and prompt workflow state; `extension/sidepanel/` renders it; `extension/auth/`, `extension/chat/`, `extension/settings/`, and `extension/page/read/` isolate supporting features. Native authentication and model requests live in `native-host/`, tests mirror subsystems under `tests/`, project documentation lives in `docs/`, and `vendor/sign-in-with-chatgpt-devkit/` pins OpenAI's SDK.
 
 Keep HTML accessible, CSS presentation-only, and browser behavior in JavaScript. Never add inline scripts. OAuth credentials belong exclusively in the native host; extension messages may contain only sanitized account state.
 Keep Debug last in Settings. Persist user settings in `chrome.storage.local` and propagate changes between open panels with `chrome.storage.onChanged`.
@@ -13,9 +13,21 @@ Build a personal, local-first page companion that explains pages before proposin
 
 Authentication must use OpenAI's hosted **Continue with ChatGPT** flow through the pinned local DevKit. Keep credentials encrypted with an OS-backed key, out of browser storage, URLs, logs, tests, and commits. Preserve the separation between page extraction, model communication, and action execution.
 
+## State & Workflow Design
+
+Give mutable workflow state one owner and model it with small explicit state machines. Keep independent concerns as orthogonal fields, derive UI from state, and serialize operations that must not overlap. Do not scatter duplicate busy, authentication, or error flags across background and view code.
+
+Give asynchronous work stable IDs or epochs and ignore stale completion. Normalize errors once, represent recovery as typed intent instead of callbacks, and keep persistent readiness work independent from cancellable user actions. Add transition tests whenever a state or workflow edge changes.
+
 ## Roadmap Maintenance
 
-Treat `TODO.md` as the canonical deferred-work list. When the user says a feature might, should, or will be added later, add or reconcile a concrete item there without expanding the current task. When an architectural constraint is discovered or resolved, update `KNOWN_LIMITATIONS.md`. Avoid duplicate roadmap items and preserve relevant decisions, blockers, and safety requirements.
+Treat `docs/TODO.md` as the canonical deferred-work list. When the user says a feature might, should, or will be added later, add or reconcile a concrete item there without expanding the current task. When an architectural constraint is discovered or resolved, update `docs/KNOWN_LIMITATIONS.md`. Update `docs/ARCHITECTURE.md` when component boundaries, data flows, storage, trust boundaries, or runtime responsibilities change. Avoid duplicate roadmap items and preserve relevant decisions, blockers, and safety requirements.
+
+## Documentation & Commit Handoff
+
+Before every commit, review `AGENTS.md`, `README.md`, `NOTICE.md`, and every project-owned file under `docs/`; update only the documents affected by the change. Keep repository-local links current and leave vendored documentation untouched.
+
+An explicit request such as **commit it** authorizes staging all changes that belong to the current task and creating an appropriate commit without a separate confirmation question. Never stage unrelated user changes. Tool-enforced approval prompts may still be required and cannot be bypassed by repository instructions.
 
 ## Development and Verification
 

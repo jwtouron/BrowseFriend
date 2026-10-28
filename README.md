@@ -39,9 +39,13 @@ Moving the repository invalidates the installed launcher path; rerun `npm run in
 
 ## Use
 
-Open BrowseFriend from Chrome's toolbar. Signed-out users see **Continue with ChatGPT**. OpenAI handles account and workspace selection in the browser, then returns to the local companion. Once connected, **Settings → Account** shows the selected identity, plan-access state, usage link, and logout action.
+Open BrowseFriend from Chrome's toolbar. The chat is usable immediately while the header indicator quietly checks the local companion, saved account, and available models. Yellow means connecting, green means ready, and red means an action or retry is required.
+
+Signed-out users see **Continue with ChatGPT** inside the chat. OpenAI handles account and workspace selection in the browser, then returns to the local companion. A prompt submitted while setup is still running waits and sends automatically once ready. **Settings → Account** shows the selected identity, plan-access state, usage link, and logout action.
 
 Ask a question to capture the current HTTP or HTTPS page. BrowseFriend sends a bounded semantic snapshot—not raw HTML—and Debug mode can show the inspectable context attachment beside the message. If the page changes during generation, the completed answer is marked as stale. **New chat** clears the memory-only conversation.
+
+Send changes to Stop while a prompt is waiting or generating. Stop leaves connection setup running, restores the prompt as an editable draft, and preserves any partial answer as stopped. Connection and response failures share a Retry action; retrying a response captures fresh page context and replaces the failed attempt.
 
 Settings can use the first available model automatically or persist an explicit model choice. The selected model applies to the next response and does not clear the current chat.
 
@@ -63,9 +67,14 @@ python3 -m json.tool manifest.json
 advisory-affected `undici` package with the compatible patched version recorded
 in `scripts/setup-devkit.mjs`.
 
-The extension remains plain HTML, CSS, and JavaScript with no browser-side build. Chrome code lives in `extension/`; authentication, chat, and page reading are separate features. The companion keeps authentication and model requests separate under `native-host/`. OpenAI's pinned DevKit lives in `vendor/sign-in-with-chatgpt-devkit/`.
+The extension remains plain HTML, CSS, and JavaScript with no browser-side build. Chrome code lives in `extension/`; one application controller owns readiness and prompt workflows while authentication, chat rendering, settings, and page reading remain isolated supporting features. The companion keeps authentication and model requests separate under `native-host/`. OpenAI's pinned DevKit lives in `vendor/sign-in-with-chatgpt-devkit/`.
 
-See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for current platform and model constraints and [TODO.md](TODO.md) for explicitly deferred work.
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) explains components, data flows, storage, and trust boundaries.
+- [Known limitations](docs/KNOWN_LIMITATIONS.md) records current platform and model constraints.
+- [Roadmap](docs/TODO.md) tracks explicitly deferred work and investigations.
+- [Third-party notice](NOTICE.md) summarizes DevKit licensing and redistribution requirements.
 
 ## Product direction
 

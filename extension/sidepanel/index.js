@@ -1,6 +1,5 @@
-import { createAuthClient } from "../auth/client.js";
+import { createAppClient } from "../app/client.js";
 import { createAuthView } from "../auth/view-model.js";
-import { createChatClient } from "../chat/client.js";
 import { renderMarkdown } from "../chat/markdown.js";
 import { composerShortcut, createPromptHistory } from "../chat/prompt-history.js";
 import {
@@ -9,28 +8,26 @@ import {
   normalizeModel,
   shouldShowPageContext,
 } from "../settings/preferences.js";
-import { chatFocusTarget, shouldRestoreComposerFocus } from "./focus.js";
+import { deriveViewState } from "./view-state.js";
 
-// Keep DOM lookups together so the rest of the file reads like a small controller.
 const topbar = document.querySelector(".topbar");
 const conversation = document.querySelector("#conversation");
 const welcome = document.querySelector("#welcome");
+const connectionStatus = document.querySelector("#connection-status");
+const connectionStatusLabel = document.querySelector("#connection-status-label");
+const connectionNotice = document.querySelector("#connection-notice");
+const connectionNoticeTitle = document.querySelector("#connection-notice-title");
+const connectionNoticeMessage = document.querySelector("#connection-notice-message");
+const companionHelp = document.querySelector("#companion-help");
 const viewStack = document.querySelector("#view-stack");
 const chatView = document.querySelector("#chat-view");
 const settingsView = document.querySelector("#settings-view");
-const authLoading = document.querySelector("#auth-loading");
-const authView = document.querySelector("#auth-view");
-const authTitle = document.querySelector("#auth-title");
-const authDescription = document.querySelector("#auth-description");
-const authError = document.querySelector("#auth-error");
-const companionHelp = document.querySelector("#companion-help");
-const chatContent = document.querySelector("#chat-content");
 const composer = document.querySelector("#composer");
 const messageInput = document.querySelector("#message-input");
 const clearMessageButton = document.querySelector("#clear-message");
 const sendMessageButton = document.querySelector("#send-message");
 const stopResponseButton = document.querySelector("#stop-response");
-const chatError = document.querySelector("#chat-error");
+const retryOperationButton = document.querySelector("#retry-operation");
 const clearButton = document.querySelector("#clear-chat");
 const openSettingsButton = document.querySelector("#open-settings");
 const closeSettingsButton = document.querySelector("#close-settings");
@@ -38,7 +35,6 @@ const closeButton = document.querySelector("#close-panel");
 const signInButton = document.querySelector("#sign-in");
 const signInButtonLabel = signInButton.querySelector("span:last-child");
 const cancelSignInButton = document.querySelector("#cancel-sign-in");
-const retryAuthButton = document.querySelector("#retry-auth");
 const settingsSignInButton = document.querySelector("#settings-sign-in");
 const settingsSignInLabel = settingsSignInButton.querySelector("span:last-child");
 const signOutButton = document.querySelector("#sign-out");
@@ -47,8 +43,6 @@ const accountName = document.querySelector("#account-name");
 const accountEmail = document.querySelector("#account-email");
 const accountStatus = document.querySelector("#account-status");
 const settingsAuthError = document.querySelector("#settings-auth-error");
-const planWelcome = document.querySelector("#plan-welcome");
-const dismissPlanWelcomeButton = document.querySelector("#dismiss-plan-welcome");
 const modelSelect = document.querySelector("#model-select");
 const modelSettingsError = document.querySelector("#model-settings-error");
 const themeSelect = document.querySelector("#theme-select");
@@ -62,24 +56,42 @@ const contextContent = document.querySelector("#context-content");
 const messageTemplate = document.querySelector("#message-template");
 const suggestionButtons = document.querySelectorAll(".suggestion");
 
-const PLAN_WELCOME_KEY = "browsefriend.planWelcomeSeen";
-const authClient = createAuthClient(chrome.runtime);
-const chatClient = createChatClient(chrome.runtime);
+const appClient = createAppClient(chrome.runtime);
 const promptHistory = createPromptHistory();
 const preferences = createPreferences({
   storageArea: chrome.storage.local,
   storageChanged: chrome.storage.onChanged,
 });
-let currentAuth = { state: "loading", profile: null, planUsageEnabled: false };
-let currentChat = { messages: [], model: null, generating: false, error: null };
+let currentState = {
+  connection: {
+    phase: "checking",
+    auth: { state: "loading", profile: null, planUsageEnabled: false },
+    error: null,
+  },
+  issue: null,
+  messages: [],
+  model: null,
+  models: [],
+  modelPreference: "automatic",
+  submission: null,
+};
+let optimisticSubmission = null;
 let debugMode = false;
 let theme = "system";
 let modelPreference = "automatic";
 let availableModels = [];
-let modelLoadId = 0;
-let planWelcomeOpen = false;
 let contextViewerOpen = false;
+let settingsError = null;
+let localRecovery = null;
 const assistantSources = new WeakMap();
+
+function displayError(error, fallback = "BrowseFriend could not continue.") {
+  return {
+    code: typeof error?.code === "string" ? error.code : "app_unavailable",
+    message: typeof error?.message === "string" ? error.message : fallback,
+    retryable: error?.retryable !== false,
+  };
+}
 
 function createMessageElement(messageData) {
   const fragment = messageTemplate.content.cloneNode(true);
@@ -127,40 +139,6 @@ function createMessageElement(messageData) {
   return fragment;
 }
 
-function renderChat(state) {
-  const wasGenerating = currentChat.generating;
-  currentChat = state;
-  promptHistory.sync(state.messages
-    .filter((message) => message.role === "user")
-    .map((message) => message.text));
-  conversation.querySelectorAll(".message").forEach((message) => message.remove());
-  welcome.hidden = state.messages.length > 0;
-  state.messages.forEach((message) => conversation.append(createMessageElement(message)));
-  messageInput.disabled = state.generating;
-  sendMessageButton.hidden = state.generating;
-  stopResponseButton.hidden = !state.generating;
-  clearButton.hidden = currentAuth.state !== "signed_in";
-  chatError.hidden = !state.error;
-  chatError.textContent = state.error?.message || "";
-  conversation.scrollTop = conversation.scrollHeight;
-  if (wasGenerating && !state.generating) {
-    requestAnimationFrame(() => {
-      if (shouldRestoreComposerFocus({
-        wasGenerating,
-        generating: currentChat.generating,
-        documentHasFocus: document.hasFocus(),
-        authState: currentAuth.state,
-        settingsOpen: viewStack.classList.contains("view-stack--settings"),
-        contextViewerOpen,
-        planWelcomeOpen,
-        chatVisible: !chatContent.hidden,
-      })) {
-        messageInput.focus({ preventScroll: true });
-      }
-    });
-  }
-}
-
 function appendDelta(messageId, delta) {
   const message = [...conversation.querySelectorAll(".message")]
     .find((element) => element.dataset.messageId === messageId);
@@ -172,6 +150,142 @@ function appendDelta(messageId, delta) {
   renderMarkdown(content, source);
   status.hidden = true;
   conversation.scrollTop = conversation.scrollHeight;
+}
+
+function renderConnectionStatus() {
+  const view = deriveViewState(currentState, optimisticSubmission);
+  connectionStatus.className = `connection-status connection-status--${view.connectionTone}`;
+  connectionStatus.title = view.connectionLabel;
+  connectionStatusLabel.textContent = view.connectionLabel;
+}
+
+function renderNotice() {
+  const notice = currentState.issue;
+  connectionNotice.hidden = !notice;
+  signInButton.hidden = true;
+  retryOperationButton.hidden = true;
+  cancelSignInButton.hidden = true;
+  companionHelp.hidden = true;
+  if (!notice) return;
+
+  if (notice.kind === "action") {
+    connectionNoticeTitle.textContent = notice.title;
+    connectionNoticeMessage.textContent = notice.message;
+    if (notice.action === "sign_in") {
+      signInButton.hidden = false;
+      signInButtonLabel.textContent = currentState.connection.phase === "plan_required"
+        ? "Enable ChatGPT plan"
+        : "Continue with ChatGPT";
+    }
+    if (notice.action === "cancel_sign_in") cancelSignInButton.hidden = false;
+    return;
+  }
+
+  connectionNoticeTitle.textContent = notice.scope === "generation"
+    ? "Response failed"
+    : "BrowseFriend could not connect";
+  connectionNoticeMessage.textContent = notice.error?.message || "BrowseFriend could not continue.";
+  retryOperationButton.hidden = false;
+  companionHelp.hidden = !["companion_unavailable", "companion_timeout"]
+    .includes(notice.error?.code);
+}
+
+function renderMessages() {
+  conversation.querySelectorAll(".message").forEach((message) => message.remove());
+  currentState.messages.forEach((message) => {
+    conversation.insertBefore(createMessageElement(message), connectionNotice);
+  });
+  welcome.hidden = currentState.messages.length > 0 || !connectionNotice.hidden;
+  promptHistory.sync(currentState.messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.text));
+  conversation.scrollTop = conversation.scrollHeight;
+}
+
+function composerBusy() {
+  return deriveViewState(currentState, optimisticSubmission).busy;
+}
+
+function authBlocksComposer() {
+  const view = deriveViewState(currentState, optimisticSubmission);
+  return view.inputDisabled && !view.busy;
+}
+
+function renderComposer() {
+  const view = deriveViewState(currentState, optimisticSubmission);
+  messageInput.disabled = view.inputDisabled;
+  sendMessageButton.hidden = view.sendHidden;
+  stopResponseButton.hidden = view.stopHidden;
+  clearMessageButton.hidden = messageInput.value.length === 0 || messageInput.disabled;
+  suggestionButtons.forEach((button) => {
+    button.disabled = messageInput.disabled;
+  });
+}
+
+function renderAccount() {
+  const view = createAuthView(currentState.connection.auth, settingsError);
+  accountName.textContent = view.profileName;
+  accountEmail.textContent = view.profileEmail;
+  accountStatus.textContent = view.accountStatus;
+  settingsSignInButton.hidden = view.signedIn;
+  settingsSignInButton.disabled = view.signingIn;
+  settingsSignInLabel.textContent = view.signInLabel;
+  manageUsageLink.hidden = !view.connected;
+  signOutButton.hidden = !view.connected;
+  setStatusMessage(settingsAuthError, settingsError);
+  clearButton.hidden = !view.signedIn;
+}
+
+function renderModelsFromState() {
+  const nextModels = Array.isArray(currentState.models) ? currentState.models : [];
+  populateModels(nextModels, modelPreference);
+  modelSelect.disabled = currentState.connection.phase !== "ready" || !nextModels.length;
+}
+
+function renderApp(state, {
+  restoreCompletionFocus = true,
+  preserveLocalRecovery = false,
+} = {}) {
+  const previousSubmission = currentState.submission;
+  const previousView = deriveViewState(currentState, optimisticSubmission);
+  currentState = state;
+  if (!preserveLocalRecovery) localRecovery = null;
+  if (optimisticSubmission && state.submission?.id === optimisticSubmission.id) {
+    optimisticSubmission = null;
+  }
+  renderConnectionStatus();
+  renderNotice();
+  renderMessages();
+  renderComposer();
+  renderAccount();
+  renderModelsFromState();
+
+  if (!restoreCompletionFocus || !document.hasFocus() ||
+      viewStack.classList.contains("view-stack--settings") || contextViewerOpen) return;
+
+  const nextView = deriveViewState(currentState, optimisticSubmission);
+  const submissionFinished = previousSubmission && !state.submission;
+  const actionChanged = previousView.focusTarget !== nextView.focusTarget &&
+    ["signIn", "cancelSignIn", "retry"].includes(nextView.focusTarget);
+  if (submissionFinished || actionChanged) requestAnimationFrame(focusChatSurface);
+}
+
+function showOperationError(error, recovery, scope = "connection") {
+  const publicError = displayError(error);
+  localRecovery = recovery;
+  const state = {
+    ...currentState,
+    connection: scope === "connection"
+      ? { ...currentState.connection, phase: "error", error: publicError }
+      : currentState.connection,
+    issue: {
+      kind: "error",
+      scope,
+      error: publicError,
+      retry: recovery.type,
+    },
+  };
+  renderApp(state, { preserveLocalRecovery: true });
 }
 
 function showContext(context) {
@@ -200,14 +314,14 @@ function resizeInput() {
 }
 
 function updateComposerControls() {
-  clearMessageButton.hidden = messageInput.value.length === 0;
+  clearMessageButton.hidden = messageInput.value.length === 0 || messageInput.disabled;
 }
 
 function setComposerValue(value, { focus = false } = {}) {
   messageInput.value = value;
   resizeInput();
   updateComposerControls();
-  if (focus) messageInput.focus({ preventScroll: true });
+  if (focus && !messageInput.disabled) messageInput.focus({ preventScroll: true });
 }
 
 function clearComposer({ focus = true } = {}) {
@@ -216,22 +330,16 @@ function clearComposer({ focus = true } = {}) {
 }
 
 function focusChatSurface() {
-  const targetName = chatFocusTarget({
-    authState: currentAuth.state,
-    generating: currentChat.generating,
-  });
+  const targetName = deriveViewState(currentState, optimisticSubmission).focusTarget;
   const targets = {
     composer: messageInput,
     stop: stopResponseButton,
     signIn: signInButton,
     cancelSignIn: cancelSignInButton,
-    settings: openSettingsButton,
+    retry: retryOperationButton,
   };
-  const target = targets[targetName];
-  if (!target || target.hidden || target.disabled) {
-    openSettingsButton.focus({ preventScroll: true });
-    return;
-  }
+  let target = targets[targetName];
+  if (!target || target.hidden || target.disabled) target = openSettingsButton;
   target.focus({ preventScroll: true });
 }
 
@@ -243,7 +351,7 @@ function showSettings() {
   settingsView.setAttribute("aria-hidden", "false");
   openSettingsButton.setAttribute("aria-expanded", "true");
   closeSettingsButton.focus({ preventScroll: true });
-  if (currentAuth.state === "signed_in") void refreshModels(true);
+  if (currentState.connection.auth?.state === "signed_in") void refreshModels(true);
 }
 
 function showChat() {
@@ -266,10 +374,8 @@ function applyDebugMode(enabled) {
   const changed = debugMode !== nextDebugMode;
   debugMode = nextDebugMode;
   debugModeSwitch.checked = debugMode;
-  if (!debugMode && contextViewerOpen) {
-    hideContext({ restoreFocus: document.hasFocus() });
-  }
-  if (changed) renderChat(currentChat);
+  if (!debugMode && contextViewerOpen) hideContext({ restoreFocus: document.hasFocus() });
+  if (changed) renderMessages();
 }
 
 function applyThemePreference(nextTheme) {
@@ -302,33 +408,19 @@ function populateModels(models, preference) {
   applyModelPreference(preference);
 }
 
-function resetModelsForAuth() {
-  modelLoadId += 1;
-  populateModels([], modelPreference);
-  modelSelect.disabled = true;
-  setStatusMessage(modelSettingsError, null);
-}
-
 async function refreshModels(refresh = true) {
-  if (currentAuth.state !== "signed_in") {
-    resetModelsForAuth();
-    return;
-  }
-  const loadId = ++modelLoadId;
   modelSelect.disabled = true;
   setStatusMessage(modelSettingsError, null);
   try {
-    const result = await chatClient.getModels(refresh);
-    if (loadId !== modelLoadId || currentAuth.state !== "signed_in") return;
+    const result = await appClient.getModels(refresh);
     populateModels(result.models, result.preference);
-    modelSelect.disabled = result.models.length === 0;
+    modelSelect.disabled = currentState.connection.phase !== "ready" || !result.models.length;
     if (!result.models.length) {
       setStatusMessage(modelSettingsError, {
         message: "This ChatGPT account did not return an available model.",
       });
     }
   } catch (error) {
-    if (loadId !== modelLoadId) return;
     availableModels = [];
     modelSelect.disabled = true;
     setStatusMessage(modelSettingsError, error);
@@ -338,8 +430,6 @@ async function refreshModels(refresh = true) {
 async function loadPreferences() {
   debugModeSwitch.disabled = true;
   themeSelect.disabled = true;
-  setStatusMessage(debugSettingsError, null);
-  setStatusMessage(themeSettingsError, null);
   try {
     const stored = await preferences.load();
     applyDebugMode(stored.debugMode);
@@ -349,12 +439,9 @@ async function loadPreferences() {
     applyDebugMode(false);
     applyThemePreference("system");
     applyModelPreference("automatic");
-    setStatusMessage(debugSettingsError, {
-      message: "BrowseFriend could not load saved settings.",
-    });
-    setStatusMessage(themeSettingsError, {
-      message: "BrowseFriend could not load saved settings.",
-    });
+    const error = { message: "BrowseFriend could not load saved settings." };
+    setStatusMessage(debugSettingsError, error);
+    setStatusMessage(themeSettingsError, error);
   } finally {
     debugModeSwitch.disabled = false;
     themeSelect.disabled = false;
@@ -405,163 +492,134 @@ async function updateModel() {
       message: "BrowseFriend could not save the Model preference.",
     });
   } finally {
-    modelSelect.disabled = currentAuth.state !== "signed_in" || availableModels.length === 0;
-  }
-}
-
-function maybeShowPlanWelcome(previousState, nextState) {
-  if (previousState === "signed_in" || nextState !== "signed_in" ||
-      localStorage.getItem(PLAN_WELCOME_KEY) === "true") {
-    return;
-  }
-
-  planWelcomeOpen = true;
-  topbar.inert = true;
-  viewStack.inert = true;
-  planWelcome.hidden = false;
-  dismissPlanWelcomeButton.focus({ preventScroll: true });
-}
-
-function dismissPlanWelcome({ remember = true, restoreFocus = true } = {}) {
-  if (!planWelcomeOpen) return;
-
-  if (remember) localStorage.setItem(PLAN_WELCOME_KEY, "true");
-  planWelcomeOpen = false;
-  planWelcome.hidden = true;
-  topbar.inert = false;
-  viewStack.inert = false;
-
-  if (!restoreFocus) return;
-
-  if (viewStack.classList.contains("view-stack--settings")) {
-    (signOutButton.hidden ? closeSettingsButton : signOutButton).focus({ preventScroll: true });
-  } else {
-    (currentAuth.state === "signed_in" ? messageInput : signInButton)
-      .focus({ preventScroll: true });
-  }
-}
-
-function renderAuth(nextAuth, explicitError = null) {
-  const previousState = currentAuth.state;
-  currentAuth = nextAuth;
-  const closedPlanWelcome = planWelcomeOpen && nextAuth.state !== "signed_in";
-  if (closedPlanWelcome) {
-    dismissPlanWelcome({ remember: false, restoreFocus: false });
-  }
-  const view = createAuthView(nextAuth, explicitError);
-
-  authLoading.hidden = view.ready;
-  authView.hidden = !view.ready || view.signedIn;
-  chatContent.hidden = !view.signedIn;
-  clearButton.hidden = !view.signedIn;
-
-  authTitle.textContent = view.authTitle;
-  authDescription.textContent = view.authDescription;
-  signInButtonLabel.textContent = view.signInLabel;
-  signInButton.disabled = view.signingIn;
-  settingsSignInButton.disabled = view.signingIn;
-  cancelSignInButton.hidden = !view.signingIn;
-  companionHelp.hidden = !view.companionUnavailable;
-  setStatusMessage(authError, view.companionUnavailable ? null : view.error);
-
-  accountName.textContent = view.profileName;
-  accountEmail.textContent = view.profileEmail;
-  accountStatus.textContent = view.accountStatus;
-  settingsSignInButton.hidden = view.signedIn;
-  settingsSignInLabel.textContent = view.signInLabel;
-  manageUsageLink.hidden = !view.connected;
-  signOutButton.hidden = !view.connected;
-  setStatusMessage(settingsAuthError, view.error);
-
-  if (nextAuth.state === "signed_in" && previousState !== "signed_in") {
-    void refreshModels(true);
-  } else if (nextAuth.state !== "signed_in") {
-    resetModelsForAuth();
-  }
-
-  maybeShowPlanWelcome(previousState, nextAuth.state);
-
-  if (closedPlanWelcome) {
-    const focusTarget = viewStack.classList.contains("view-stack--settings")
-      ? (view.ready && !view.signingIn ? settingsSignInButton : closeSettingsButton)
-      : (view.signingIn ? cancelSignInButton : view.ready ? signInButton : openSettingsButton);
-    focusTarget.focus({ preventScroll: true });
-  }
-}
-
-async function refreshAuth() {
-  renderAuth({ state: "loading", profile: null, planUsageEnabled: false });
-  try {
-    const response = await authClient.getStatus();
-    renderAuth(response.result);
-  } catch (error) {
-    renderAuth({ state: "signed_out", profile: null, planUsageEnabled: false }, error);
-  }
-}
-
-async function signIn() {
-  renderAuth({ ...currentAuth, state: "signing_in", error: null });
-  try {
-    const response = await authClient.signIn();
-    renderAuth(response.result, response.warning);
-  } catch (error) {
-    if (error.code === "cancelled") {
-      await refreshAuth();
-      return;
-    }
-    renderAuth({ ...currentAuth, state: currentAuth.profile ? "plan_disabled" : "signed_out" }, error);
-  }
-}
-
-async function cancelSignIn() {
-  cancelSignInButton.disabled = true;
-  try {
-    const response = await authClient.cancelSignIn();
-    renderAuth(response.result);
-  } catch (error) {
-    renderAuth({ ...currentAuth, state: "signed_out" }, error);
-  } finally {
-    cancelSignInButton.disabled = false;
-  }
-}
-
-async function clearConversation() {
-  const state = await chatClient.clear();
-  renderChat(state);
-  clearComposer({ focus: false });
-}
-
-async function signOut() {
-  signOutButton.disabled = true;
-  try {
-    const response = await authClient.signOut();
-    await clearConversation().catch(() => undefined);
-    renderAuth(response.result, response.warning);
-    showChat();
-  } catch (error) {
-    renderAuth(currentAuth, error);
-  } finally {
-    signOutButton.disabled = false;
+    modelSelect.disabled = currentState.connection.phase !== "ready" || !availableModels.length;
   }
 }
 
 async function submitMessage() {
   const message = messageInput.value.trim();
+  if (!message || composerBusy() || authBlocksComposer()) return;
+  await submitText(message);
+}
 
-  if (!message || currentChat.generating) return;
-
-  chatError.hidden = true;
+async function submitText(message) {
+  const id = crypto.randomUUID();
+  optimisticSubmission = { id, text: message };
   promptHistory.reset();
   setComposerValue("");
+  renderComposer();
   try {
-    const state = await chatClient.send(message);
-    renderChat(state);
+    renderApp(await appClient.submit(id, message), { restoreCompletionFocus: false });
   } catch (error) {
+    optimisticSubmission = null;
     setComposerValue(message);
-    chatError.hidden = false;
-    chatError.textContent = error.message || "BrowseFriend could not send that message.";
+    renderComposer();
+    showOperationError(error, { type: "submit", text: message }, "generation");
   }
-  if (!currentChat.generating) messageInput.focus({ preventScroll: true });
+}
+
+async function stopSubmission() {
+  const pending = optimisticSubmission || currentState.submission;
+  if (!pending) return;
+  const fallbackDraft = pending.text;
+  try {
+    const result = await appClient.stop(pending.id);
+    optimisticSubmission = null;
+    renderApp(result.state, { restoreCompletionFocus: false });
+    setComposerValue(result.draft || fallbackDraft, { focus: true });
+  } catch (error) {
+    optimisticSubmission = null;
+    setComposerValue(fallbackDraft, { focus: true });
+    renderComposer();
+    showOperationError(error, { type: "start" });
+  }
+}
+
+async function signIn() {
+  settingsError = null;
+  try {
+    renderApp(await appClient.signIn(), { restoreCompletionFocus: false });
+  } catch (error) {
+    showChat();
+    showOperationError(error, { type: "signIn" });
+  }
+}
+
+async function cancelSignIn() {
+  if (cancelSignInButton.disabled) return;
+  cancelSignInButton.disabled = true;
+  try {
+    renderApp(await appClient.cancelSignIn(), { restoreCompletionFocus: false });
+  } catch (error) {
+    showOperationError(error, { type: "cancelSignIn" });
+  } finally {
+    cancelSignInButton.disabled = false;
+  }
+}
+
+async function retryOperation() {
+  if (retryOperationButton.disabled) return;
+  retryOperationButton.disabled = true;
+  const recovery = localRecovery;
+  localRecovery = null;
+  try {
+    if (recovery) {
+      const connection = recovery.type === "start"
+        ? { ...currentState.connection, phase: "checking", error: null }
+        : currentState.connection;
+      renderApp(
+        { ...currentState, connection, issue: null },
+        { restoreCompletionFocus: false },
+      );
+    }
+    if (recovery?.type === "submit") {
+      await submitText(recovery.text);
+      return;
+    }
+    if (recovery?.type === "signIn") {
+      await signIn();
+      return;
+    }
+    if (recovery?.type === "cancelSignIn") {
+      await cancelSignIn();
+      return;
+    }
+    if (recovery?.type === "clear") {
+      await clearConversation();
+      return;
+    }
+    if (recovery?.type === "start") {
+      renderApp(await appClient.start(), { restoreCompletionFocus: false });
+      return;
+    }
+    renderApp(await appClient.retry(), { restoreCompletionFocus: false });
+  } catch (error) {
+    showOperationError(error, recovery || { type: "start" });
+  } finally {
+    retryOperationButton.disabled = false;
+  }
+}
+
+async function clearConversation() {
+  renderApp(await appClient.clear(), { restoreCompletionFocus: false });
+  clearComposer({ focus: false });
+}
+
+async function signOut() {
+  signOutButton.disabled = true;
+  settingsError = null;
+  try {
+    const result = await appClient.signOut();
+    if (result.warning) settingsError = result.warning;
+    renderApp(result.state, { restoreCompletionFocus: false });
+    clearComposer({ focus: false });
+    showChat();
+  } catch (error) {
+    settingsError = error;
+    setStatusMessage(settingsAuthError, error);
+  } finally {
+    signOutButton.disabled = false;
+  }
 }
 
 composer.addEventListener("submit", (event) => {
@@ -606,87 +664,57 @@ suggestionButtons.forEach((button) => {
 });
 
 clearMessageButton.addEventListener("click", () => clearComposer());
-
 clearButton.addEventListener("click", () => {
   hideContext();
   void clearConversation()
     .then(() => messageInput.focus())
-    .catch((error) => {
-      chatError.hidden = false;
-      chatError.textContent = error.message || "BrowseFriend could not clear this chat.";
-    });
+    .catch((error) => showOperationError(error, { type: "clear" }, "generation"));
 });
-stopResponseButton.addEventListener("click", () => {
-  void chatClient.cancel().catch((error) => {
-    chatError.hidden = false;
-    chatError.textContent = error.message || "BrowseFriend could not stop the response.";
-  });
-});
-
+stopResponseButton.addEventListener("click", () => void stopSubmission());
+retryOperationButton.addEventListener("click", () => void retryOperation());
 openSettingsButton.addEventListener("click", showSettings);
 closeSettingsButton.addEventListener("click", showChat);
-signInButton.addEventListener("click", signIn);
-settingsSignInButton.addEventListener("click", signIn);
-cancelSignInButton.addEventListener("click", cancelSignIn);
-retryAuthButton.addEventListener("click", refreshAuth);
-signOutButton.addEventListener("click", signOut);
+signInButton.addEventListener("click", () => void signIn());
+settingsSignInButton.addEventListener("click", () => void signIn());
+cancelSignInButton.addEventListener("click", () => void cancelSignIn());
+signOutButton.addEventListener("click", () => void signOut());
 modelSelect.addEventListener("change", () => void updateModel());
 themeSelect.addEventListener("change", () => void updateTheme());
 debugModeSwitch.addEventListener("change", () => void updateDebugMode());
-
-dismissPlanWelcomeButton.addEventListener("click", () => dismissPlanWelcome());
 closeContextButton.addEventListener("click", hideContext);
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && contextViewerOpen) {
-    hideContext();
-    return;
-  }
-  if (event.key === "Escape" && planWelcomeOpen) dismissPlanWelcome();
+  if (event.key === "Escape" && contextViewerOpen) hideContext();
 });
 
-authClient.subscribe((event) => {
-  if (event.type === "changed") renderAuth(event.state);
-  if (event.type === "disconnected") {
-    renderAuth({ state: "signed_out", profile: null, planUsageEnabled: false }, event.error);
-  }
-});
-
-chatClient.subscribe((event) => {
-  if (event.event === "state") renderChat(event.state);
+appClient.subscribe((event) => {
+  if (event.event === "state") renderApp(event.state);
   if (event.event === "delta") appendDelta(event.messageId, event.delta);
 });
 
 preferences.subscribe((update) => {
   if (Object.hasOwn(update, "debugMode")) applyDebugMode(update.debugMode);
   if (Object.hasOwn(update, "theme")) applyThemePreference(update.theme);
-  if (Object.hasOwn(update, "model")) {
-    applyModelPreference(update.model);
-    if (currentAuth.state === "signed_in" && !hasModelOption(modelPreference)) {
-      void refreshModels(true);
-    }
-  }
+  if (Object.hasOwn(update, "model")) applyModelPreference(update.model);
 });
 
 closeButton.addEventListener("click", async () => {
   try {
     const currentWindow = await chrome.windows.getCurrent();
-
-    if (typeof currentWindow.id !== "number") {
-      throw new Error("Chrome did not return a window ID.");
-    }
-
+    if (typeof currentWindow.id !== "number") throw new Error("Chrome did not return a window ID.");
     await chrome.sidePanel.close({ windowId: currentWindow.id });
   } catch (error) {
     console.error("Unable to close the side panel.", error);
   }
 });
 
-void refreshAuth();
 void loadPreferences();
-void chatClient.getState()
-  .then(renderChat)
+void appClient.getState()
+  .then((state) => {
+    renderApp(state, { restoreCompletionFocus: false });
+    return appClient.start();
+  })
+  .then((state) => renderApp(state, { restoreCompletionFocus: false }))
   .catch((error) => {
-    chatError.hidden = false;
-    chatError.textContent = error.message || "BrowseFriend could not restore this chat.";
+    showOperationError(error, { type: "start" });
   });

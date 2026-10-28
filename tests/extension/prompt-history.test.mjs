@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { composerShortcut, createPromptHistory } from "../../extension/chat/prompt-history.js";
-import { chatFocusTarget, shouldRestoreComposerFocus } from "../../extension/sidepanel/focus.js";
 
 test("prompt history traverses duplicate entries by index and returns to blank", () => {
   const history = createPromptHistory();
@@ -52,38 +51,4 @@ test("composer shortcuts accept only the intended unmodified and Control keys", 
   assert.equal(composerShortcut({ key: "ArrowUp", shiftKey: true }), null);
   assert.equal(composerShortcut({ key: "p", metaKey: true }), null);
   assert.equal(composerShortcut({ key: "p", ctrlKey: true, isComposing: true }), null);
-});
-
-test("chat focus targets reflect authentication and generation state", () => {
-  assert.equal(chatFocusTarget({ authState: "signed_in", generating: false }), "composer");
-  assert.equal(chatFocusTarget({ authState: "signed_in", generating: true }), "stop");
-  assert.equal(chatFocusTarget({ authState: "signed_out", generating: false }), "signIn");
-  assert.equal(chatFocusTarget({ authState: "signing_in", generating: false }), "cancelSignIn");
-  assert.equal(chatFocusTarget({ authState: "loading", generating: false }), "settings");
-});
-
-test("completion focus is restored only on an unobstructed focused chat", () => {
-  const ready = {
-    wasGenerating: true,
-    generating: false,
-    documentHasFocus: true,
-    authState: "signed_in",
-    settingsOpen: false,
-    contextViewerOpen: false,
-    planWelcomeOpen: false,
-    chatVisible: true,
-  };
-  assert.equal(shouldRestoreComposerFocus(ready), true);
-  for (const change of [
-    { wasGenerating: false },
-    { generating: true },
-    { documentHasFocus: false },
-    { authState: "signed_out" },
-    { settingsOpen: true },
-    { contextViewerOpen: true },
-    { planWelcomeOpen: true },
-    { chatVisible: false },
-  ]) {
-    assert.equal(shouldRestoreComposerFocus({ ...ready, ...change }), false);
-  }
 });

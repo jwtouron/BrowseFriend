@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import {
@@ -10,6 +10,20 @@ import {
   appDataDirectory,
   nativeHostManifestDirectory,
 } from "../native-host/constants.mjs";
+
+test("project Markdown uses the root exceptions and docs directory", async () => {
+  const repositoryRoot = new URL("../", import.meta.url);
+  const rootMarkdown = (await readdir(repositoryRoot))
+    .filter((name) => name.endsWith(".md"))
+    .sort();
+
+  assert.deepEqual(rootMarkdown, ["AGENTS.md", "NOTICE.md", "README.md"]);
+  await Promise.all([
+    "ARCHITECTURE.md",
+    "KNOWN_LIMITATIONS.md",
+    "TODO.md",
+  ].map((name) => access(new URL(`../docs/${name}`, import.meta.url))));
+});
 
 test("manifest exposes only the required extension and page permissions", async () => {
   const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url), "utf8"));

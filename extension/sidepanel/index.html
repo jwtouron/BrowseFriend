@@ -15,7 +15,19 @@
           <span class="brand__mark" aria-hidden="true">B</span>
           <div>
             <h1>BrowseFriend</h1>
-            <p>Page companion</p>
+            <p class="brand__subtitle">
+              Page companion
+              <span
+                class="connection-status connection-status--checking"
+                id="connection-status"
+                role="status"
+                aria-live="polite"
+                title="Connecting"
+              >
+                <span class="connection-status__dot" aria-hidden="true"></span>
+                <span class="sr-only" id="connection-status-label">Connecting</span>
+              </span>
+            </p>
           </div>
         </div>
         <div class="topbar__actions">
@@ -43,43 +55,7 @@
 
       <div class="view-stack" id="view-stack">
         <div class="chat-view" id="chat-view">
-          <section class="auth-loading" id="auth-loading" aria-live="polite">
-            <span class="spinner" aria-hidden="true"></span>
-            <p>Checking your connection…</p>
-          </section>
-
-          <section class="auth-view" id="auth-view" aria-labelledby="auth-title" hidden>
-            <div class="auth-card">
-              <span class="auth-card__mark" aria-hidden="true">B</span>
-              <h2 id="auth-title">Connect BrowseFriend</h2>
-              <p id="auth-description">
-                Sign in to use your ChatGPT plan with this local browser companion.
-              </p>
-              <button class="chatgpt-button" id="sign-in" type="button">
-                <img
-                  src="/vendor/sign-in-with-chatgpt-devkit/assets/brand/chatgpt-button-black-21.svg"
-                  width="21"
-                  height="21"
-                  alt=""
-                />
-                <span>Continue with ChatGPT</span>
-              </button>
-              <button class="secondary-button" id="cancel-sign-in" type="button" hidden>
-                Cancel
-              </button>
-              <p class="status-message" id="auth-error" role="alert" hidden></p>
-              <div class="companion-help" id="companion-help" hidden>
-                <p>The local companion is not installed or could not start.</p>
-                <code>npm run install:host</code>
-                <button class="secondary-button" id="retry-auth" type="button">Retry</button>
-              </div>
-              <p class="auth-card__privacy">
-                Credentials are encrypted locally with a key protected by your OS credential store.
-              </p>
-            </div>
-          </section>
-
-          <div class="chat-content" id="chat-content" hidden>
+          <div class="chat-content" id="chat-content">
             <section class="conversation" id="conversation" aria-live="polite">
               <div class="welcome" id="welcome">
                 <span class="welcome__spark" aria-hidden="true">✦</span>
@@ -92,6 +68,37 @@
                   <button class="suggestion" type="button">Summarize an idea</button>
                 </div>
               </div>
+
+              <section
+                class="connection-notice"
+                id="connection-notice"
+                aria-labelledby="connection-notice-title"
+                hidden
+              >
+                <h2 id="connection-notice-title"></h2>
+                <p id="connection-notice-message"></p>
+                <div class="connection-notice__actions">
+                  <button class="chatgpt-button" id="sign-in" type="button" hidden>
+                    <img
+                      src="/vendor/sign-in-with-chatgpt-devkit/assets/brand/chatgpt-button-black-21.svg"
+                      width="21"
+                      height="21"
+                      alt=""
+                    />
+                    <span>Continue with ChatGPT</span>
+                  </button>
+                  <button class="primary-button" id="retry-operation" type="button" hidden>
+                    Retry
+                  </button>
+                  <button class="secondary-button" id="cancel-sign-in" type="button" hidden>
+                    Cancel
+                  </button>
+                </div>
+                <div class="companion-help" id="companion-help" hidden>
+                  <p>The local companion is not installed or could not start.</p>
+                  <code>npm run install:host</code>
+                </div>
+              </section>
             </section>
 
             <form class="composer" id="composer">
@@ -123,7 +130,6 @@
               </button>
             </form>
 
-            <p class="status-message chat-error" id="chat-error" role="alert" hidden></p>
             <p class="disclaimer">
               Page context is shared with ChatGPT for this response and is treated as untrusted.
             </p>
@@ -232,20 +238,6 @@
               <p class="status-message" id="debug-settings-error" role="alert" hidden></p>
             </section>
           </div>
-        </section>
-      </div>
-
-      <div class="modal-backdrop" id="plan-welcome" hidden>
-        <section class="plan-dialog" role="dialog" aria-modal="true" aria-labelledby="plan-title">
-          <span class="plan-dialog__mark" aria-hidden="true">✓</span>
-          <h2 id="plan-title">ChatGPT plan connected</h2>
-          <p>
-            BrowseFriend can use eligible usage from your ChatGPT plan for page-aware answers.
-          </p>
-          <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noreferrer">
-            Manage usage
-          </a>
-          <button class="primary-button" id="dismiss-plan-welcome" type="button">Got it</button>
         </section>
       </div>
 

@@ -1,5 +1,5 @@
+import { installAppController } from "../app/background.js";
 import { installCompanionBridge } from "../companion/background-bridge.js";
-import { installChatController } from "../chat/background.js";
 import { installPageReader } from "../page/read/background.js";
 
 const companion = installCompanionBridge({ runtime: chrome.runtime });
@@ -8,7 +8,7 @@ const pageReader = installPageReader({
   tabs: chrome.tabs,
   scripting: chrome.scripting,
 });
-installChatController({
+installAppController({
   runtime: chrome.runtime,
   storage: chrome.storage.session,
   settingsStorage: chrome.storage.local,

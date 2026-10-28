@@ -78,6 +78,18 @@ test("composer exposes accessible history and clear controls", async () => {
   assert.match(html, /id="clear-message"[^>]*aria-label="Clear message"/s);
 });
 
+test("initial chat uses one inline connection and recovery surface", async () => {
+  const html = await readFile(htmlUrl, "utf8");
+
+  assert.doesNotMatch(html, /id="auth-loading"|class="[^"]*spinner|id="plan-welcome"/);
+  assert.match(html, /id="connection-status"[^>]*role="status"[^>]*aria-live="polite"/s);
+  assert.equal((html.match(/id="connection-notice"/g) || []).length, 1);
+  assert.match(html, /id="sign-in"/);
+  assert.match(html, /id="retry-operation"/);
+  assert.match(html, /id="cancel-sign-in"/);
+  assert.match(html, /class="chat-content" id="chat-content">/);
+});
+
 test("composer keeps its trailing action anchored with symmetric padding", async () => {
   const styles = await readFile(stylesUrl, "utf8");
   assert.match(styles, /\.composer\s*\{[^}]*display:\s*flex;[^}]*padding:\s*8px 14px;/s);

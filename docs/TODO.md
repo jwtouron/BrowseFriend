@@ -42,10 +42,15 @@ current implementation unless a task explicitly promotes them into scope.
 
 ## Distribution and authentication
 
-- [ ] Prototype a self-contained native companion with `deno compile`, keeping the existing
-  JavaScript host and pinned DevKit rather than rewriting them to Deno APIs. Compare it with Node's
-  single-executable support across macOS and Linux on x64 and ARM64; verify Native Messaging
-  framing, OAuth callbacks, streaming and cancellation, file locking, and platform credential-store
-  commands. Packaging must still provide host registration, installers, and macOS signing and
-  notarization without requiring users to install Node or Deno.
+- [ ] Evaluate replacing the pinned DevKit and downstream tool patch with a direct implementation
+  of OpenAI's documented local/open-source OAuth and Responses API flow. Preserve ID-token
+  validation, refresh serialization, OS-backed credential protection, account lifecycle, typed
+  tools, streaming, cancellation, error recovery, and the extension credential boundary.
+- [ ] If the direct protocol proves suitable, prototype the native companion in Go and compare it
+  with `deno compile` and Node single-executable packaging. Prefer a language-neutral source for
+  shared tool schemas and require behavioral parity across Native Messaging, OAuth callbacks,
+  model discovery, tool calls, streaming, cancellation, file locking, and platform credential-store
+  commands. Compare macOS and Linux builds on x64 and ARM64, binary size, startup, and maintenance.
+  Packaging must still provide host registration, installers, and macOS signing and notarization
+  without requiring users to install a language runtime.
 - [ ] Re-evaluate the native-companion requirement if OpenAI supports a secure pure-extension flow.

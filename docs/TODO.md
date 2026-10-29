@@ -42,5 +42,10 @@ current implementation unless a task explicitly promotes them into scope.
 
 ## Distribution and authentication
 
-- [ ] Package the native companion and runtime for macOS and Linux so users do not install Node.
+- [ ] Prototype a self-contained native companion with `deno compile`, keeping the existing
+  JavaScript host and pinned DevKit rather than rewriting them to Deno APIs. Compare it with Node's
+  single-executable support across macOS and Linux on x64 and ARM64; verify Native Messaging
+  framing, OAuth callbacks, streaming and cancellation, file locking, and platform credential-store
+  commands. Packaging must still provide host registration, installers, and macOS signing and
+  notarization without requiring users to install Node or Deno.
 - [ ] Re-evaluate the native-companion requirement if OpenAI supports a secure pure-extension flow.

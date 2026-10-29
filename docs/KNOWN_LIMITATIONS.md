@@ -16,8 +16,12 @@ random loopback listener only while completing the hosted OAuth callback.
 - Page context is derived from the rendered DOM and ARIA markup, not Chrome's computed
   accessibility tree. Canvas pixels, image-only content, closed shadow roots, CSS-only changes,
   and some custom controls may be missing or incomplete.
-- BrowseFriend cannot send screenshots, page images, or user-selected files to the model. Its
-  setup-time downstream DevKit patch supports the narrow typed page-tool channel only.
+- The pinned DevKit does not natively expose function tools. `npm run setup:devkit` temporarily
+  applies `patches/devkit-function-tools.patch` to add BrowseFriend's narrow typed page-tool
+  transport, builds the package, and restores the pinned source tree. Act mode therefore depends on
+  maintaining and retesting this downstream patch whenever the DevKit is updated.
+- BrowseFriend cannot send screenshots, page images, or user-selected files to the model. The
+  downstream tool patch does not add multimodal input.
 - Required site access produces Chrome's broad read/change warning even though Ask mode does not
   intentionally modify pages.
 

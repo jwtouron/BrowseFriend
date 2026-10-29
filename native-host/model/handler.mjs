@@ -1,4 +1,5 @@
 import { PAGE_TOOL_NAMES, PAGE_TOOL_SCHEMAS } from "../../shared/page-tools.js";
+import { REASONING_EFFORTS } from "../../shared/reasoning.js";
 
 const MAX_CONTEXT_BYTES = 128 * 1024;
 const MAX_HISTORY_BYTES = 512 * 1024;
@@ -38,6 +39,7 @@ function invalidStreamParams(params) {
       params.prompt.length > 4_000 || !Array.isArray(params.history) ||
       params.history.length > 200 || typeof params.pageContext !== "string" ||
       !["ask", "act"].includes(params.mode || "ask") ||
+      (params.reasoningEffort !== undefined && !REASONING_EFFORTS.has(params.reasoningEffort)) ||
       !Array.isArray(params.actionHistory || []) || (params.actionHistory || []).length > 32) {
     return true;
   }
@@ -71,7 +73,20 @@ function invalidStreamParams(params) {
 function publicModels(models) {
   return models
     .filter((model) => typeof model?.slug === "string" && typeof model?.displayName === "string")
-    .map((model) => ({ slug: model.slug, displayName: model.displayName }));
+    .map((model) => {
+      const defaultReasoningEffort = REASONING_EFFORTS.has(model.defaultReasoningEffort)
+        ? model.defaultReasoningEffort
+        : undefined;
+      const supportedReasoningEfforts = Array.isArray(model.supportedReasoningEfforts)
+        ? [...new Set(model.supportedReasoningEfforts.filter((effort) => REASONING_EFFORTS.has(effort)))]
+        : [];
+      return {
+        slug: model.slug,
+        displayName: model.displayName,
+        ...(defaultReasoningEffort ? { defaultReasoningEffort } : {}),
+        ...(supportedReasoningEfforts.length ? { supportedReasoningEfforts } : {}),
+      };
+    });
 }
 
 export function createModelHandler({ chatgpt, send, serializeError }) {
@@ -162,6 +177,9 @@ export function createModelHandler({ chatgpt, send, serializeError }) {
       try {
         const result = await chatgpt.streamResponse({
           model: request.params.model,
+          ...(request.params.reasoningEffort
+            ? { reasoningEffort: request.params.reasoningEffort }
+            : {}),
           instructions: `${BASE_MODEL_INSTRUCTIONS}\n\n${mode === "act" ? ACT_INSTRUCTIONS : ASK_INSTRUCTIONS}`,
           signal: controller.signal,
           input: [

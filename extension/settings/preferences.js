@@ -1,7 +1,12 @@
+import { normalizeReasoningPreference } from "../../shared/reasoning.js";
+
+export { normalizeReasoningPreference };
+
 export const DEBUG_MODE_KEY = "browsefriend.settings.debugMode";
 export const THEME_KEY = "browsefriend.settings.theme";
 export const ACCENT_KEY = "browsefriend.settings.accent";
 export const MODEL_KEY = "browsefriend.settings.model";
+export const REASONING_KEY = "browsefriend.settings.reasoningEffort";
 export const THEMES = new Set(["system", "light", "dark"]);
 export const ACCENTS = new Set([
   "red",
@@ -35,12 +40,18 @@ export function createPreferences({ storageArea, storageChanged }) {
       THEME_KEY,
       ACCENT_KEY,
       MODEL_KEY,
+      REASONING_KEY,
     ]);
+    const reasoningEffort = normalizeReasoningPreference(stored?.[REASONING_KEY]);
+    if (stored?.[REASONING_KEY] !== reasoningEffort) {
+      await storageArea.set({ [REASONING_KEY]: reasoningEffort });
+    }
     return {
       debugMode: stored?.[DEBUG_MODE_KEY] === true,
       theme: normalizeTheme(stored?.[THEME_KEY]),
       accent: normalizeAccent(stored?.[ACCENT_KEY]),
       model: normalizeModel(stored?.[MODEL_KEY]),
+      reasoningEffort,
     };
   }
 
@@ -68,6 +79,12 @@ export function createPreferences({ storageArea, storageChanged }) {
     return value;
   }
 
+  async function saveReasoningEffort(reasoningEffort) {
+    const value = normalizeReasoningPreference(reasoningEffort);
+    await storageArea.set({ [REASONING_KEY]: value });
+    return value;
+  }
+
   function subscribe(listener) {
     const handleChange = (changes, areaName) => {
       if (areaName !== "local") return;
@@ -84,13 +101,24 @@ export function createPreferences({ storageArea, storageChanged }) {
       if (changes?.[MODEL_KEY]) {
         update.model = normalizeModel(changes[MODEL_KEY].newValue);
       }
+      if (changes?.[REASONING_KEY]) {
+        update.reasoningEffort = normalizeReasoningPreference(changes[REASONING_KEY].newValue);
+      }
       if (Object.keys(update).length) listener(update);
     };
     storageChanged.addListener(handleChange);
     return () => storageChanged.removeListener(handleChange);
   }
 
-  return { load, saveAccent, saveDebugMode, saveTheme, saveModel, subscribe };
+  return {
+    load,
+    saveAccent,
+    saveDebugMode,
+    saveTheme,
+    saveModel,
+    saveReasoningEffort,
+    subscribe,
+  };
 }
 
 export function applyTheme(root, theme) {

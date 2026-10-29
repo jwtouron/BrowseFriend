@@ -1,8 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { listModels } from "../../vendor/sign-in-with-chatgpt-devkit/packages/local/dist/models.js";
 import { streamResponse } from "../../vendor/sign-in-with-chatgpt-devkit/packages/local/dist/responses.js";
 
 const frame = (event) => `data: ${JSON.stringify(event)}\r\n\r\n`;
+
+test("patched DevKit preserves supported reasoning efforts from the model catalog", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => Response.json({
+    models: [{
+      slug: "model-1",
+      display_name: "Model One",
+      visibility: "list",
+      default_reasoning_level: "medium",
+      supported_reasoning_levels: [
+        { effort: "low", description: "Lighter" },
+        { effort: "medium", description: "Balanced" },
+        { effort: "unsupported", description: "Discard" },
+      ],
+    }],
+  }));
+
+  assert.deepEqual(await listModels("synthetic-oauth-token", new AbortController().signal), [{
+    slug: "model-1",
+    displayName: "Model One",
+    defaultReasoningEffort: "medium",
+    supportedReasoningEfforts: ["low", "medium"],
+  }]);
+});
 
 test("patched DevKit sends strict tools and returns typed function calls", async (t) => {
   let body;
@@ -38,6 +62,7 @@ test("patched DevKit sends strict tools and returns typed function calls", async
       strict: true,
     }],
     parallelToolCalls: false,
+    reasoningEffort: "medium",
   }, new AbortController().signal);
 
   assert.deepEqual(result, {
@@ -50,6 +75,7 @@ test("patched DevKit sends strict tools and returns typed function calls", async
     }],
   });
   assert.equal(body.parallel_tool_calls, false);
+  assert.deepEqual(body.reasoning, { effort: "medium" });
   assert.equal(body.tools[0].name, "page_click");
   assert.deepEqual(body.input[1], {
     type: "function_call",

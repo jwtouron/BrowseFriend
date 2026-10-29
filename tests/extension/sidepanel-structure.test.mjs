@@ -233,12 +233,19 @@ test("transcript messages have hidden authors instead of visible avatars", async
   assert.match(html, /class="message__author sr-only"/);
 });
 
-test("Model settings expose Automatic and keep Debug last", async () => {
+test("Model settings expose model and reasoning preferences while keeping Debug last", async () => {
   const html = await readFile(htmlUrl, "utf8");
+  const styles = await readFile(stylesUrl, "utf8");
   const model = html.indexOf('id="model-settings"');
   const debug = html.indexOf('id="debug-settings"');
 
   assert.ok(model >= 0 && model < debug);
   assert.match(html, /<label for="model-select">Model<\/label>/);
   assert.match(html, /<option value="automatic">Automatic<\/option>/);
+  assert.match(html, /<label for="reasoning-select">Reasoning effort<\/label>/);
+  assert.match(html, /<option value="model_default">Model default<\/option>/);
+  assert.doesNotMatch(html, /<select id="reasoning-select"[^>]*>[\s\S]*value="automatic"/);
+  assert.match(styles, /appearance:\s*none/);
+  assert.match(styles, /calc\(100% - 15px\)/);
+  assert.match(styles, /padding:\s*8px 34px 8px 10px/);
 });

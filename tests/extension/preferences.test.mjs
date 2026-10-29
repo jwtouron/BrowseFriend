@@ -4,15 +4,21 @@ import {
   ACCENT_KEY,
   DEBUG_MODE_KEY,
   MODEL_KEY,
+  REASONING_KEY,
   THEME_KEY,
   applyAccent,
   applyTheme,
   createPreferences,
   normalizeAccent,
   normalizeModel,
+  normalizeReasoningPreference,
   normalizeTheme,
   shouldShowPageContext,
 } from "../../extension/settings/preferences.js";
+import {
+  reasoningEffortOptions,
+  selectReasoningEffort,
+} from "../../shared/reasoning.js";
 
 function createEvent() {
   const listeners = [];
@@ -50,17 +56,20 @@ test("settings default safely and normalize stored values", async () => {
     theme: "system",
     accent: "blue",
     model: "automatic",
+    reasoningEffort: "model_default",
   });
   assert.deepEqual(await createHarness({
     [DEBUG_MODE_KEY]: "true",
     [THEME_KEY]: "sepia",
     [ACCENT_KEY]: "pink",
     [MODEL_KEY]: " ",
+    [REASONING_KEY]: "extreme",
   }).preferences.load(), {
     debugMode: false,
     theme: "system",
     accent: "blue",
     model: "automatic",
+    reasoningEffort: "model_default",
   });
   assert.equal(normalizeTheme("light"), "light");
   assert.equal(normalizeTheme("dark"), "dark");
@@ -68,6 +77,9 @@ test("settings default safely and normalize stored values", async () => {
   assert.equal(normalizeAccent("pink"), "blue");
   assert.equal(normalizeModel("model-1"), "model-1");
   assert.equal(normalizeModel("x".repeat(201)), "automatic");
+  assert.equal(normalizeReasoningPreference("minimal"), "minimal");
+  assert.equal(normalizeReasoningPreference("xlow"), "model_default");
+  assert.equal(normalizeReasoningPreference("automatic"), "model_default");
 });
 
 test("settings persist normalized local preferences", async () => {
@@ -79,6 +91,8 @@ test("settings persist normalized local preferences", async () => {
   assert.equal(await harness.preferences.saveAccent("purple"), "purple");
   assert.equal(await harness.preferences.saveAccent("pink"), "blue");
   assert.equal(await harness.preferences.saveModel("model-2"), "model-2");
+  assert.equal(await harness.preferences.saveReasoningEffort("xhigh"), "xhigh");
+  assert.equal(await harness.preferences.saveReasoningEffort("automatic"), "model_default");
   assert.deepEqual(harness.writes, [
     { [DEBUG_MODE_KEY]: true },
     { [THEME_KEY]: "dark" },
@@ -86,7 +100,38 @@ test("settings persist normalized local preferences", async () => {
     { [ACCENT_KEY]: "purple" },
     { [ACCENT_KEY]: "blue" },
     { [MODEL_KEY]: "model-2" },
+    { [REASONING_KEY]: "xhigh" },
+    { [REASONING_KEY]: "model_default" },
   ]);
+});
+
+test("legacy Automatic reasoning migrates to Model default", async () => {
+  const harness = createHarness({ [REASONING_KEY]: "automatic" });
+
+  assert.equal((await harness.preferences.load()).reasoningEffort, "model_default");
+  assert.deepEqual(harness.writes, [{ [REASONING_KEY]: "model_default" }]);
+});
+
+test("reasoning options follow the model from highest to lowest", () => {
+  const model = {
+    defaultReasoningEffort: "medium",
+    supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+  };
+
+  assert.deepEqual(reasoningEffortOptions(model), [
+    { value: "model_default", label: "Model default (medium)" },
+    { value: "max", label: "Maximum" },
+    { value: "xhigh", label: "Extra high" },
+    { value: "high", label: "High" },
+    { value: "medium", label: "Medium" },
+    { value: "low", label: "Low" },
+  ]);
+  assert.deepEqual(reasoningEffortOptions({}), [
+    { value: "model_default", label: "Model default" },
+  ]);
+  assert.equal(selectReasoningEffort(model, "model_default"), undefined);
+  assert.equal(selectReasoningEffort(model, "high"), "high");
+  assert.equal(selectReasoningEffort(model, "minimal"), undefined);
 });
 
 test("settings subscriptions normalize local changes and can unsubscribe", () => {
@@ -101,13 +146,20 @@ test("settings subscriptions normalize local changes and can unsubscribe", () =>
     [THEME_KEY]: { newValue: "light" },
     [ACCENT_KEY]: { newValue: "cyan" },
     [MODEL_KEY]: { newValue: "model-2" },
+    [REASONING_KEY]: { newValue: "low" },
   }, "local");
   harness.storageChanged.emit({
     [THEME_KEY]: { newValue: "sepia" },
     [ACCENT_KEY]: { newValue: "pink" },
   }, "local");
   assert.deepEqual(received, [
-    { debugMode: true, theme: "light", accent: "cyan", model: "model-2" },
+    {
+      debugMode: true,
+      theme: "light",
+      accent: "cyan",
+      model: "model-2",
+      reasoningEffort: "low",
+    },
     { theme: "system", accent: "blue" },
   ]);
 

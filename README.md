@@ -63,7 +63,11 @@ the prompt only if the task has not already changed the page.
 
 Send changes to Stop while a prompt is waiting or generating. Stop leaves connection setup running, restores the prompt as an editable draft, and preserves any partial answer as stopped. Connection and response failures share a Retry action; retrying a response captures fresh page context and replaces the failed attempt.
 
-Appearance settings persist the System, Light, or Dark theme and one of seven accent colors; blue is the default. Settings can also use the first available model automatically or persist an explicit model choice. The selected model applies to the next response and does not clear the current chat.
+Appearance settings persist the System, Light, or Dark theme and one of seven accent colors; blue is
+the default. Settings can also use the first available model automatically or persist an explicit
+model choice. Reasoning effort defaults to the selected model's advertised default; its dropdown
+then lists that model's supported explicit efforts from highest to lowest. Model and effort changes
+apply to the next response and do not clear the current chat.
 
 With an empty composer, use Up or Ctrl+P to recall earlier prompts; continue with Up/Down or Ctrl+P/N. Typing starts a fresh draft. Use the × control or Ctrl+U to clear the composer.
 
@@ -81,8 +85,8 @@ python3 -m json.tool manifest.json
 
 `setup:devkit` preserves the upstream dependency lock while replacing only the advisory-affected
 `undici` package with the compatible patched version recorded in `scripts/setup-devkit.mjs`. It also
-applies the reviewed `patches/devkit-function-tools.patch` while building typed tool-call support,
-then restores the pinned submodule sources.
+applies the reviewed `patches/devkit-function-tools.patch` while building typed tool-call and
+reasoning-effort support, then restores the pinned submodule sources.
 
 The extension remains plain HTML, CSS, and JavaScript with no browser-side build. Chrome code lives in `extension/`; one application controller owns readiness and prompt workflows while authentication, chat rendering, settings, page reading, and page action execution remain isolated supporting features. The companion keeps authentication and model requests separate under `native-host/`. OpenAI's pinned DevKit lives in `vendor/sign-in-with-chatgpt-devkit/`.
 

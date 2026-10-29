@@ -32,6 +32,7 @@ function createHarness({
   modelPreference,
   modelPreferenceGate,
   models,
+  reasoningPreference,
   pageCapture,
   pageActorCancelFile,
   pageActorExecute,
@@ -43,9 +44,12 @@ function createHarness({
   const stored = storedSession
     ? { "browsefriend.chat.session": structuredClone(storedSession) }
     : {};
-  const settingsStored = modelPreference
-    ? { "browsefriend.settings.model": modelPreference }
-    : {};
+  const settingsStored = {
+    ...(modelPreference ? { "browsefriend.settings.model": modelPreference } : {}),
+    ...(reasoningPreference
+      ? { "browsefriend.settings.reasoningEffort": reasoningPreference }
+      : {}),
+  };
   const broadcasts = [];
   const companionCalls = [];
   const companionListeners = [];
@@ -402,6 +406,35 @@ test("model preferences select explicit models and reset unavailable choices", a
   const state = await harness.controller.ensureReady({ force: true });
   assert.equal(state.modelPreference, "automatic");
   assert.equal(harness.settingsStored["browsefriend.settings.model"], "automatic");
+});
+
+test("reasoning effort defaults to the model and resets unsupported explicit choices", async () => {
+  const models = [{
+    slug: "model-1",
+    displayName: "Model One",
+    defaultReasoningEffort: "low",
+    supportedReasoningEfforts: ["minimal", "low", "high"],
+  }];
+  const harness = createHarness({ models });
+  await harness.controller.ensureReady();
+  await harness.controller.submit("submission-1", "Default");
+  await settle();
+  let streams = harness.companionCalls.filter((call) => call.method === "model.stream");
+  assert.equal(Object.hasOwn(streams.at(-1).params, "reasoningEffort"), false);
+  assert.equal(harness.settingsStored["browsefriend.settings.reasoningEffort"], "model_default");
+
+  harness.settingsStored["browsefriend.settings.reasoningEffort"] = "high";
+  await harness.controller.submit("submission-2", "Explicit");
+  await settle();
+  streams = harness.companionCalls.filter((call) => call.method === "model.stream");
+  assert.equal(streams.at(-1).params.reasoningEffort, "high");
+
+  harness.settingsStored["browsefriend.settings.reasoningEffort"] = "max";
+  await harness.controller.submit("submission-3", "Unsupported");
+  await settle();
+  streams = harness.companionCalls.filter((call) => call.method === "model.stream");
+  assert.equal(Object.hasOwn(streams.at(-1).params, "reasoningEffort"), false);
+  assert.equal(harness.settingsStored["browsefriend.settings.reasoningEffort"], "model_default");
 });
 
 test("one submission runs at a time and an early Stop cannot be revived", async () => {

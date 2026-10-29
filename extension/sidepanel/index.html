@@ -269,10 +269,14 @@
                   <option value="automatic">Automatic</option>
                 </select>
               </div>
-              <p class="settings-note">
-                Automatic uses the first available model. Changes apply to the next response.
-              </p>
+              <div class="settings-select">
+                <label for="reasoning-select">Reasoning effort</label>
+                <select id="reasoning-select" disabled>
+                  <option value="model_default">Model default</option>
+                </select>
+              </div>
               <p class="status-message" id="model-settings-error" role="alert" hidden></p>
+              <p class="status-message" id="reasoning-settings-error" role="alert" hidden></p>
             </section>
 
             <!-- Keep Debug as the final Settings section. -->

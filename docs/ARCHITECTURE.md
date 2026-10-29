@@ -40,7 +40,8 @@ Chrome connects the service worker to `com.browsefriend.native_host` through Nat
 companion validates its small request allowlist, keeps authentication and model handlers separate,
 and delegates OAuth, token refresh, account selection, model discovery, and Responses streaming to
 the pinned DevKit. Setup applies a tracked downstream patch while building so the otherwise
-text-focused DevKit can carry typed function calls and results without exposing OAuth credentials.
+text-focused DevKit can carry typed function calls, results, and model-supported reasoning effort
+without exposing OAuth credentials.
 
 ## Main flows
 
@@ -108,8 +109,11 @@ user's ChatGPT conversations or memory; the model receives only the context Brow
 
 ### Settings and state
 
-Theme, accent color, model, and Debug preferences use `chrome.storage.local` and synchronize between
-open panels through `chrome.storage.onChanged`. The active conversation uses one global
+Theme, accent color, model, reasoning effort, and Debug preferences use `chrome.storage.local` and
+synchronize between open panels through `chrome.storage.onChanged`. Reasoning defaults to the
+effective model's advertised default and omits the API override; supported explicit efforts are
+listed from highest to lowest. Changing models resets an incompatible explicit effort to Model
+default. The active conversation uses one global
 `chrome.storage.session` record shared across panels and windows. It survives service-worker
 suspension but not a browser restart or extension reload. New chat and logout clear it. The companion
 stores account data in the platform application-data directory and encrypts credentials with a key

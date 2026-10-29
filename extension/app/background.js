@@ -1,5 +1,14 @@
-import { MODEL_KEY, normalizeModel } from "../settings/preferences.js";
+import {
+  MODEL_KEY,
+  REASONING_KEY,
+  normalizeModel,
+} from "../settings/preferences.js";
 import { parsePageToolCall } from "../../shared/page-tools.js";
+import {
+  normalizeReasoningPreference,
+  selectReasoningEffort,
+  supportedReasoningEfforts,
+} from "../../shared/reasoning.js";
 
 const STORAGE_KEY = "browsefriend.chat.session";
 const MAX_HISTORY_BYTES = 480 * 1024;
@@ -106,6 +115,7 @@ export function installAppController({
   let issue = null;
   let models = [];
   let modelPreference = "automatic";
+  let reasoningPreference = "model_default";
   const cancelledSubmissionIds = new Set();
 
   async function loadChat() {
@@ -169,6 +179,7 @@ export function installAppController({
       model: chat.model,
       models,
       modelPreference,
+      reasoningPreference,
       historyTruncated: chat.historyTruncated,
       submission: chat.submission,
       mode: chat.mode,
@@ -220,6 +231,20 @@ export function installAppController({
     }
     await settingsStorage.set({ [MODEL_KEY]: "automatic" });
     return "automatic";
+  }
+
+  async function resolveReasoningPreference(model) {
+    const stored = await settingsStorage.get(REASONING_KEY);
+    const preference = normalizeReasoningPreference(stored?.[REASONING_KEY]);
+    const supported = supportedReasoningEfforts(model);
+    if (preference === "model_default" || supported.includes(preference)) {
+      if (stored?.[REASONING_KEY] !== preference) {
+        await settingsStorage.set({ [REASONING_KEY]: preference });
+      }
+      return preference;
+    }
+    await settingsStorage.set({ [REASONING_KEY]: "model_default" });
+    return "model_default";
   }
 
   async function loadModelOptions(refresh = false) {
@@ -587,12 +612,15 @@ export function installAppController({
         message: "This ChatGPT account did not return an available model.",
         retryable: true,
       };
+      reasoningPreference = await resolveReasoningPreference(model);
+      const reasoningEffort = selectReasoningEffort(model, reasoningPreference);
       chat.model = model;
       await save(chat);
       if (chat.submission?.id !== submission.id) return;
       submission.requestStarted = true;
       const response = await companion.request("model.stream", {
         model: model.slug,
+        ...(reasoningEffort ? { reasoningEffort } : {}),
         history: modelHistory(chat, submission),
         prompt: submission.text,
         pageContext: submission.context?.available ? JSON.stringify(submission.context.snapshot) : "",

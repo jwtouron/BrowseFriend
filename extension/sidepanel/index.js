@@ -9,6 +9,11 @@ import {
   normalizeModel,
   shouldShowPageContext,
 } from "../settings/preferences.js";
+import {
+  normalizeReasoningPreference,
+  reasoningEffortOptions,
+  supportedReasoningEfforts,
+} from "../../shared/reasoning.js";
 import { deriveViewState } from "./view-state.js";
 
 const topbar = document.querySelector(".topbar");
@@ -48,6 +53,8 @@ const accountStatus = document.querySelector("#account-status");
 const settingsAuthError = document.querySelector("#settings-auth-error");
 const modelSelect = document.querySelector("#model-select");
 const modelSettingsError = document.querySelector("#model-settings-error");
+const reasoningSelect = document.querySelector("#reasoning-select");
+const reasoningSettingsError = document.querySelector("#reasoning-settings-error");
 const themeSelect = document.querySelector("#theme-select");
 const themeSettingsError = document.querySelector("#theme-settings-error");
 const accentPicker = document.querySelector("#accent-picker");
@@ -88,6 +95,7 @@ let currentState = {
   model: null,
   models: [],
   modelPreference: "automatic",
+  reasoningPreference: "model_default",
   submission: null,
   mode: "ask",
   authorization: null,
@@ -97,7 +105,9 @@ let debugMode = false;
 let theme = "system";
 let accent = "blue";
 let modelPreference = "automatic";
+let reasoningPreference = "model_default";
 let availableModels = [];
+let preferencesLoaded = false;
 let contextViewerOpen = false;
 let actionModalOpen = false;
 let settingsError = null;
@@ -326,6 +336,7 @@ function renderModelsFromState() {
   const nextModels = Array.isArray(currentState.models) ? currentState.models : [];
   populateModels(nextModels, modelPreference);
   modelSelect.disabled = currentState.connection.phase !== "ready" || !nextModels.length;
+  void reconcileReasoningPreference();
 }
 
 function renderApp(state, {
@@ -485,6 +496,54 @@ function hasModelOption(value) {
 function applyModelPreference(nextModel) {
   modelPreference = normalizeModel(nextModel);
   if (hasModelOption(modelPreference)) modelSelect.value = modelPreference;
+  populateReasoningEfforts();
+}
+
+function applyReasoningPreference(nextReasoningEffort) {
+  reasoningPreference = normalizeReasoningPreference(nextReasoningEffort);
+  populateReasoningEfforts();
+}
+
+function effectiveModel() {
+  if (!availableModels.length) return null;
+  if (modelPreference === "automatic") return availableModels[0];
+  return availableModels.find((model) => model.slug === modelPreference) || availableModels[0];
+}
+
+function populateReasoningEfforts() {
+  const model = effectiveModel();
+  const options = reasoningEffortOptions(model).map(({ value, label }) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    return option;
+  });
+  reasoningSelect.replaceChildren(...options);
+  reasoningSelect.value = options.some((option) => option.value === reasoningPreference)
+    ? reasoningPreference
+    : "model_default";
+  reasoningSelect.disabled = !preferencesLoaded || currentState.connection.phase !== "ready" || !model;
+}
+
+async function reconcileReasoningPreference() {
+  const model = effectiveModel();
+  populateReasoningEfforts();
+  if (!preferencesLoaded || !model || reasoningPreference === "model_default" ||
+      supportedReasoningEfforts(model).includes(reasoningPreference)) return;
+
+  const previous = reasoningPreference;
+  reasoningPreference = "model_default";
+  populateReasoningEfforts();
+  setStatusMessage(reasoningSettingsError, null);
+  try {
+    await preferences.saveReasoningEffort("model_default");
+  } catch {
+    reasoningPreference = previous;
+    populateReasoningEfforts();
+    setStatusMessage(reasoningSettingsError, {
+      message: "BrowseFriend could not reset the Reasoning effort preference.",
+    });
+  }
 }
 
 function populateModels(models, preference) {
@@ -501,6 +560,7 @@ function populateModels(models, preference) {
   }
   modelSelect.replaceChildren(...options);
   applyModelPreference(preference);
+  populateReasoningEfforts();
 }
 
 async function refreshModels(refresh = true) {
@@ -509,6 +569,7 @@ async function refreshModels(refresh = true) {
   try {
     const result = await appClient.getModels(refresh);
     populateModels(result.models, result.preference);
+    await reconcileReasoningPreference();
     modelSelect.disabled = currentState.connection.phase !== "ready" || !result.models.length;
     if (!result.models.length) {
       setStatusMessage(modelSettingsError, {
@@ -518,6 +579,7 @@ async function refreshModels(refresh = true) {
   } catch (error) {
     availableModels = [];
     modelSelect.disabled = true;
+    populateReasoningEfforts();
     setStatusMessage(modelSettingsError, error);
   }
 }
@@ -526,25 +588,32 @@ async function loadPreferences() {
   debugModeSwitch.disabled = true;
   themeSelect.disabled = true;
   accentPicker.disabled = true;
+  reasoningSelect.disabled = true;
   try {
     const stored = await preferences.load();
     applyDebugMode(stored.debugMode);
     applyThemePreference(stored.theme);
     applyAccentPreference(stored.accent);
     applyModelPreference(stored.model);
+    applyReasoningPreference(stored.reasoningEffort);
+    preferencesLoaded = true;
+    await reconcileReasoningPreference();
   } catch {
     applyDebugMode(false);
     applyThemePreference("system");
     applyAccentPreference("blue");
     applyModelPreference("automatic");
+    applyReasoningPreference("model_default");
     const error = { message: "BrowseFriend could not load saved settings." };
     setStatusMessage(debugSettingsError, error);
     setStatusMessage(themeSettingsError, error);
     setStatusMessage(accentSettingsError, error);
+    setStatusMessage(reasoningSettingsError, error);
   } finally {
     debugModeSwitch.disabled = false;
     themeSelect.disabled = false;
     accentPicker.disabled = false;
+    populateReasoningEfforts();
   }
 }
 
@@ -602,6 +671,7 @@ async function updateModel() {
   setStatusMessage(modelSettingsError, null);
   try {
     applyModelPreference(await preferences.saveModel(requested));
+    await reconcileReasoningPreference();
   } catch {
     modelSelect.value = hasModelOption(modelPreference) ? modelPreference : "automatic";
     setStatusMessage(modelSettingsError, {
@@ -609,6 +679,22 @@ async function updateModel() {
     });
   } finally {
     modelSelect.disabled = currentState.connection.phase !== "ready" || !availableModels.length;
+  }
+}
+
+async function updateReasoningEffort() {
+  const requested = reasoningSelect.value;
+  reasoningSelect.disabled = true;
+  setStatusMessage(reasoningSettingsError, null);
+  try {
+    applyReasoningPreference(await preferences.saveReasoningEffort(requested));
+  } catch {
+    reasoningSelect.value = reasoningPreference;
+    setStatusMessage(reasoningSettingsError, {
+      message: "BrowseFriend could not save the Reasoning effort preference.",
+    });
+  } finally {
+    populateReasoningEfforts();
   }
 }
 
@@ -834,6 +920,7 @@ settingsSignInButton.addEventListener("click", () => void signIn());
 cancelSignInButton.addEventListener("click", () => void cancelSignIn());
 signOutButton.addEventListener("click", () => void signOut());
 modelSelect.addEventListener("change", () => void updateModel());
+reasoningSelect.addEventListener("change", () => void updateReasoningEffort());
 themeSelect.addEventListener("change", () => void updateTheme());
 accentInputs.forEach((input) => {
   input.addEventListener("change", () => void updateAccent());
@@ -866,7 +953,14 @@ preferences.subscribe((update) => {
   if (Object.hasOwn(update, "debugMode")) applyDebugMode(update.debugMode);
   if (Object.hasOwn(update, "theme")) applyThemePreference(update.theme);
   if (Object.hasOwn(update, "accent")) applyAccentPreference(update.accent);
-  if (Object.hasOwn(update, "model")) applyModelPreference(update.model);
+  if (Object.hasOwn(update, "model")) {
+    applyModelPreference(update.model);
+    void reconcileReasoningPreference();
+  }
+  if (Object.hasOwn(update, "reasoningEffort")) {
+    applyReasoningPreference(update.reasoningEffort);
+    void reconcileReasoningPreference();
+  }
 });
 
 closeButton.addEventListener("click", async () => {

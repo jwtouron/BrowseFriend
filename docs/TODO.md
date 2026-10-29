@@ -36,8 +36,6 @@ current implementation unless a task explicitly promotes them into scope.
   controls enforced in code rather than relying on editable instructions.
 - [ ] Make the header connection indicator open **Settings → Account** and focus the account
   controls while preserving its non-color accessible status.
-- [ ] Add reasoning-effort selection when the pinned DevKit exposes the parameter and each model's
-  supported effort values.
 - [ ] Add model-directed context expansion through the typed tool channel.
 
 ## Distribution and authentication

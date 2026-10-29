@@ -93,10 +93,16 @@ test("composer exposes accessible history and clear controls", async () => {
 });
 
 test("chat exposes Ask and Act modes plus an accessible action confirmation", async () => {
-  const html = await readFile(htmlUrl, "utf8");
+  const [html, styles] = await Promise.all([
+    readFile(htmlUrl, "utf8"),
+    readFile(stylesUrl, "utf8"),
+  ]);
   assert.match(html, /<fieldset class="mode-switch" id="mode-switch" aria-label="Page capability">/);
   assert.match(html, /name="page-mode" value="ask" checked/);
   assert.match(html, /name="page-mode" value="act"/);
+  assert.match(styles, /\.mode-switch::before[\s\S]*transition: transform 180ms ease/);
+  assert.match(styles, /\.mode-switch:has\(input\[value="act"\]:checked\)::before[\s\S]*translateX\(100%\)/);
+  assert.match(styles, /prefers-reduced-motion: reduce[\s\S]*\.mode-switch::before/);
   assert.match(html, /id="action-confirmation" hidden/);
   assert.match(html, /class="action-dialog" role="dialog" aria-modal="true"/);
   assert.match(html, /id="confirm-action"/);

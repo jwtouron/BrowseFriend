@@ -69,6 +69,10 @@ model choice. Reasoning effort defaults to the selected model's advertised defau
 then lists that model's supported explicit efforts from highest to lowest. Model and effort changes
 apply to the next response and do not clear the current chat.
 
+The chat footer shows the resolved model and effort expected for the next prompt. The **Automatic**
+model option names the first listed model it currently resolves to. Select the footer summary to
+open Model settings; use the warning icon beside it to review the page-context sharing notice.
+
 With an empty composer, use Up or Ctrl+P to recall earlier prompts; continue with Up/Down or Ctrl+P/N. Typing starts a fresh draft. Use the × control or Ctrl+U to clear the composer.
 
 If the panel reports that the companion is unavailable, rerun `npm run install:host`, reload the extension, and select **Retry**.

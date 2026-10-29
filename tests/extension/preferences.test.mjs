@@ -16,9 +16,15 @@ import {
   shouldShowPageContext,
 } from "../../extension/settings/preferences.js";
 import {
+  effectiveReasoningEffort,
+  reasoningEffortLabel,
   reasoningEffortOptions,
   selectReasoningEffort,
 } from "../../shared/reasoning.js";
+import {
+  automaticModelLabel,
+  selectModel,
+} from "../../shared/model-selection.js";
 
 function createEvent() {
   const listeners = [];
@@ -132,6 +138,36 @@ test("reasoning options follow the model from highest to lowest", () => {
   assert.equal(selectReasoningEffort(model, "model_default"), undefined);
   assert.equal(selectReasoningEffort(model, "high"), "high");
   assert.equal(selectReasoningEffort(model, "minimal"), undefined);
+});
+
+test("effective model and effort describe the next request without preference labels", () => {
+  const models = [
+    {
+      slug: "model-1",
+      displayName: "First Model",
+      defaultReasoningEffort: "medium",
+      supportedReasoningEfforts: ["low", "medium", "high"],
+    },
+    {
+      slug: "model-2",
+      displayName: "Second Model",
+      defaultReasoningEffort: "low",
+      supportedReasoningEfforts: ["low", "high"],
+    },
+  ];
+
+  assert.equal(selectModel(models, "automatic"), models[0]);
+  assert.equal(selectModel(models, "model-2"), models[1]);
+  assert.equal(selectModel(models, "missing"), models[0]);
+  assert.equal(selectModel([], "automatic"), null);
+  assert.equal(automaticModelLabel(models), "Automatic (First Model)");
+  assert.equal(automaticModelLabel([]), "Automatic");
+  assert.equal(effectiveReasoningEffort(models[0], "model_default"), "medium");
+  assert.equal(effectiveReasoningEffort(models[1], "high"), "high");
+  assert.equal(effectiveReasoningEffort(models[1], "medium"), "low");
+  assert.equal(effectiveReasoningEffort({}, "model_default"), undefined);
+  assert.equal(reasoningEffortLabel("medium"), "Medium");
+  assert.equal(reasoningEffortLabel(undefined), "");
 });
 
 test("settings subscriptions normalize local changes and can unsubscribe", () => {

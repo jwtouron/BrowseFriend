@@ -113,7 +113,10 @@ Theme, accent color, model, reasoning effort, and Debug preferences use `chrome.
 synchronize between open panels through `chrome.storage.onChanged`. Reasoning defaults to the
 effective model's advertised default and omits the API override; supported explicit efforts are
 listed from highest to lowest. Changing models resets an incompatible explicit effort to Model
-default. The active conversation uses one global
+default. The background and side panel share the same model resolver: Automatic selects the first
+catalog model, while the chat footer resolves preference labels into the model and advertised effort
+expected for the next request. It omits the effort summary when the catalog provides no default. The
+active conversation uses one global
 `chrome.storage.session` record shared across panels and windows. It survives service-worker
 suspension but not a browser restart or extension reload. New chat and logout clear it. The companion
 stores account data in the platform application-data directory and encrypts credentials with a key

@@ -252,7 +252,8 @@ button {
 @media (prefers-reduced-motion: reduce) {
   .chat-view,
   .settings-view,
-  .mode-switch::before {
+  .mode-switch::before,
+  .context-warning__tooltip {
     transition: none;
   }
 }
@@ -903,11 +904,103 @@ textarea::placeholder {
   font-size: 0.78rem;
 }
 
-.disclaimer {
-  margin: 7px 12px 10px;
+.composer-footer {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 24px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 5px 12px 7px;
+}
+
+.model-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 6px;
   color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
   font-size: 0.68rem;
-  text-align: center;
+}
+
+.model-summary:hover,
+.model-summary:focus-visible {
+  color: var(--text);
+  background: var(--surface-muted);
+}
+
+.model-summary:focus-visible,
+.context-warning:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.model-summary__model {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-summary__separator,
+.model-summary__effort {
+  flex: 0 0 auto;
+}
+
+.context-warning {
+  position: relative;
+  display: grid;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  margin-left: auto;
+  border-radius: 6px;
+  color: var(--status-checking);
+  cursor: help;
+}
+
+.context-warning:hover,
+.context-warning:focus-visible {
+  background: var(--surface-muted);
+}
+
+.context-warning__icon {
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.context-warning__tooltip {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: calc(100% + 7px);
+  width: min(260px, calc(100vw - 24px));
+  padding: 8px 10px;
+  visibility: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  opacity: 0;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  font-size: 0.7rem;
+  line-height: 1.4;
+  pointer-events: none;
+  transition: opacity 120ms ease, visibility 120ms ease;
+}
+
+.context-warning:hover .context-warning__tooltip,
+.context-warning:focus .context-warning__tooltip {
+  visibility: visible;
+  opacity: 1;
 }
 
 .sr-only {

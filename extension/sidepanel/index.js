@@ -10,10 +10,16 @@ import {
   shouldShowPageContext,
 } from "../settings/preferences.js";
 import {
+  effectiveReasoningEffort,
   normalizeReasoningPreference,
+  reasoningEffortLabel,
   reasoningEffortOptions,
   supportedReasoningEfforts,
 } from "../../shared/reasoning.js";
+import {
+  automaticModelLabel,
+  selectModel,
+} from "../../shared/model-selection.js";
 import { deriveViewState } from "./view-state.js";
 
 const topbar = document.querySelector(".topbar");
@@ -35,6 +41,10 @@ const messageInput = document.querySelector("#message-input");
 const clearMessageButton = document.querySelector("#clear-message");
 const sendMessageButton = document.querySelector("#send-message");
 const stopResponseButton = document.querySelector("#stop-response");
+const modelSummaryButton = document.querySelector("#model-summary");
+const effectiveModelLabel = document.querySelector("#effective-model");
+const modelSummarySeparator = document.querySelector("#model-summary-separator");
+const effectiveReasoningEffortLabel = document.querySelector("#effective-reasoning-effort");
 const retryOperationButton = document.querySelector("#retry-operation");
 const clearButton = document.querySelector("#clear-chat");
 const openSettingsButton = document.querySelector("#open-settings");
@@ -442,7 +452,7 @@ function focusChatSurface() {
   target.focus({ preventScroll: true });
 }
 
-function showSettings() {
+function showSettings({ focusModel = false } = {}) {
   viewStack.classList.add("view-stack--settings");
   chatView.inert = true;
   chatView.setAttribute("aria-hidden", "true");
@@ -450,7 +460,16 @@ function showSettings() {
   settingsView.setAttribute("aria-hidden", "false");
   openSettingsButton.setAttribute("aria-expanded", "true");
   closeSettingsButton.focus({ preventScroll: true });
-  if (currentState.connection.auth?.state === "signed_in") void refreshModels(true);
+  if (currentState.connection.auth?.state !== "signed_in") return;
+
+  const refresh = refreshModels(true);
+  if (focusModel) {
+    void refresh.then(() => {
+      if (viewStack.classList.contains("view-stack--settings") && !modelSelect.disabled) {
+        modelSelect.focus({ preventScroll: true });
+      }
+    });
+  }
 }
 
 function showChat() {
@@ -505,9 +524,26 @@ function applyReasoningPreference(nextReasoningEffort) {
 }
 
 function effectiveModel() {
-  if (!availableModels.length) return null;
-  if (modelPreference === "automatic") return availableModels[0];
-  return availableModels.find((model) => model.slug === modelPreference) || availableModels[0];
+  return selectModel(availableModels, modelPreference);
+}
+
+function renderModelSummary() {
+  const model = effectiveModel();
+  const effort = effectiveReasoningEffort(model, reasoningPreference);
+  const effortLabel = reasoningEffortLabel(effort);
+  modelSummaryButton.hidden = !model;
+  effectiveModelLabel.textContent = model?.displayName || "";
+  effectiveReasoningEffortLabel.textContent = effortLabel;
+  modelSummarySeparator.hidden = !effort;
+  effectiveReasoningEffortLabel.hidden = !effort;
+  if (model) {
+    modelSummaryButton.setAttribute(
+      "aria-label",
+      `${model.displayName}${effortLabel ? `, ${effortLabel}` : ""}. Open model settings.`,
+    );
+  } else {
+    modelSummaryButton.removeAttribute("aria-label");
+  }
 }
 
 function populateReasoningEfforts() {
@@ -523,6 +559,7 @@ function populateReasoningEfforts() {
     ? reasoningPreference
     : "model_default";
   reasoningSelect.disabled = !preferencesLoaded || currentState.connection.phase !== "ready" || !model;
+  renderModelSummary();
 }
 
 async function reconcileReasoningPreference() {
@@ -550,7 +587,7 @@ function populateModels(models, preference) {
   availableModels = models;
   const automaticOption = document.createElement("option");
   automaticOption.value = "automatic";
-  automaticOption.textContent = "Automatic";
+  automaticOption.textContent = automaticModelLabel(models);
   const options = [automaticOption];
   for (const model of models) {
     const option = document.createElement("option");
@@ -913,7 +950,8 @@ modeInputs.forEach((input) => {
 confirmActionButton.addEventListener("click", () => void resolveAction(true));
 cancelActionButton.addEventListener("click", () => void resolveAction(false));
 retryOperationButton.addEventListener("click", () => void retryOperation());
-openSettingsButton.addEventListener("click", showSettings);
+openSettingsButton.addEventListener("click", () => showSettings());
+modelSummaryButton.addEventListener("click", () => showSettings({ focusModel: true }));
 closeSettingsButton.addEventListener("click", showChat);
 signInButton.addEventListener("click", () => void signIn());
 settingsSignInButton.addEventListener("click", () => void signIn());

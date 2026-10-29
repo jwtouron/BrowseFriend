@@ -9,6 +9,7 @@ import {
   selectReasoningEffort,
   supportedReasoningEfforts,
 } from "../../shared/reasoning.js";
+import { selectModel } from "../../shared/model-selection.js";
 
 const STORAGE_KEY = "browsefriend.chat.session";
 const MAX_HISTORY_BYTES = 480 * 1024;
@@ -256,9 +257,7 @@ export function installAppController({
   }
 
   function selectedModel() {
-    return modelPreference === "automatic"
-      ? models[0]
-      : models.find((model) => model.slug === modelPreference);
+    return selectModel(models, modelPreference);
   }
 
   async function setAuthOutcome(chat, auth) {

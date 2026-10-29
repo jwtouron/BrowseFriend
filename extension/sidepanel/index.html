@@ -151,9 +151,29 @@
               </button>
             </form>
 
-            <p class="disclaimer">
-              Page context is shared with ChatGPT for this response and is treated as untrusted.
-            </p>
+            <div class="composer-footer">
+              <button
+                class="model-summary"
+                id="model-summary"
+                type="button"
+                hidden
+              >
+                <span class="model-summary__model" id="effective-model"></span>
+                <span class="model-summary__separator" id="model-summary-separator" aria-hidden="true">·</span>
+                <span class="model-summary__effort" id="effective-reasoning-effort"></span>
+              </button>
+              <span
+                class="context-warning"
+                tabindex="0"
+                aria-label="Page context sharing notice"
+                aria-describedby="context-warning-tooltip"
+              >
+                <span class="context-warning__icon" aria-hidden="true">⚠</span>
+                <span class="context-warning__tooltip" id="context-warning-tooltip" role="tooltip">
+                  Page context is shared with ChatGPT for this response and is treated as untrusted.
+                </span>
+              </span>
+            </div>
           </div>
         </div>
 

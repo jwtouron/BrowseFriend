@@ -56,3 +56,17 @@ export function selectReasoningEffort(model, preference) {
   const supported = supportedReasoningEfforts(model);
   return supported.includes(normalized) ? normalized : undefined;
 }
+
+export function effectiveReasoningEffort(model, preference) {
+  const normalized = normalizeReasoningPreference(preference);
+  if (normalized !== "model_default" && supportedReasoningEfforts(model).includes(normalized)) {
+    return normalized;
+  }
+  return REASONING_EFFORTS.has(model?.defaultReasoningEffort)
+    ? model.defaultReasoningEffort
+    : undefined;
+}
+
+export function reasoningEffortLabel(effort) {
+  return REASONING_EFFORT_LABELS[effort] || "";
+}

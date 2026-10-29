@@ -158,6 +158,25 @@ test("composer keeps its trailing action anchored with symmetric padding", async
   assert.match(styles, /\.composer-clear,\s*\.send-button\s*\{[^}]*flex:\s*0 0 34px;/s);
 });
 
+test("composer footer shows the effective model and an accessible context warning", async () => {
+  const [html, styles, script] = await Promise.all([
+    readFile(htmlUrl, "utf8"),
+    readFile(stylesUrl, "utf8"),
+    readFile(scriptUrl, "utf8"),
+  ]);
+
+  assert.match(html, /class="model-summary"[\s\S]*id="model-summary"[\s\S]*hidden/);
+  assert.match(html, /id="effective-model"/);
+  assert.match(html, /id="effective-reasoning-effort"/);
+  assert.match(html, /class="context-warning"[\s\S]*tabindex="0"[\s\S]*aria-describedby="context-warning-tooltip"/);
+  assert.match(html, /id="context-warning-tooltip" role="tooltip"/);
+  assert.match(styles, /\.model-summary__model\s*\{[^}]*text-overflow:\s*ellipsis;/s);
+  assert.match(styles, /\.model-summary__effort\s*\{[^}]*flex:\s*0 0 auto;/s);
+  assert.match(styles, /\.context-warning:focus \.context-warning__tooltip/);
+  assert.match(script, /automaticOption\.textContent = automaticModelLabel\(models\)/);
+  assert.match(script, /modelSummaryButton\.addEventListener\("click", \(\) => showSettings\(\{ focusModel: true \}\)\)/);
+});
+
 test("Debug mode is an accessible switch in the final Settings section", async () => {
   const html = await readFile(htmlUrl, "utf8");
   const finalSettingsSection = html.lastIndexOf('class="settings-section');

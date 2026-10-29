@@ -5,6 +5,8 @@ current implementation unless a task explicitly promotes them into scope.
 
 ## Page interaction
 
+- [ ] Add a resumable Act clarification and choice flow that can preserve task context while the
+  user resolves ambiguous targets, without weakening confirmation or stale-page safeguards.
 - [ ] Add model-prompt file attachments with explicit previews, size/type limits, privacy controls,
   multimodal transport support, and no implicit reuse of files selected for web forms.
 - [ ] Add same-origin and permitted cross-origin iframe context with clear frame attribution.

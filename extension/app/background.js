@@ -327,6 +327,18 @@ export function installAppController({
       chat.authorization?.origin === pageOrigin(context.url);
   }
 
+  function authorizedForSubmission(chat, submission, context) {
+    return chat.mode === "act" && submission.mode === "act" && context?.available &&
+      submission.tabId === context.tabId;
+  }
+
+  function finishTaskMode(chat, submission) {
+    if (submission?.mode !== "act" || !submission.startOrigin || !submission.currentOrigin ||
+        submission.startOrigin === submission.currentOrigin) return;
+    chat.mode = "ask";
+    chat.authorization = null;
+  }
+
   function assistantFor(chat, submission) {
     return chat.messages.find((message) => message.id === submission.assistantId);
   }
@@ -336,10 +348,10 @@ export function installAppController({
       check: "Changed",
       click: "Clicked",
       disclosure: "Opened",
-      download: "Downloaded from",
+      download: "Clicked",
       file: "Selected files for",
       fill: "Filled",
-      navigation: "Opened",
+      navigation: "Navigated to",
       scroll: "Scrolled",
       select: "Selected",
       submit: "Submitted",
@@ -368,10 +380,12 @@ export function installAppController({
       assistant.status = publicError.code === "cancelled" ? "stopped" : "error";
       assistant.error = publicError.code === "cancelled" ? null : publicError;
     }
+    finishTaskMode(chat, submission);
     chat.submission = null;
     if (publicError.code !== "cancelled") {
       const canRetry = !submission.actionExecuted &&
-        !["action_limit_reached", "action_loop_detected", "act_authorization_changed"].includes(publicError.code);
+        !["action_limit_reached", "action_loop_detected", "act_authorization_changed",
+          "user_navigated"].includes(publicError.code);
       issue = {
         kind: "error",
         scope: "generation",
@@ -387,18 +401,43 @@ export function installAppController({
     await publish(chat);
   }
 
-  async function captureForSubmission(chat, submission) {
-    const page = await pageReader.capture();
+  async function captureForSubmission(chat, submission, { afterNavigation = false } = {}) {
+    const previousContext = submission.context;
+    const page = afterNavigation && previousContext && pageReader.captureAfterNavigation
+      ? await pageReader.captureAfterNavigation(previousContext)
+      : await pageReader.capture();
     if (chat.submission?.id !== submission.id) return null;
     const context = contextFor(page);
-    if (submission.mode === "act" && !authorizedFor(chat, context)) {
-      chat.mode = "ask";
-      chat.authorization = null;
-      throw {
-        code: "act_authorization_changed",
-        message: "Act mode stopped because the active tab or site changed.",
+    if (submission.mode === "act") {
+      if (!context.available) throw {
+        code: context.error?.code || "page_unavailable",
+        message: context.error?.message || "BrowseFriend could not read the active page.",
         retryable: false,
       };
+      if (!submission.tabId) {
+        if (!authorizedFor(chat, context)) throw {
+          code: "act_authorization_changed",
+          message: "Act mode stopped because the active tab or site changed before the task began.",
+          retryable: false,
+        };
+        submission.tabId = context.tabId;
+        submission.startOrigin = chat.authorization.origin;
+      } else if (submission.tabId !== context.tabId) {
+        chat.mode = "ask";
+        chat.authorization = null;
+        throw {
+          code: "user_navigated",
+          message: "Stopped because you navigated away.",
+          retryable: false,
+        };
+      }
+      submission.currentOrigin = pageOrigin(context.url);
+      submission.currentUrl = context.url;
+      chat.authorization = { tabId: submission.tabId, origin: submission.currentOrigin };
+    } else if (context.available) {
+      submission.tabId = context.tabId;
+      submission.currentOrigin = pageOrigin(context.url);
+      submission.currentUrl = context.url;
     }
     submission.context = context;
     return context;
@@ -426,7 +465,10 @@ export function installAppController({
         ...(result.changed !== undefined ? { changed: result.changed } : {}),
       }),
     };
-    const context = await captureForSubmission(chat, submission);
+    const context = await captureForSubmission(chat, submission, {
+      afterNavigation: result.kind === "navigation" ||
+        (submission.currentUrl && submission.currentUrl !== submission.context?.url),
+    });
     if (!context || chat.submission?.id !== submission.id) return;
     submission.phase = "streaming";
     submission.pendingAction = null;
@@ -436,6 +478,11 @@ export function installAppController({
 
   async function executePageAction(chat, submission, call, prepared, action) {
     try {
+      if (submission.phase !== "executing") {
+        submission.phase = "executing";
+        submission.pendingAction = null;
+        await publish(chat);
+      }
       const result = await pageActor.execute(call, submission.context);
       if (chat.submission?.id !== submission.id) return;
       if (result.waitingForUser) {
@@ -475,7 +522,7 @@ export function installAppController({
     } catch (error) {
       throw { code: "invalid_tool_call", message: error.message, retryable: true };
     }
-    if (submission.mode !== "act" || !authorizedFor(chat, submission.context)) {
+    if (!authorizedForSubmission(chat, submission, submission.context)) {
       throw {
         code: "act_authorization_changed",
         message: "BrowseFriend no longer has permission to act on this page.",
@@ -568,6 +615,7 @@ export function installAppController({
       }
       const assistant = chat.messages.find((message) => message.id === submission.assistantId);
       if (assistant) assistant.status = "complete";
+      finishTaskMode(chat, submission);
       chat.submission = null;
       issue = null;
       await publish(chat);
@@ -666,6 +714,10 @@ export function installAppController({
       lastActionFingerprint: null,
       pendingAction: null,
       actionExecuted: false,
+      tabId: null,
+      startOrigin: null,
+      currentOrigin: null,
+      currentUrl: null,
     };
     await publish(chat);
     if (connection.phase === "ready") void resumeSubmission();
@@ -734,6 +786,7 @@ export function installAppController({
       }
       if (action) action.status = "cancelled";
       if (assistant) assistant.status = "stopped";
+      finishTaskMode(chat, submission);
       chat.submission = null;
       issue = null;
       await publish(chat);
@@ -778,6 +831,7 @@ export function installAppController({
       assistant.status = "stopped";
       assistant.error = null;
     }
+    finishTaskMode(chat, submission);
     chat.submission = null;
     if (issue?.scope === "generation") issue = null;
     await publish(chat);
@@ -811,6 +865,10 @@ export function installAppController({
         lastActionFingerprint: null,
         pendingAction: null,
         actionExecuted: false,
+        tabId: null,
+        startOrigin: null,
+        currentOrigin: null,
+        currentUrl: null,
       };
       await publish(chat);
       if (connection.phase === "ready") void resumeSubmission();
@@ -924,6 +982,7 @@ export function installAppController({
       if (event.cancelled) {
         if (action) action.status = "cancelled";
         if (assistant) assistant.status = "stopped";
+        finishTaskMode(chat, submission);
         chat.submission = null;
         await publish(chat);
         return;
@@ -946,32 +1005,52 @@ export function installAppController({
       let changed = false;
       const authorized = chat.authorization;
       const nextOrigin = event.url ? pageOrigin(event.url) : null;
-      const resetAct = chat.mode === "act" && authorized &&
-        ((event.activated && event.tabId !== authorized.tabId) ||
-         (event.tabId === authorized.tabId && nextOrigin && nextOrigin !== authorized.origin));
-      if (resetAct) {
+      const submission = chat.submission;
+      const taskTabId = submission?.tabId || (submission?.mode === "act" ? authorized?.tabId : null);
+      const switchedTabs = submission && Number.isInteger(taskTabId) && event.activated && event.tabId !== taskTabId;
+      const changedLocation = submission && Number.isInteger(taskTabId) &&
+        event.tabId === taskTabId && typeof event.url === "string" &&
+        event.url !== submission.currentUrl;
+      const actionNavigation = changedLocation && submission.phase === "executing";
+
+      if (actionNavigation) {
+        submission.currentUrl = event.url;
+        submission.currentOrigin = nextOrigin;
+        changed = true;
+      } else if (switchedTabs || changedLocation) {
+        if (changedLocation) {
+          submission.currentUrl = event.url;
+          submission.currentOrigin = nextOrigin;
+        }
         chat.mode = "ask";
         chat.authorization = null;
         changed = true;
-        const submission = chat.submission;
-        if (submission?.mode === "act") {
-          const assistant = assistantFor(chat, submission);
-          if (assistant) {
-            assistant.status = "error";
-            assistant.error = {
-              code: "act_authorization_changed",
-              message: "Act mode stopped because the active tab or site changed.",
-              retryable: false,
-            };
-          }
-          chat.submission = null;
-          if (submission.requestStarted) {
-            void companion.request("model.cancel", { requestId: submission.id }).catch(() => undefined);
-          }
+        const assistant = assistantFor(chat, submission);
+        if (assistant) {
+          assistant.status = "error";
+          assistant.error = {
+            code: "user_navigated",
+            message: "Stopped because you navigated away.",
+            retryable: false,
+          };
+        }
+        chat.submission = null;
+        if (submission.requestStarted) {
+          void companion.request("model.cancel", { requestId: submission.id }).catch(() => undefined);
+        }
+      } else if (!submission) {
+        const resetAct = chat.mode === "act" && authorized &&
+          ((event.activated && event.tabId !== authorized.tabId) ||
+           (event.tabId === authorized.tabId && nextOrigin && nextOrigin !== authorized.origin));
+        if (resetAct) {
+          chat.mode = "ask";
+          chat.authorization = null;
+          changed = true;
         }
       }
       for (let index = 0; index < chat.messages.length; index += 1) {
         const message = chat.messages[index];
+        if (actionNavigation && message.id === submission.userId) continue;
         if (message.role !== "user" || !message.context?.available || message.context.stale ||
             message.context.tabId !== event.tabId ||
             (event.documentId && message.context.documentId !== event.documentId) ||

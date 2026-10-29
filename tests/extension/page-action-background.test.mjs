@@ -61,3 +61,52 @@ test("page actor installs once, binds messages to snapshot identity, and sanitiz
     count: 2,
   }]);
 });
+
+test("page actor navigates the current validated tab without injecting a content script", async () => {
+  const onMessage = createEvent();
+  const updates = [];
+  const injections = [];
+  const context = {
+    available: true,
+    tabId: 7,
+    documentId: "doc-1",
+    revision: 4,
+    url: "https://start.test/",
+  };
+  const actor = installPageActor({
+    runtime: { id: "extension", onMessage },
+    pageReader: {
+      async capture() {
+        return {
+          available: true,
+          tabId: 7,
+          snapshot: { documentId: "doc-1", revision: 4, url: "https://start.test/" },
+        };
+      },
+      onDirty() {},
+    },
+    tabs: {
+      async update(tabId, options) { updates.push({ tabId, options }); },
+    },
+    scripting: {
+      async executeScript(options) { injections.push(options); },
+      async insertCSS() {},
+    },
+  });
+  const call = {
+    name: "page_navigate",
+    args: { url: "https://huggingface.co/models?search=granite" },
+  };
+
+  const prepared = await actor.prepare(call, context);
+  const result = await actor.execute(call, context);
+
+  assert.equal(prepared.kind, "navigation");
+  assert.equal(prepared.destination, "https://huggingface.co");
+  assert.equal(result.executed, true);
+  assert.deepEqual(updates, [{
+    tabId: 7,
+    options: { url: "https://huggingface.co/models?search=granite" },
+  }]);
+  assert.equal(injections.length, 0);
+});

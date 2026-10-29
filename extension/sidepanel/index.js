@@ -130,7 +130,20 @@ function createMessageElement(messageData) {
     for (const action of messageData.actions || []) {
       const item = document.createElement("div");
       item.className = `message-action message-action--${action.status}`;
-      item.textContent = `${action.kind === "wait" ? "Waited for" : action.kind === "scroll" ? "Scrolled" : "Action on"} ${action.target}`;
+      const verb = {
+        check: "Changed",
+        click: "Clicked",
+        disclosure: "Opened",
+        download: "Clicked",
+        file: "Selected files for",
+        fill: "Filled",
+        navigation: "Navigated to",
+        scroll: "Scrolled",
+        select: "Selected",
+        submit: "Submitted",
+        wait: "Waited for",
+      }[action.kind] || "Used";
+      item.textContent = `${verb} ${action.target}`;
       if (action.value !== undefined) item.textContent += ` · ${action.value}`;
       actions.append(item);
     }

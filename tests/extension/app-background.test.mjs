@@ -132,6 +132,9 @@ function createHarness({
         },
       };
     },
+    async captureAfterNavigation() {
+      return this.capture();
+    },
     onDirty(listener) { dirtyListeners.push(listener); },
   };
   const pageActor = {
@@ -496,6 +499,119 @@ test("Act mode executes one tool at a time and continues with fresh page context
   assert.equal(modelCalls.length, 2);
   assert.match(modelCalls[1].params.pageContext, /Page 3/);
   assert.equal(modelCalls[1].params.continuation.callId, "call-1");
+});
+
+test("an Act task owns cross-origin navigation until the model finishes", async () => {
+  let streams = 0;
+  let publishDirty;
+  const executed = [];
+  const harness = createHarness({
+    pageCapture(count) {
+      const destination = count >= 3;
+      return {
+        available: true,
+        tabId: 4,
+        snapshot: {
+          version: 1,
+          documentId: destination ? "doc-huggingface" : "doc-start",
+          revision: count,
+          title: destination ? "Models" : "Start",
+          url: destination
+            ? "https://huggingface.co/models?search=granite"
+            : "https://example.test/",
+          records: [],
+        },
+      };
+    },
+    streamRequest({ onEvent, explicitId }) {
+      streams += 1;
+      if (streams === 1) {
+        return {
+          result: {
+            toolCall: {
+              callId: "call-nav",
+              name: "page_navigate",
+              arguments: '{"url":"https://huggingface.co/models?search=granite"}',
+            },
+          },
+        };
+      }
+      onEvent({
+        event: "model.delta",
+        requestId: explicitId,
+        delta: "I found several matching downloads; choose one.",
+      });
+      return { result: { completed: true } };
+    },
+    pageActorPrepare(call) {
+      return {
+        tool: call.name,
+        kind: "navigation",
+        target: "huggingface.co/models",
+        destination: "https://huggingface.co",
+        requiresConfirmation: false,
+      };
+    },
+    pageActorExecute(call) {
+      executed.push(call);
+      publishDirty({
+        tabId: 4,
+        documentId: null,
+        revision: Number.MAX_SAFE_INTEGER,
+        url: "https://huggingface.co/models?search=granite",
+      });
+      return {
+        tool: call.name,
+        kind: "navigation",
+        target: "huggingface.co/models",
+        destination: "https://huggingface.co",
+        executed: true,
+      };
+    },
+  });
+  publishDirty = harness.dirtyListeners[0];
+  await harness.controller.ensureReady();
+  await harness.controller.setMode("act");
+  await harness.controller.submit("submission-1", "Find the Granite download");
+  await settle();
+  await settle();
+
+  const state = await harness.controller.getState();
+  assert.equal(executed.length, 1);
+  assert.equal(state.submission, null);
+  assert.equal(state.mode, "ask");
+  assert.equal(state.authorization, null);
+  assert.equal(state.messages[1].status, "complete");
+  assert.equal(state.messages[1].stale, false);
+  assert.match(state.messages[1].text, /several matching downloads/);
+  assert.equal(state.messages[1].actions[0].kind, "navigation");
+  assert.equal(state.messages[1].actions[0].status, "complete");
+});
+
+test("manual navigation stops an active response with an explicit explanation", async () => {
+  const response = deferred();
+  const harness = createHarness({
+    streamRequest() { return response.promise; },
+  });
+  await harness.controller.ensureReady();
+  await harness.controller.submit("submission-1", "Summarize this page");
+  await settle();
+
+  harness.dirtyListeners[0]({
+    tabId: 4,
+    documentId: null,
+    revision: Number.MAX_SAFE_INTEGER,
+    url: "https://elsewhere.test/",
+  });
+  await settle();
+
+  const state = await harness.controller.getState();
+  assert.equal(state.submission, null);
+  assert.equal(state.messages[1].status, "error");
+  assert.equal(state.messages[1].error.code, "user_navigated");
+  assert.equal(state.messages[1].error.message, "Stopped because you navigated away.");
+  assert.equal(harness.companionCalls.some((call) => call.method === "model.cancel"), true);
+  response.resolve({ result: { completed: true } });
 });
 
 test("consequential Act actions pause for confirmation", async () => {

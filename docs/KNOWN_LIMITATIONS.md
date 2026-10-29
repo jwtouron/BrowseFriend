@@ -30,12 +30,16 @@ random loopback listener only while completing the hosted OAuth callback.
 - BrowseFriend recaptures after every action and replans when the DOM changes, but it cannot observe
   network-idle state. `page_wait_for_change` waits five seconds; slower content may require another
   prompt.
+- Direct navigation uses a model-selected HTTP(S) URL. BrowseFriend has no built-in web-search
+  provider and cannot guarantee that a syntactically valid destination is the page the user meant.
+  If several consequential targets remain ambiguous, the model may stop and explain the blocker.
 - File selection always remains a direct user action. BrowseFriend highlights supported file inputs
   or associated labels and observes only the selected count. Some sites upload immediately after
   selection, before a later form submission confirmation.
 - Download confirmation covers explicit and recognizable download links. Without Chrome's broad
   downloads permission, BrowseFriend cannot reliably detect, monitor, or cancel downloads started
-  indirectly by page scripts or server response headers.
+  indirectly by page scripts or server response headers. Chrome remains responsible for saving the
+  file, warnings, progress, cancellation, and completion.
 - Consequential-action classification is conservative but cannot understand every custom site.
   Ambiguous buttons are confirmed; unsupported or sensitive targets fail closed.
 

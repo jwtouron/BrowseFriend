@@ -4,6 +4,7 @@
   if (globalThis[INSTALL_KEY]) return;
 
   const DOWNLOAD_PATH = /\.(?:7z|avi|csv|docx?|dmg|exe|gif|gz|jpe?g|mkv|mov|mp3|mp4|pdf|png|pptx?|rar|tar|tgz|webp|xlsx?|zip)(?:$|[?#])/i;
+  const DOWNLOAD_NAME = /\b(?:download|save(?:\s+this)?\s+file)\b/i;
   const SENSITIVE_AUTOCOMPLETE = /(?:^|\s)(?:cc-|current-password|new-password|one-time-code)/i;
   const SENSITIVE_NAME = /(?:password|passcode|one.?time|otp|card.?number|credit.?card|security.?code|cvv|cvc)/i;
   const CONSEQUENTIAL_NAME = /(?:buy|checkout|delete|log\s*out|order|pay|post|publish|purchase|remove|reserve|send|sign\s*out|subscribe|unsubscribe)/i;
@@ -172,7 +173,8 @@
         if (!["http:", "https:"].includes(href.protocol)) {
           throw publicError("unsupported_navigation", "BrowseFriend only opens HTTP or HTTPS links.");
         }
-        const download = element.hasAttribute("download") || DOWNLOAD_PATH.test(href.pathname);
+        const download = element.hasAttribute("download") || DOWNLOAD_PATH.test(href.pathname) ||
+          DOWNLOAD_NAME.test(targetName(element));
         const consequential = CONSEQUENTIAL_NAME.test(`${targetName(element)} ${href.pathname}`);
         return summary(call.name, element, {
           kind: download ? "download" : consequential ? "click" : "navigation",

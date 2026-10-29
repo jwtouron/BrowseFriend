@@ -1,6 +1,20 @@
 export const PAGE_TOOL_SCHEMAS = Object.freeze([
   {
     type: "function",
+    name: "page_navigate",
+    description: "Navigate the current tab to an absolute HTTP(S) page URL. Use this for a user-requested destination that is not represented by a current page link. Prefer an authoritative site or search/listing page when the exact deep link is uncertain; use page_click for links and download controls.",
+    strict: true,
+    parameters: {
+      type: "object",
+      properties: {
+        url: { type: "string", maxLength: 4_000 },
+      },
+      required: ["url"],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: "function",
     name: "page_scroll",
     description: "Scroll the current page without activating a control.",
     strict: true,
@@ -111,6 +125,22 @@ function validRef(value) {
   return typeof value === "string" && /^e\d+$/.test(value) && value.length <= 40;
 }
 
+export function normalizePageNavigationUrl(value) {
+  if (typeof value !== "string" || !value || value.length > 4_000) {
+    throw new Error("Invalid navigation URL.");
+  }
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Invalid navigation URL.");
+  }
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
+    throw new Error("Navigation requires an HTTP(S) URL without embedded credentials.");
+  }
+  return url.href;
+}
+
 export function parsePageToolCall(call) {
   if (!call || typeof call !== "object" || typeof call.callId !== "string" ||
       !call.callId || !PAGE_TOOL_NAMES.has(call.name) || typeof call.arguments !== "string") {
@@ -127,7 +157,10 @@ export function parsePageToolCall(call) {
     throw new Error("Page tool arguments must be an object.");
   }
 
-  if (call.name === "page_scroll") {
+  if (call.name === "page_navigate") {
+    if (!exactKeys(args, ["url"])) throw new Error("Invalid navigation arguments.");
+    args.url = normalizePageNavigationUrl(args.url);
+  } else if (call.name === "page_scroll") {
     if (!exactKeys(args, ["direction", "amount"]) ||
         !["up", "down", "top", "bottom"].includes(args.direction) ||
         !["half", "viewport"].includes(args.amount)) throw new Error("Invalid scroll arguments.");

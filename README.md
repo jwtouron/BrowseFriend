@@ -48,8 +48,13 @@ Ask a question to capture the current HTTP or HTTPS page. BrowseFriend sends a b
 Use the control above the composer to switch from **Ask** to **Act**. Act can still answer ordinary
 questions, but it also lets the model request an allowlisted page tool. BrowseFriend performs one
 validated action at a time and recaptures the page after each step, so dynamically revealed form
-controls become available on the next step. Switching tabs or sites, starting a New chat, logging
-out, or restarting Chrome returns to Ask; returning to an earlier tab does not restore Act.
+controls become available on the next step. The model can navigate the current tab to an HTTP or
+HTTPS page, then continue the same task from the new semantic snapshot. The task keeps its original
+Act authority until it finishes; if it ends on a different site, the panel returns to Ask.
+
+Switching tabs or navigating manually while a response is active stops it with an explanation.
+Outside an active task, switching tabs or sites, starting a New chat, logging out, or restarting
+Chrome returns to Ask; returning to an earlier tab does not restore Act.
 
 Submissions, detected downloads, ambiguous buttons, purchases, messages, account changes, and
 destructive operations pause for confirmation. File controls pause and highlight the page control

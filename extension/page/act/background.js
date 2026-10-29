@@ -1,3 +1,5 @@
+import { normalizePageNavigationUrl } from "../../../shared/page-tools.js";
+
 const CONTENT_SCRIPT = "extension/page/act/content-script.js";
 const HIGHLIGHT_CSS = "extension/page/act/highlight.css";
 
@@ -18,6 +20,51 @@ export function installPageActor({ runtime, tabs, scripting, pageReader }) {
     await scripting.executeScript({ target: { tabId }, files: [CONTENT_SCRIPT] });
     await scripting.insertCSS({ target: { tabId }, files: [HIGHLIGHT_CSS] });
     installedTabs.add(tabId);
+  }
+
+  async function validateContext(context) {
+    if (!context?.available || typeof context.tabId !== "number" ||
+        typeof context.documentId !== "string" || typeof context.revision !== "number") {
+      throw {
+        code: "page_context_missing",
+        message: "BrowseFriend needs a fresh page snapshot before acting.",
+        retryable: true,
+      };
+    }
+    const page = await pageReader.capture();
+    if (!page.available || page.tabId !== context.tabId ||
+        page.snapshot.documentId !== context.documentId || page.snapshot.revision !== context.revision) {
+      throw {
+        code: "stale_page",
+        message: "The page changed before BrowseFriend could navigate.",
+        retryable: true,
+      };
+    }
+  }
+
+  function navigationResult(call, overrides = {}) {
+    const url = new URL(normalizePageNavigationUrl(call.args.url));
+    const target = `${url.hostname}${url.pathname === "/" ? "" : url.pathname}`.slice(0, 300);
+    return {
+      tool: call.name,
+      kind: "navigation",
+      target: target || url.origin,
+      destination: url.origin,
+      requiresConfirmation: false,
+      ...overrides,
+    };
+  }
+
+  async function prepareNavigation(call, context) {
+    await validateContext(context);
+    return navigationResult(call);
+  }
+
+  async function executeNavigation(call, context) {
+    await validateContext(context);
+    const url = normalizePageNavigationUrl(call.args.url);
+    await tabs.update(context.tabId, { url });
+    return navigationResult(call, { executed: true });
   }
 
   async function send(method, call, context) {
@@ -45,7 +92,8 @@ export function installPageActor({ runtime, tabs, scripting, pageReader }) {
       if (["stale_page", "stale_target"].includes(error?.code)) throw error;
       installedTabs.delete(context.tabId);
       if (method === "page.action.execute" && ["page_click", "page_submit"].includes(call?.name)) {
-        const page = await pageReader.capture().catch(() => null);
+        const page = await (pageReader.captureAfterNavigation?.(context) || pageReader.capture())
+          .catch(() => null);
         if (page?.available && page.tabId === context.tabId &&
             page.snapshot?.documentId !== context.documentId) {
           return {
@@ -83,9 +131,11 @@ export function installPageActor({ runtime, tabs, scripting, pageReader }) {
 
   return {
     prepare(call, context) {
+      if (call.name === "page_navigate") return prepareNavigation(call, context);
       return send("page.action.prepare", call, context);
     },
     execute(call, context) {
+      if (call.name === "page_navigate") return executeNavigation(call, context);
       return send("page.action.execute", call, context);
     },
     cancelFile(context) {

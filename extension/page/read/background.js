@@ -1,5 +1,7 @@
 const CONTENT_SCRIPT = "extension/page/read/content-script.js";
 const SUPPORTED_PROTOCOLS = new Set(["http:", "https:"]);
+const NAVIGATION_CAPTURE_TIMEOUT_MS = 15_000;
+const NAVIGATION_CAPTURE_INTERVAL_MS = 100;
 
 function pageUnavailable(message) {
   return {
@@ -55,6 +57,20 @@ export function installPageReader({ runtime, tabs, scripting }) {
     return { available: true, tabId: tab.id, snapshot: response.snapshot };
   }
 
+  async function captureAfterNavigation(previousContext) {
+    const deadline = Date.now() + NAVIGATION_CAPTURE_TIMEOUT_MS;
+    let result;
+    do {
+      result = await capture();
+      if (result.available && result.tabId === previousContext.tabId &&
+          (result.snapshot.documentId !== previousContext.documentId ||
+           result.snapshot.url !== previousContext.url)) return result;
+      if (result.available && result.tabId !== previousContext.tabId) return result;
+      await new Promise((resolve) => setTimeout(resolve, NAVIGATION_CAPTURE_INTERVAL_MS));
+    } while (Date.now() < deadline);
+    return pageUnavailable("The destination page did not become readable in time.");
+  }
+
   runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.channel === "page" && message.event === "dirty" &&
         sender.id === runtime.id && sender.frameId === 0 && typeof sender.tab?.id === "number") {
@@ -97,6 +113,7 @@ export function installPageReader({ runtime, tabs, scripting }) {
 
   return {
     capture,
+    captureAfterNavigation,
     onDirty(listener) {
       dirtyListeners.add(listener);
       return () => dirtyListeners.delete(listener);

@@ -123,7 +123,7 @@ test("page action preparation confirms ambiguous buttons and detected downloads"
   const button = new FakeElement("button", { text: "Delete account" });
   const download = new FakeElement("a", {
     text: "Download report",
-    href: "https://example.test/report.pdf",
+    href: "https://example.test/files/report",
   });
   const harness = createHarness([["e1", button], ["e2", download]]);
   const listener = await install(harness);

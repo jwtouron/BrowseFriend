@@ -4,6 +4,7 @@ import { PAGE_TOOL_SCHEMAS, parsePageToolCall } from "../shared/page-tools.js";
 
 test("page tools expose only the fixed allowlist with strict object schemas", () => {
   assert.deepEqual(PAGE_TOOL_SCHEMAS.map((tool) => tool.name), [
+    "page_navigate",
     "page_scroll",
     "page_click",
     "page_fill",
@@ -24,6 +25,12 @@ test("page tool parser returns validated arguments and rejects selectors or extr
     arguments: '{"ref":"e12","value":"Chicago"}',
   }).args, { ref: "e12", value: "Chicago" });
 
+  assert.deepEqual(parsePageToolCall({
+    callId: "call-nav",
+    name: "page_navigate",
+    arguments: '{"url":"https://example.test/search?q=granite"}',
+  }).args, { url: "https://example.test/search?q=granite" });
+
   assert.throws(() => parsePageToolCall({
     callId: "call-2",
     name: "page_click",
@@ -39,4 +46,14 @@ test("page tool parser returns validated arguments and rejects selectors or extr
     name: "page_eval",
     arguments: "{}",
   }), /Invalid page tool/);
+  assert.throws(() => parsePageToolCall({
+    callId: "call-5",
+    name: "page_navigate",
+    arguments: '{"url":"javascript:alert(1)"}',
+  }), /HTTP\(S\)/);
+  assert.throws(() => parsePageToolCall({
+    callId: "call-6",
+    name: "page_navigate",
+    arguments: '{"url":"https://person:secret@example.test/"}',
+  }), /embedded credentials/);
 });

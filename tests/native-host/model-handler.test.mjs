@@ -101,7 +101,9 @@ test("Act mode exposes fixed tools and returns one typed tool call", async () =>
   const options = harness.calls[0][1];
   assert.equal(options.parallelToolCalls, false);
   assert.equal(options.tools.some((tool) => tool.name === "page_click"), true);
+  assert.equal(options.tools.some((tool) => tool.name === "page_navigate"), true);
   assert.match(options.instructions, /Act only when the user's own request/);
+  assert.match(options.instructions, /stop calling tools and\s+briefly explain the blocker/);
   assert.deepEqual(harness.sent.at(-1), {
     id: "act",
     ok: true,

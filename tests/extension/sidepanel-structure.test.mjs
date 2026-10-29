@@ -93,9 +93,10 @@ test("composer exposes accessible history and clear controls", async () => {
 });
 
 test("chat exposes Ask and Act modes plus an accessible action confirmation", async () => {
-  const [html, styles] = await Promise.all([
+  const [html, styles, script] = await Promise.all([
     readFile(htmlUrl, "utf8"),
     readFile(stylesUrl, "utf8"),
+    readFile(scriptUrl, "utf8"),
   ]);
   assert.match(html, /<fieldset class="mode-switch" id="mode-switch" aria-label="Page capability">/);
   assert.match(html, /name="page-mode" value="ask" checked/);
@@ -107,6 +108,8 @@ test("chat exposes Ask and Act modes plus an accessible action confirmation", as
   assert.match(html, /class="action-dialog" role="dialog" aria-modal="true"/);
   assert.match(html, /id="confirm-action"/);
   assert.match(html, /id="cancel-action"/);
+  assert.match(script, /navigation: "Navigated to"/);
+  assert.match(script, /click: "Clicked"/);
 });
 
 test("initial chat uses one inline connection and recovery surface", async () => {

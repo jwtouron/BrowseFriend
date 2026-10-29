@@ -65,18 +65,28 @@ answer as stale. Retrying a failed response recaptures the page and replaces the
 ### Act mode
 
 Ask is the default. Enabling Act captures the active page and creates one global session
-authorization tied to its tab and origin. Tab or origin changes, New chat, logout, or session loss
-clear it; BrowseFriend does not remember Act per tab. Act remains capable of ordinary text answers,
-but the native model handler additionally exposes the allowlisted schemas in
-`shared/page-tools.js`.
+authorization tied to its tab and origin. Submitting freezes the mode, tab, starting origin, and
+current location into the task. The task—not the global toggle—then owns Act authority until a
+terminal state, allowing model-directed HTTP(S) navigation in the same tab without toggling modes
+between pages. If the task ends on a different origin, the global mode returns to Ask. Manual
+navigation outside action execution or any tab switch stops the response with an explicit error.
+New chat, logout, and session loss also clear Act; BrowseFriend does not remember it per tab.
 
-The model may request one tool at a time. The actor prepares the target without mutation, and the
+Act remains capable of ordinary text answers, but the native model handler additionally exposes the
+allowlisted schemas in `shared/page-tools.js`. The model may request one tool at a time. The actor
+prepares the target without mutation, and the
 controller either executes a low-risk action or pauses in one pending-confirmation state.
 Submissions, detected downloads, ambiguous controls, and consequential changes require confirmation.
 File selection instead highlights the page control and waits for a direct user choice. Each result
 is followed by a fresh semantic capture. Surviving DOM nodes retain opaque refs; replaced nodes get
 new refs, and stale calls return a non-executing result so the model can replan. A 32-call limit and
 same-revision repeat guard stop runaway loops.
+
+Direct navigation is a background-owned action that validates an absolute HTTP(S) URL, updates the
+authorized tab, waits for a different readable document, and recaptures it before the next model
+step. BrowseFriend provides no separate search service: the model may choose a known destination or
+navigate to a site/search listing and inspect its links. If the model returns text instead of another
+tool call, the task is complete even when that text reports ambiguity or another blocker.
 
 ### Model context and instructions
 

@@ -36,6 +36,36 @@ test("page reader injects on demand and retries the snapshot request", async () 
   }]);
 });
 
+test("page reader waits for navigation to expose a different document", async () => {
+  const onMessage = createEvent();
+  let snapshots = 0;
+  const reader = installPageReader({
+    runtime: { id: "extension", onMessage, async sendMessage() {} },
+    tabs: {
+      async query() { return [{ id: 7, url: "https://example.test/next" }]; },
+      async sendMessage() {
+        snapshots += 1;
+        return {
+          ok: true,
+          snapshot: snapshots === 1
+            ? { documentId: "doc-1", revision: 2, url: "https://example.test/start" }
+            : { documentId: "doc-2", revision: 0, url: "https://example.test/next" },
+        };
+      },
+    },
+    scripting: { async executeScript() {} },
+  });
+
+  const result = await reader.captureAfterNavigation({
+    tabId: 7,
+    documentId: "doc-1",
+    url: "https://example.test/start",
+  });
+
+  assert.equal(result.snapshot.documentId, "doc-2");
+  assert.equal(snapshots, 2);
+});
+
 test("page reader reports unsupported browser pages without injecting", async () => {
   const onMessage = createEvent();
   let injected = false;

@@ -6,6 +6,21 @@ function createHarness(overrides = {}) {
   const sent = [];
   const calls = [];
   const chatgpt = {
+    async compactResponse(options) {
+      calls.push(["compactResponse", options]);
+      return {
+        compactedContext: JSON.stringify([
+          {
+            id: "message-1",
+            type: "message",
+            status: "completed",
+            role: "user",
+            content: [{ type: "input_text", text: "Earlier context" }],
+          },
+          { id: "compaction-1", type: "compaction", encrypted_content: "opaque" },
+        ]),
+      };
+    },
     async listModels() {
       calls.push(["listModels"]);
       return [{
@@ -81,6 +96,93 @@ test("model handler streams deltas and treats page context as untrusted data", a
     { event: "model.delta", requestId: "stream", delta: "world" },
     { id: "stream", ok: true, result: { completed: true } },
   ]);
+});
+
+test("model handler compacts validated transcript input and reuses canonical output", async () => {
+  const previous = JSON.stringify([
+    {
+      id: "message-old",
+      type: "message",
+      status: "completed",
+      role: "user",
+      content: [{ type: "input_text", text: "Old context" }],
+    },
+    { id: "compaction-old", type: "compaction", encrypted_content: "old-opaque" },
+  ]);
+  const harness = createHarness();
+
+  await harness.handle({
+    id: "compact",
+    method: "model.compact",
+    params: {
+      model: "model-1",
+      compactedContext: previous,
+      history: [
+        { role: "user", content: "A newer question" },
+        { role: "assistant", content: "A newer answer" },
+      ],
+    },
+  });
+
+  const options = harness.calls[0][1];
+  assert.equal(options.model, "model-1");
+  assert.equal(options.input[0].type, "message");
+  assert.equal(options.input[1].type, "compaction");
+  assert.deepEqual(options.input.slice(2), [
+    { role: "user", content: "A newer question" },
+    { role: "assistant", content: "A newer answer" },
+  ]);
+  assert.equal(harness.sent.at(-1).ok, true);
+  assert.equal(typeof harness.sent.at(-1).result.compactedContext, "string");
+});
+
+test("model handler prepends compacted context to a stateless stream", async () => {
+  const compactedContext = JSON.stringify([
+    {
+      id: "message-old",
+      type: "message",
+      status: "completed",
+      role: "user",
+      content: [{ type: "input_text", text: "Old context" }],
+    },
+    { id: "compaction-old", type: "compaction", encrypted_content: "old-opaque" },
+  ]);
+  const harness = createHarness();
+
+  await harness.handle({
+    id: "stream",
+    method: "model.stream",
+    params: {
+      model: "model-1",
+      compactedContext,
+      history: [{ role: "user", content: "Recent question" }],
+      prompt: "Current question",
+      pageContext: "",
+    },
+  });
+
+  const input = harness.calls[0][1].input;
+  assert.equal(input[0].type, "message");
+  assert.equal(input[1].type, "compaction");
+  assert.deepEqual(input[2], { role: "user", content: "Recent question" });
+  assert.deepEqual(input[3], { role: "user", content: "Current question" });
+});
+
+test("model handler rejects malformed compacted context", async () => {
+  const harness = createHarness();
+
+  await harness.handle({
+    id: "bad-compact",
+    method: "model.compact",
+    params: {
+      model: "model-1",
+      compactedContext: '[{"type":"message","role":"developer","content":[]}]',
+      history: [],
+    },
+  });
+
+  assert.deepEqual(harness.calls, []);
+  assert.equal(harness.sent[0].error.code, "invalid_request");
 });
 
 test("Act mode exposes fixed tools and returns one typed tool call", async () => {

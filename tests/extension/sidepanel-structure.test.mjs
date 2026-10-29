@@ -108,8 +108,28 @@ test("chat exposes Ask and Act modes plus an accessible action confirmation", as
   assert.match(html, /class="action-dialog" role="dialog" aria-modal="true"/);
   assert.match(html, /id="confirm-action"/);
   assert.match(html, /id="cancel-action"/);
-  assert.match(script, /navigation: "Navigated to"/);
-  assert.match(script, /click: "Clicked"/);
+  assert.match(script, /actionLabel\(action\)/);
+});
+
+test("New chat requires an accessible, cancel-first confirmation", async () => {
+  const [html, script] = await Promise.all([
+    readFile(htmlUrl, "utf8"),
+    readFile(scriptUrl, "utf8"),
+  ]);
+  const dialog = html.slice(
+    html.indexOf('id="new-chat-confirmation"'),
+    html.indexOf("</section>", html.indexOf('id="new-chat-confirmation"')),
+  );
+
+  assert.match(dialog, /role="dialog"/);
+  assert.match(dialog, /aria-modal="true"/);
+  assert.match(dialog, /Start a new chat\?/);
+  assert.match(dialog, /This will clear the current conversation\. This cannot be undone\./);
+  assert.ok(dialog.indexOf('id="cancel-new-chat"') < dialog.indexOf('id="confirm-new-chat"'));
+  assert.match(script, /clearButton\.addEventListener\("click", showNewChatConfirmation\)/);
+  assert.match(script, /requestAnimationFrame\(\(\) => cancelNewChatButton\.focus/);
+  assert.match(script, /newChatModalOpen[\s\S]*event\.key === "Escape"/);
+  assert.match(script, /newChatModalOpen[\s\S]*event\.key === "Tab"/);
 });
 
 test("initial chat uses one inline connection and recovery surface", async () => {

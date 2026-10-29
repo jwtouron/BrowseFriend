@@ -1,0 +1,207 @@
+diff --git a/packages/local/src/index.ts b/packages/local/src/index.ts
+index 24301e6..9187a51 100644
+--- a/packages/local/src/index.ts
++++ b/packages/local/src/index.ts
+@@ -4,12 +4,12 @@ import { isAbsolute, join } from "node:path";
+ import { asError, ChatGPTError, requiresReauthentication } from "./errors.js";
+ import { listModels } from "./models.js";
+ import { authorize, identityVerificationUnavailable, refreshConnection, revokeConnection } from "./oauth.js";
+-import { streamResponse } from "./responses.js";
++import { compactResponse, streamResponse } from "./responses.js";
+ import { ConnectionStore } from "./storage.js";
+ import type { ChatGPTClient, ChatGPTConfig, LoginProfile, PendingRegistration, SessionState, StoredConnection, StoredProfile, StoredState } from "./types.js";
+ 
+ export { ChatGPTError } from "./errors.js";
+-export type { ChatGPTClient, ChatGPTConfig, ChatGPTModel, CredentialEncryption, LoginProfile, ResponseInputMessage, SessionError, SessionIdentity, SessionState, SignInOptions, StreamResponseOptions } from "./types.js";
++export type { ChatGPTClient, ChatGPTConfig, ChatGPTModel, CompactResponseOptions, CredentialEncryption, LoginProfile, ResponseInputMessage, SessionError, SessionIdentity, SessionState, SignInOptions, StreamResponseOptions } from "./types.js";
+ export const CHATGPT_USAGE_URL = "https://chatgpt.com/settings/usage";
+ 
+ const SHARING_SCOPE = "chatgpt.tokens.use.direct";
+@@ -328,6 +328,11 @@ export function createChatGPT(config: ChatGPTConfig): ChatGPTClient {
+ 
+     async listModels(options = {}) { return authenticated(listModels, options.signal); },
+ 
++    async compactResponse(options) {
++      if (!options.model.trim()) throw new ChatGPTError("invalid_request", "Choose a model before compacting a conversation.");
++      return authenticated((accessToken, signal) => compactResponse(accessToken, options, signal), options.signal);
++    },
++
+     async streamResponse(options) {
+       if (!options.model.trim()) throw new ChatGPTError("invalid_request", "Choose a model before starting a request.");
+       return authenticated((accessToken, signal) => streamResponse(accessToken, options, signal), options.signal);
+diff --git a/packages/local/src/responses.ts b/packages/local/src/responses.ts
+index fb1f1a3..85da2dc 100644
+--- a/packages/local/src/responses.ts
++++ b/packages/local/src/responses.ts
+@@ -1,9 +1,15 @@
+ import OpenAI from "openai";
+ import { apiError, ChatGPTError, isObject } from "./errors.js";
+-import type { ResponseFunctionCall, StreamResponseOptions } from "./types.js";
++import type { CompactResponseOptions, ResponseFunctionCall, ResponseInputItem, StreamResponseOptions } from "./types.js";
+ 
+ function validInputItem(item: unknown): boolean {
+   if (!isObject(item)) return false;
++  if (item.type === "message") {
++    return item.role === "user" && Array.isArray(item.content) && item.content.length > 0 &&
++      item.content.every((content) => isObject(content) && ["input_text", "text"].includes(String(content.type)) &&
++        typeof content.text === "string");
++  }
++  if (item.type === "compaction") return typeof item.encrypted_content === "string" && Boolean(item.encrypted_content);
+   if (["user", "assistant", "developer"].includes(String(item.role))) return typeof item.content === "string";
+   if (item.type === "function_call") {
+     return typeof item.callId === "string" && typeof item.name === "string" && typeof item.arguments === "string";
+@@ -13,6 +20,32 @@ function validInputItem(item: unknown): boolean {
+   return false;
+ }
+ 
++function apiInputItem(item: ResponseInputItem): unknown {
++  if ("type" in item && (item.type === "message" || item.type === "compaction")) return item;
++  if ("role" in item) return { role: item.role, content: item.content };
++  if (item.type === "function_call") {
++    return { type: item.type, call_id: item.callId, name: item.name, arguments: item.arguments };
++  }
++  return { type: item.type, call_id: item.callId, output: item.output };
++}
++
++function createClient(accessToken: string): OpenAI {
++  return new OpenAI({
++    apiKey: accessToken,
++    baseURL: "https://api.openai.com/v1",
++    organization: null,
++    project: null,
++    logLevel: "warn",
++    maxRetries: 0,
++    fetchOptions: { redirect: "error" },
++    defaultHeaders: {
++      authorization: `Bearer ${accessToken}`,
++      "openai-organization": null,
++      "openai-project": null,
++    },
++  });
++}
++
+ export async function streamResponse(
+   accessToken: string,
+   options: StreamResponseOptions,
+@@ -21,35 +55,12 @@ export async function streamResponse(
+   const input = typeof options.input === "string" ? [{ role: "user" as const, content: options.input }] : options.input;
+   if (!Array.isArray(input) || input.some((item) => !validInputItem(item))) {
+-    throw new ChatGPTError("invalid_request", "Use text messages or valid function-call items. Put system guidance in instructions.");
++    throw new ChatGPTError("invalid_request", "Use text messages, compacted context, or valid function-call items. Put system guidance in instructions.");
+   }
+-  const apiInput = input.map((item) => {
+-    if ("role" in item) return { role: item.role, content: item.content };
+-    if (item.type === "function_call") {
+-      return { type: item.type, call_id: item.callId, name: item.name, arguments: item.arguments };
+-    }
+-    return { type: item.type, call_id: item.callId, output: item.output };
+-  });
++  const apiInput = input.map(apiInputItem);
+ 
+   // The DevKit supplies the selected ChatGPT account's refreshed OAuth token.
+   // Leave org/project unset; they are not placeholders for a Platform API account.
+-  const client = new OpenAI({
+-    apiKey: accessToken,
+-    baseURL: "https://api.openai.com/v1",
+-    organization: null,
+-    project: null,
+-    // Keep the SDK's default without inheriting OPENAI_LOG=debug, which can log clipboard text.
+-    logLevel: "warn",
+-    // Report ChatGPT sharing-limit errors immediately instead of retrying HTTP 429s.
+-    maxRetries: 0,
+-    // A redirect can forward the clipboard body to another origin.
+-    fetchOptions: { redirect: "error" },
+-    // Also prevent OPENAI_CUSTOM_HEADERS from replacing this account's credentials or tenant.
+-    defaultHeaders: {
+-      authorization: `Bearer ${accessToken}`,
+-      "openai-organization": null,
+-      "openai-project": null,
+-    },
+-  });
++  const client = createClient(accessToken);
+   // The SDK's timeout ends at headers; keep the existing deadline on the body too.
+   const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(180_000)]);
+   let response: Response | undefined;
+@@ -120,3 +136,34 @@ export async function streamResponse(
+     throw new ChatGPTError("stream_interrupted", "The connection was interrupted. You can keep the partial text or try again.", true);
+   }
+ }
++
++export async function compactResponse(
++  accessToken: string,
++  options: CompactResponseOptions,
++  signal: AbortSignal,
++): Promise<{ compactedContext: string }> {
++  if (!Array.isArray(options.input) || !options.input.length || options.input.some((item) => !validInputItem(item))) {
++    throw new ChatGPTError("invalid_request", "Use valid transcript or compacted input items.");
++  }
++  const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(180_000)]);
++  try {
++    const result = await createClient(accessToken).responses.compact({
++      model: options.model,
++      input: options.input.map(apiInputItem),
++    } as OpenAI.Responses.ResponseCompactParams, { signal: requestSignal });
++    const output = result.output;
++    if (!Array.isArray(output) || !output.length || output.some((item) => !validInputItem(item)) ||
++        output.at(-1)?.type !== "compaction") {
++      throw new ChatGPTError("invalid_compaction", "ChatGPT returned invalid compacted context.");
++    }
++    return { compactedContext: JSON.stringify(output) };
++  } catch (error) {
++    if (signal.aborted) throw new ChatGPTError("cancelled", "The response was cancelled.");
++    if (error instanceof ChatGPTError) throw error;
++    if (error instanceof OpenAI.APIError && !(error instanceof OpenAI.APIConnectionError) && !(error instanceof OpenAI.APIUserAbortError)) {
++      const detail = typeof error.error === "string" ? { error: error.error } : error.error;
++      throw apiError(detail, error.status, error.requestID);
++    }
++    throw new ChatGPTError("network_error", "Could not compact the conversation. Try again later.", true);
++  }
++}
+diff --git a/packages/local/src/types.ts b/packages/local/src/types.ts
+index b01fd05..72cc3db 100644
+--- a/packages/local/src/types.ts
++++ b/packages/local/src/types.ts
+@@ -76,6 +76,19 @@ export interface ResponseInputMessage {
+   content: string;
+ }
+ 
++export interface ResponseCompactedMessage {
++  type: "message";
++  role: "user";
++  content: Array<{ type: "input_text" | "text"; text: string; [key: string]: unknown }>;
++  [key: string]: unknown;
++}
++
++export interface ResponseCompactionItem {
++  type: "compaction";
++  encrypted_content: string;
++  [key: string]: unknown;
++}
++
+ export interface ResponseFunctionCall {
+   type: "function_call";
+   callId: string;
+@@ -97,7 +111,14 @@ export interface ResponseFunctionTool {
+   strict?: boolean;
+ }
+ 
+-export type ResponseInputItem = ResponseInputMessage | ResponseFunctionCall | ResponseFunctionCallOutput;
++export type ResponseInputItem = ResponseInputMessage | ResponseCompactedMessage | ResponseCompactionItem |
++  ResponseFunctionCall | ResponseFunctionCallOutput;
++
++export interface CompactResponseOptions {
++  model: string;
++  input: ResponseInputItem[];
++  signal?: AbortSignal;
++}
+ 
+ export interface StreamResponseOptions {
+   model: string;
+@@ -126,6 +147,7 @@ export interface ChatGPTClient {
+   subscribe(listener: (session: SessionState) => void): () => void;
+   /** Sign out of the selected profile. Its registration and identity remain saved. */
+   disconnect(): Promise<void>;
++  compactResponse(options: CompactResponseOptions): Promise<{ compactedContext: string }>;
+   streamResponse(options: StreamResponseOptions): Promise<{ text: string; toolCalls: ResponseFunctionCall[] }>;
+ }
+ 

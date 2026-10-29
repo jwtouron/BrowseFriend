@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { listModels } from "../../vendor/sign-in-with-chatgpt-devkit/packages/local/dist/models.js";
-import { streamResponse } from "../../vendor/sign-in-with-chatgpt-devkit/packages/local/dist/responses.js";
+import {
+  compactResponse,
+  streamResponse,
+} from "../../vendor/sign-in-with-chatgpt-devkit/packages/local/dist/responses.js";
 
 const frame = (event) => `data: ${JSON.stringify(event)}\r\n\r\n`;
 
@@ -88,4 +91,53 @@ test("patched DevKit sends strict tools and returns typed function calls", async
     call_id: "old-call",
     output: '{"ok":true}',
   });
+});
+
+test("patched DevKit returns reusable output from the stateless compaction endpoint", async (t) => {
+  let requestUrl;
+  let body;
+  const output = [
+    {
+      id: "message-1",
+      type: "message",
+      status: "completed",
+      role: "user",
+      content: [{ type: "input_text", text: "Earlier question" }],
+    },
+    { id: "compaction-1", type: "compaction", encrypted_content: "opaque" },
+  ];
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    requestUrl = String(url);
+    body = JSON.parse(init.body);
+    return Response.json({
+      id: "response-1",
+      object: "response.compaction",
+      created_at: 1,
+      output,
+      usage: {
+        input_tokens: 1,
+        input_tokens_details: { cached_tokens: 0 },
+        output_tokens: 1,
+        output_tokens_details: { reasoning_tokens: 0 },
+        total_tokens: 2,
+      },
+    });
+  });
+
+  const result = await compactResponse("synthetic-oauth-token", {
+    model: "model-1",
+    input: [
+      { role: "user", content: "Earlier question" },
+      { role: "assistant", content: "Earlier answer" },
+    ],
+  }, new AbortController().signal);
+
+  assert.match(requestUrl, /\/v1\/responses\/compact$/);
+  assert.equal(body.model, "model-1");
+  assert.deepEqual(body.input, [
+    { role: "user", content: "Earlier question" },
+    { role: "assistant", content: "Earlier answer" },
+  ]);
+  assert.equal(Object.hasOwn(body, "store"), false);
+  assert.deepEqual(JSON.parse(result.compactedContext), output);
 });

@@ -10,9 +10,17 @@ import {
   supportedReasoningEfforts,
 } from "../../shared/reasoning.js";
 import { selectModel } from "../../shared/model-selection.js";
+import {
+  actionHistoryContext,
+  actionLabel,
+} from "../../shared/action-history.js";
 
 const STORAGE_KEY = "browsefriend.chat.session";
 const MAX_HISTORY_BYTES = 480 * 1024;
+const MAX_HISTORY_MESSAGES = 200;
+const MAX_COMPACTION_BYTES = 320 * 1024;
+const COMPACTION_TRIGGER_BYTES = 256 * 1024;
+const RECENT_EXCHANGE_LIMIT = 8;
 const MAX_SESSION_BYTES = 8 * 1024 * 1024;
 const MAX_DELTA_SAVE_DELAY_MS = 200;
 const MAX_ACTION_CALLS = 32;
@@ -31,6 +39,7 @@ function emptyChat(model = null) {
   return {
     messages: [],
     model,
+    compaction: null,
     historyTruncated: false,
     submission: null,
     mode: "ask",
@@ -58,20 +67,38 @@ function byteLength(value) {
   return new TextEncoder().encode(value).byteLength;
 }
 
-function historyBefore(messages, endIndex = messages.length) {
-  const history = [];
-  let bytes = 0;
-  for (let index = endIndex - 2; index >= 0; index -= 2) {
+function exchangesBefore(messages, endIndex = messages.length) {
+  const exchanges = [];
+  for (let index = 0; index + 1 < endIndex; index += 2) {
     const user = messages[index];
     const assistant = messages[index + 1];
+    const hasActions = Array.isArray(assistant?.actions) && assistant.actions.length > 0;
     if (user?.role !== "user" || assistant?.role !== "assistant" ||
-        !["complete", "stopped"].includes(assistant.status) || !assistant.text) continue;
-    const pair = [
-      { role: "user", content: user.text },
-      { role: "assistant", content: assistant.text },
-    ];
-    const size = byteLength(user.text) + byteLength(assistant.text);
-    if (bytes + size > MAX_HISTORY_BYTES) break;
+        !["complete", "stopped"].includes(assistant.status) || (!assistant.text && !hasActions)) continue;
+    exchanges.push({ user, assistant });
+  }
+  return exchanges;
+}
+
+function exchangeMessages(exchange, includeActions = false) {
+  const actions = includeActions ? actionHistoryContext(exchange.assistant.actions) : "";
+  const assistantContent = [exchange.assistant.text, actions].filter(Boolean).join("\n\n");
+  if (!assistantContent) return [];
+  return [
+    { role: "user", content: exchange.user.text },
+    { role: "assistant", content: assistantContent },
+  ];
+}
+
+function boundedHistory(exchanges, compactedContext = "") {
+  const history = [];
+  let bytes = byteLength(compactedContext);
+  const recentStart = Math.max(0, exchanges.length - RECENT_EXCHANGE_LIMIT);
+  for (let index = exchanges.length - 1; index >= 0; index -= 1) {
+    const pair = exchangeMessages(exchanges[index], index >= recentStart);
+    const size = pair.reduce((total, message) => total + byteLength(message.content), 0);
+    if (!pair.length) continue;
+    if (bytes + size > MAX_HISTORY_BYTES || history.length + pair.length > MAX_HISTORY_MESSAGES) break;
     history.unshift(...pair);
     bytes += size;
   }
@@ -117,6 +144,7 @@ export function installAppController({
   let models = [];
   let modelPreference = "automatic";
   let reasoningPreference = "model_default";
+  const compactionUnavailableModels = new Set();
   const cancelledSubmissionIds = new Set();
 
   async function loadChat() {
@@ -127,6 +155,7 @@ export function installAppController({
         const restored = {
           messages: saved.messages,
           model: saved.model || null,
+          compaction: saved.compaction || null,
           historyTruncated: saved.historyTruncated === true,
           submission: saved.submission || null,
           mode: saved.mode === "act" && saved.authorization ? "act" : "ask",
@@ -367,23 +396,6 @@ export function installAppController({
     return chat.messages.find((message) => message.id === submission.assistantId);
   }
 
-  function actionLabel(prepared) {
-    const verb = {
-      check: "Changed",
-      click: "Clicked",
-      disclosure: "Opened",
-      download: "Clicked",
-      file: "Selected files for",
-      fill: "Filled",
-      navigation: "Navigated to",
-      scroll: "Scrolled",
-      select: "Selected",
-      submit: "Submitted",
-      wait: "Waited for",
-    }[prepared.kind] || "Used";
-    return `${verb} ${prepared.target || "the page"}`;
-  }
-
   function publicAction(prepared, id, status = "running") {
     return {
       id,
@@ -467,9 +479,101 @@ export function installAppController({
     return context;
   }
 
-  function modelHistory(chat, submission) {
+  function submissionExchanges(chat, submission) {
     const userIndex = chat.messages.findIndex((message) => message.id === submission.userId);
-    return historyBefore(chat.messages, userIndex < 0 ? chat.messages.length : userIndex);
+    return exchangesBefore(chat.messages, userIndex < 0 ? chat.messages.length : userIndex);
+  }
+
+  function compactionFor(chat, modelSlug) {
+    const value = chat.compaction;
+    if (!value || value.model !== modelSlug || typeof value.context !== "string" ||
+        byteLength(value.context) > MAX_COMPACTION_BYTES ||
+        typeof value.throughAssistantId !== "string" || !Number.isFinite(value.throughCreatedAt)) {
+      chat.compaction = null;
+      return null;
+    }
+    return value;
+  }
+
+  function exchangesAfterCompaction(exchanges, compaction) {
+    if (!compaction) return exchanges;
+    const checkpoint = exchanges.findIndex(
+      (exchange) => exchange.assistant.id === compaction.throughAssistantId,
+    );
+    if (checkpoint >= 0) return exchanges.slice(checkpoint + 1);
+    if (Number.isFinite(compaction.throughCreatedAt)) {
+      return exchanges.filter(
+        (exchange) => !Number.isFinite(exchange.assistant.createdAt) ||
+          exchange.assistant.createdAt > compaction.throughCreatedAt,
+      );
+    }
+    return exchanges;
+  }
+
+  function reusableContextBytes(exchanges, compactedContext) {
+    const recentStart = Math.max(0, exchanges.length - RECENT_EXCHANGE_LIMIT);
+  let total = byteLength(compactedContext);
+  for (const [index, exchange] of exchanges.entries()) {
+    for (const message of exchangeMessages(exchange, index >= recentStart)) {
+      total += byteLength(message.content);
+    }
+  }
+  return total;
+  }
+
+  function compactionUnsupported(error) {
+    return [400, 403, 404, 405].includes(error?.status) ||
+      ["invalid_request", "method_not_found", "unsupported_method"].includes(error?.code);
+  }
+
+  async function prepareModelHistory(chat, submission, model) {
+    const exchanges = submissionExchanges(chat, submission);
+    let compaction = compactionFor(chat, model.slug);
+    let remaining = exchangesAfterCompaction(exchanges, compaction);
+
+    if (!submission.compactionChecked && !compactionUnavailableModels.has(model.slug) &&
+        remaining.length > RECENT_EXCHANGE_LIMIT &&
+        reusableContextBytes(remaining, compaction?.context || "") > COMPACTION_TRIGGER_BYTES) {
+      const compactable = remaining.slice(0, -RECENT_EXCHANGE_LIMIT);
+      const history = compactable.flatMap((exchange) => exchangeMessages(exchange, false));
+      if (history.length || compaction?.context) {
+        submission.requestStarted = true;
+        try {
+          const response = await companion.request("model.compact", {
+            model: model.slug,
+            ...(compaction?.context ? { compactedContext: compaction.context } : {}),
+            history,
+          }, undefined, submission.id);
+          if (chat.submission?.id !== submission.id) return null;
+          const context = response.result?.compactedContext;
+          if (typeof context !== "string" || !context ||
+              byteLength(context) > MAX_COMPACTION_BYTES) {
+            throw { code: "invalid_compaction", message: "ChatGPT returned invalid compacted context." };
+          }
+          const checkpoint = compactable.at(-1).assistant;
+          chat.compaction = {
+            model: model.slug,
+            context,
+            throughAssistantId: checkpoint.id,
+            throughCreatedAt: checkpoint.createdAt,
+          };
+          compaction = chat.compaction;
+          remaining = remaining.slice(-RECENT_EXCHANGE_LIMIT);
+          await save(chat);
+        } catch (error) {
+          if (chat.submission?.id !== submission.id || error?.code === "cancelled") return null;
+          if (compactionUnsupported(error) || error?.code === "invalid_compaction") {
+            compactionUnavailableModels.add(model.slug);
+          }
+        }
+      }
+    }
+
+    submission.compactionChecked = true;
+    return {
+      compactedContext: compaction?.context || "",
+      history: boundedHistory(remaining, compaction?.context || ""),
+    };
   }
 
   async function continueAfterAction(chat, submission, call, result, action) {
@@ -604,23 +708,37 @@ export function installAppController({
 
   async function streamSubmission(chat, submission) {
     try {
-      modelPreference = await resolveModelPreference(models);
-      const model = selectedModel();
+      let model;
+      if (submission.modelSlug) {
+        model = models.find((item) => item.slug === submission.modelSlug) ||
+          (chat.model?.slug === submission.modelSlug ? chat.model : null);
+      } else {
+        modelPreference = await resolveModelPreference(models);
+        model = selectedModel();
+      }
       if (!model) throw {
         code: "model_unavailable",
         message: "This ChatGPT account did not return an available model.",
         retryable: true,
       };
-      reasoningPreference = await resolveReasoningPreference(model);
-      const reasoningEffort = selectReasoningEffort(model, reasoningPreference);
+      if (!submission.modelSlug) {
+        reasoningPreference = await resolveReasoningPreference(model);
+        submission.modelSlug = model.slug;
+        submission.reasoningEffort = selectReasoningEffort(model, reasoningPreference) || null;
+      }
+      const preparedHistory = await prepareModelHistory(chat, submission, model);
+      if (!preparedHistory || chat.submission?.id !== submission.id) return;
       chat.model = model;
       await save(chat);
       if (chat.submission?.id !== submission.id) return;
       submission.requestStarted = true;
       const response = await companion.request("model.stream", {
         model: model.slug,
-        ...(reasoningEffort ? { reasoningEffort } : {}),
-        history: modelHistory(chat, submission),
+        ...(submission.reasoningEffort ? { reasoningEffort: submission.reasoningEffort } : {}),
+        ...(preparedHistory.compactedContext
+          ? { compactedContext: preparedHistory.compactedContext }
+          : {}),
+        history: preparedHistory.history,
         prompt: submission.text,
         pageContext: submission.context?.available ? JSON.stringify(submission.context.snapshot) : "",
         mode: submission.mode,

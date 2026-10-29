@@ -21,6 +21,7 @@ import {
   selectModel,
 } from "../../shared/model-selection.js";
 import { deriveViewState } from "./view-state.js";
+import { actionLabel } from "../../shared/action-history.js";
 
 const topbar = document.querySelector(".topbar");
 const conversation = document.querySelector("#conversation");
@@ -85,6 +86,9 @@ const actionValueRow = document.querySelector("#action-value-row");
 const actionValue = document.querySelector("#action-value");
 const confirmActionButton = document.querySelector("#confirm-action");
 const cancelActionButton = document.querySelector("#cancel-action");
+const newChatConfirmation = document.querySelector("#new-chat-confirmation");
+const cancelNewChatButton = document.querySelector("#cancel-new-chat");
+const confirmNewChatButton = document.querySelector("#confirm-new-chat");
 const messageTemplate = document.querySelector("#message-template");
 const suggestionButtons = document.querySelectorAll(".suggestion");
 
@@ -120,6 +124,7 @@ let availableModels = [];
 let preferencesLoaded = false;
 let contextViewerOpen = false;
 let actionModalOpen = false;
+let newChatModalOpen = false;
 let settingsError = null;
 let localRecovery = null;
 const assistantSources = new WeakMap();
@@ -150,21 +155,7 @@ function createMessageElement(messageData) {
     for (const action of messageData.actions || []) {
       const item = document.createElement("div");
       item.className = `message-action message-action--${action.status}`;
-      const verb = {
-        check: "Changed",
-        click: "Clicked",
-        disclosure: "Opened",
-        download: "Clicked",
-        file: "Selected files for",
-        fill: "Filled",
-        navigation: "Navigated to",
-        scroll: "Scrolled",
-        select: "Selected",
-        submit: "Submitted",
-        wait: "Waited for",
-      }[action.kind] || "Used";
-      item.textContent = `${verb} ${action.target}`;
-      if (action.value !== undefined) item.textContent += ` · ${action.value}`;
+      item.textContent = actionLabel(action);
       actions.append(item);
     }
     actions.hidden = actions.childElementCount === 0;
@@ -293,6 +284,12 @@ function renderMode() {
   });
 }
 
+function syncModalInert() {
+  const modalOpen = contextViewerOpen || actionModalOpen || newChatModalOpen;
+  topbar.inert = modalOpen;
+  viewStack.inert = modalOpen;
+}
+
 function showActionModal() {
   const submission = currentState.submission;
   const pending = submission?.pendingAction;
@@ -302,10 +299,7 @@ function showActionModal() {
     if (actionModalOpen) {
       actionModalOpen = false;
       actionConfirmation.hidden = true;
-      if (!contextViewerOpen) {
-        topbar.inert = false;
-        viewStack.inert = false;
-      }
+      syncModalInert();
     }
     return;
   }
@@ -322,10 +316,12 @@ function showActionModal() {
   actionValue.textContent = value === undefined ? "" : String(value);
   confirmActionButton.hidden = waitingFile;
   cancelActionButton.textContent = waitingFile ? "Cancel task" : "Cancel";
-  topbar.inert = true;
-  viewStack.inert = true;
+  syncModalInert();
   actionConfirmation.hidden = false;
-  requestAnimationFrame(() => (waitingFile ? cancelActionButton : confirmActionButton).focus({ preventScroll: true }));
+  if (!newChatModalOpen) {
+    requestAnimationFrame(() =>
+      (waitingFile ? cancelActionButton : confirmActionButton).focus({ preventScroll: true }));
+  }
 }
 
 function renderAccount() {
@@ -370,7 +366,8 @@ function renderApp(state, {
   renderModelsFromState();
 
   if (!restoreCompletionFocus || !document.hasFocus() ||
-      viewStack.classList.contains("view-stack--settings") || contextViewerOpen || actionModalOpen) return;
+      viewStack.classList.contains("view-stack--settings") || contextViewerOpen || actionModalOpen ||
+      newChatModalOpen) return;
 
   const nextView = deriveViewState(currentState, optimisticSubmission);
   const submissionFinished = previousSubmission && !state.submission;
@@ -400,8 +397,7 @@ function showOperationError(error, recovery, scope = "connection") {
 function showContext(context) {
   if (!debugMode || !context?.snapshot) return;
   contextViewerOpen = true;
-  topbar.inert = true;
-  viewStack.inert = true;
+  syncModalInert();
   contextSummary.textContent = `${context.title || "Untitled page"} · revision ${context.revision}${context.stale ? " · page changed" : ""}`;
   contextContent.textContent = JSON.stringify(context.snapshot, null, 2);
   contextViewer.hidden = false;
@@ -412,9 +408,46 @@ function hideContext({ restoreFocus = true } = {}) {
   if (!contextViewerOpen) return;
   contextViewerOpen = false;
   contextViewer.hidden = true;
-  topbar.inert = false;
-  viewStack.inert = false;
+  syncModalInert();
   if (restoreFocus) focusChatSurface();
+}
+
+function showNewChatConfirmation() {
+  if (newChatModalOpen) return;
+  newChatModalOpen = true;
+  newChatConfirmation.hidden = false;
+  syncModalInert();
+  requestAnimationFrame(() => cancelNewChatButton.focus({ preventScroll: true }));
+}
+
+function hideNewChatConfirmation({ restoreFocus = true } = {}) {
+  if (!newChatModalOpen) return;
+  newChatModalOpen = false;
+  newChatConfirmation.hidden = true;
+  syncModalInert();
+  if (!restoreFocus) return;
+  const target = actionModalOpen
+    ? (confirmActionButton.hidden ? cancelActionButton : confirmActionButton)
+    : clearButton;
+  target.focus({ preventScroll: true });
+}
+
+async function confirmNewChat() {
+  if (!newChatModalOpen || confirmNewChatButton.disabled) return;
+  cancelNewChatButton.disabled = true;
+  confirmNewChatButton.disabled = true;
+  try {
+    hideContext({ restoreFocus: false });
+    await clearConversation();
+    hideNewChatConfirmation({ restoreFocus: false });
+    messageInput.focus({ preventScroll: true });
+  } catch (error) {
+    hideNewChatConfirmation({ restoreFocus: false });
+    showOperationError(error, { type: "clear" }, "generation");
+  } finally {
+    cancelNewChatButton.disabled = false;
+    confirmNewChatButton.disabled = false;
+  }
 }
 
 function resizeInput() {
@@ -935,12 +968,7 @@ suggestionButtons.forEach((button) => {
 });
 
 clearMessageButton.addEventListener("click", () => clearComposer());
-clearButton.addEventListener("click", () => {
-  hideContext();
-  void clearConversation()
-    .then(() => messageInput.focus())
-    .catch((error) => showOperationError(error, { type: "clear" }, "generation"));
-});
+clearButton.addEventListener("click", showNewChatConfirmation);
 stopResponseButton.addEventListener("click", () => void stopSubmission());
 modeInputs.forEach((input) => {
   input.addEventListener("change", () => {
@@ -949,6 +977,8 @@ modeInputs.forEach((input) => {
 });
 confirmActionButton.addEventListener("click", () => void resolveAction(true));
 cancelActionButton.addEventListener("click", () => void resolveAction(false));
+cancelNewChatButton.addEventListener("click", () => hideNewChatConfirmation());
+confirmNewChatButton.addEventListener("click", () => void confirmNewChat());
 retryOperationButton.addEventListener("click", () => void retryOperation());
 openSettingsButton.addEventListener("click", () => showSettings());
 modelSummaryButton.addEventListener("click", () => showSettings({ focusModel: true }));
@@ -967,6 +997,24 @@ debugModeSwitch.addEventListener("change", () => void updateDebugMode());
 closeContextButton.addEventListener("click", hideContext);
 
 document.addEventListener("keydown", (event) => {
+  if (newChatModalOpen) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      hideNewChatConfirmation();
+      return;
+    }
+    if (event.key === "Tab") {
+      const buttons = [cancelNewChatButton, confirmNewChatButton]
+        .filter((button) => !button.hidden && !button.disabled);
+      const index = buttons.indexOf(document.activeElement);
+      const next = event.shiftKey
+        ? (index <= 0 ? buttons.length - 1 : index - 1)
+        : (index < 0 || index === buttons.length - 1 ? 0 : index + 1);
+      event.preventDefault();
+      buttons[next].focus({ preventScroll: true });
+    }
+    return;
+  }
   if (event.key === "Escape" && contextViewerOpen) hideContext();
   if (event.key === "Escape" && actionModalOpen) void resolveAction(false);
   if (event.key === "Tab" && actionModalOpen) {

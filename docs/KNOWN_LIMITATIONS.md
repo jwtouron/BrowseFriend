@@ -16,11 +16,13 @@ random loopback listener only while completing the hosted OAuth callback.
 - Page context is derived from the rendered DOM and ARIA markup, not Chrome's computed
   accessibility tree. Canvas pixels, image-only content, closed shadow roots, CSS-only changes,
   and some custom controls may be missing or incomplete.
-- The pinned DevKit does not natively expose function tools or reasoning effort.
-  `npm run setup:devkit` temporarily applies `patches/devkit-function-tools.patch` to add BrowseFriend's
-  narrow typed page-tool transport, retain model-supported reasoning levels, and forward the chosen
-  effort. Act mode and reasoning selection therefore depend on maintaining and retesting this
-  downstream patch whenever the DevKit is updated.
+- The pinned DevKit does not natively expose function tools, reasoning effort, or transcript
+  compaction through its local wrapper. `npm run setup:devkit` temporarily applies
+  `patches/devkit-function-tools.patch` and `patches/devkit-compaction.patch` to add BrowseFriend's
+  narrow typed page-tool transport, retain model-supported reasoning levels, forward the chosen
+  effort, and call `/responses/compact`. Act mode, reasoning selection, and long-chat compaction
+  therefore depend on maintaining and retesting these downstream patches whenever the DevKit is
+  updated.
 - BrowseFriend cannot send screenshots, page images, or user-selected files to the model. The
   downstream tool patch does not add multimodal input.
 - Required site access produces Chrome's broad read/change warning even though Ask mode does not
@@ -56,6 +58,10 @@ random loopback listener only while completing the hosted OAuth callback.
 - Conversations use `store: false` and do not create ChatGPT history entries. They are held in
   Chrome's memory-only session storage and disappear after browser restart, extension reload,
   extension update, or disable.
+- Transcript compaction is triggered by serialized byte size rather than the selected model's exact
+  token count. BrowseFriend preserves the latest eight exchanges verbatim and excludes older action
+  records; if the endpoint is unavailable or rejects its canonical output, it safely falls back to
+  bounded raw history and may forget more of the oldest prose.
 - The current transcript is global across open BrowseFriend panels and Chrome windows. Switching
   tabs or windows does not select a separate chat; use **New chat** to clear the shared context.
 - Responses are based on a captured page revision. BrowseFriend reports when the page changes but

@@ -353,6 +353,23 @@
           </div>
         </section>
       </div>
+
+      <div class="modal-backdrop" id="new-chat-confirmation" hidden>
+        <section
+          class="action-dialog new-chat-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="new-chat-title"
+          aria-describedby="new-chat-description"
+        >
+          <h2 id="new-chat-title">Start a new chat?</h2>
+          <p id="new-chat-description">This will clear the current conversation. This cannot be undone.</p>
+          <div class="action-dialog__actions">
+            <button class="secondary-button" id="cancel-new-chat" type="button">Cancel</button>
+            <button class="danger-button" id="confirm-new-chat" type="button">Yes</button>
+          </div>
+        </section>
+      </div>
     </main>
 
     <template id="message-template">

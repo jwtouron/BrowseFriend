@@ -28,6 +28,7 @@ async function settle() {
 function createHarness({
   authStatus,
   authStatusRequest,
+  compactRequest,
   modelListError,
   modelPreference,
   modelPreferenceGate,
@@ -116,6 +117,23 @@ function createHarness({
         onEvent({ event: "model.delta", requestId: explicitId, delta: "Answer" });
         return { result: { completed: true } };
       }
+      if (method === "model.compact") {
+        if (compactRequest) return compactRequest({ params, explicitId });
+        return {
+          result: {
+            compactedContext: JSON.stringify([
+              {
+                id: "message-1",
+                type: "message",
+                status: "completed",
+                role: "user",
+                content: [{ type: "input_text", text: "Earlier conversation" }],
+              },
+              { id: "compaction-1", type: "compaction", encrypted_content: "opaque" },
+            ]),
+          },
+        };
+      }
       return { result: { cancelled: true } };
     },
   };
@@ -180,6 +198,40 @@ function createHarness({
     settingsStored,
     signedIn,
     storage,
+  };
+}
+
+function largeStoredSession(exchangeCount = 10) {
+  const messages = [];
+  for (let index = 1; index <= exchangeCount; index += 1) {
+    messages.push({
+      id: `user-${index}`,
+      role: "user",
+      text: `Question ${index} ${"q".repeat(17_000)}`,
+      createdAt: index * 2,
+    });
+    messages.push({
+      id: `assistant-${index}`,
+      role: "assistant",
+      text: `Answer ${index} ${"a".repeat(17_000)}`,
+      status: "complete",
+      createdAt: index * 2 + 1,
+      actions: [{
+        id: `action-${index}`,
+        kind: "click",
+        target: `Control ${index}`,
+        status: "complete",
+      }],
+    });
+  }
+  return {
+    messages,
+    model: { slug: "model-1", displayName: "Model One" },
+    compaction: null,
+    historyTruncated: false,
+    submission: null,
+    mode: "ask",
+    authorization: null,
   };
 }
 
@@ -339,6 +391,91 @@ test("completed exchanges become bounded history without old page snapshots", as
   ]);
   assert.equal(JSON.stringify(streams[1].params.history).includes("Page 1"), false);
   assert.match(streams[1].params.pageContext, /Page 2/);
+});
+
+test("large transcripts compact older prose and keep actions only on the latest eight exchanges", async () => {
+  const harness = createHarness({ storedSession: largeStoredSession() });
+  await harness.controller.ensureReady();
+  await harness.controller.submit("submission-1", "Next question");
+  await settle();
+
+  const compact = harness.companionCalls.find((call) => call.method === "model.compact");
+  const stream = harness.companionCalls.find((call) => call.method === "model.stream");
+  assert.equal(compact.explicitId, "submission-1");
+  assert.equal(compact.params.history.length, 4);
+  assert.match(compact.params.history[0].content, /Question 1/);
+  assert.match(compact.params.history[3].content, /Answer 2/);
+  assert.doesNotMatch(JSON.stringify(compact.params.history), /Control [12]/);
+
+  assert.equal(typeof stream.params.compactedContext, "string");
+  assert.equal(stream.params.history.length, 16);
+  const recent = JSON.stringify(stream.params.history);
+  assert.doesNotMatch(recent, /Control [12](?:\D|$)/);
+  assert.match(recent, /Control 3/);
+  assert.match(recent, /Control 10/);
+  assert.doesNotMatch(recent, /Page 1/);
+
+  const saved = (await harness.storage.get("browsefriend.chat.session"))["browsefriend.chat.session"];
+  assert.equal(saved.compaction.model, "model-1");
+  assert.equal(saved.compaction.throughAssistantId, "assistant-2");
+
+  await harness.controller.clear();
+  const cleared = (await harness.storage.get("browsefriend.chat.session"))["browsefriend.chat.session"];
+  assert.equal(cleared.compaction, null);
+});
+
+test("unsupported compaction falls back to bounded raw history", async () => {
+  const harness = createHarness({
+    storedSession: largeStoredSession(),
+    compactRequest() {
+      throw { code: "unsupported_method", message: "Not available.", status: 404 };
+    },
+  });
+  await harness.controller.ensureReady();
+  await harness.controller.submit("submission-1", "Next question");
+  await settle();
+
+  const stream = harness.companionCalls.find((call) => call.method === "model.stream");
+  assert.equal(Object.hasOwn(stream.params, "compactedContext"), false);
+  assert.equal(stream.params.history.length, 20);
+  assert.match(stream.params.history[0].content, /Question 1/);
+  assert.doesNotMatch(JSON.stringify(stream.params.history), /Control [12](?:\D|$)/);
+});
+
+test("short transcripts still respect the native history item limit", async () => {
+  const storedSession = largeStoredSession(101);
+  for (const message of storedSession.messages) {
+    message.text = message.text.slice(0, 30);
+    message.actions = [];
+  }
+  const harness = createHarness({ storedSession });
+  await harness.controller.ensureReady();
+  await harness.controller.submit("submission-1", "Next question");
+  await settle();
+
+  const stream = harness.companionCalls.find((call) => call.method === "model.stream");
+  assert.equal(stream.params.history.length, 200);
+  assert.match(stream.params.history[0].content, /Question 2/);
+  assert.match(stream.params.history.at(-1).content, /Answer 101/);
+});
+
+test("Stop during transcript compaction cancels the request and prevents streaming", async () => {
+  const compaction = deferred();
+  const harness = createHarness({
+    storedSession: largeStoredSession(),
+    compactRequest() { return compaction.promise; },
+  });
+  await harness.controller.ensureReady();
+  await harness.controller.submit("submission-1", "Next question");
+  await settle();
+
+  const stopped = await harness.controller.stop("submission-1");
+  assert.equal(stopped.draft, "Next question");
+  compaction.reject({ code: "cancelled", message: "Cancelled." });
+  await settle();
+
+  assert.equal(harness.companionCalls.some((call) => call.method === "model.cancel"), true);
+  assert.equal(harness.companionCalls.some((call) => call.method === "model.stream"), false);
 });
 
 test("page changes mark the captured exchange stale and New chat clears it", async () => {

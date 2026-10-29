@@ -9,9 +9,10 @@ third-party dependency inventory, font licenses, and applicable notices are
 preserved inside that submodule.
 
 BrowseFriend keeps the pinned source tree unchanged and applies
-`patches/devkit-function-tools.patch` only while building the local package. That downstream patch
-adds the typed function-call transport used by Act mode and model-supported reasoning-effort
-selection. It remains subject to the same DevKit license and notice requirements.
+`patches/devkit-function-tools.patch` and `patches/devkit-compaction.patch` only while building the
+local package. Those downstream patches add the typed function-call transport used by Act mode,
+model-supported reasoning-effort selection, and stateless Responses API transcript compaction. They
+remain subject to the same DevKit license and notice requirements.
 
 The DevKit license permits personal learning, experimentation, and other
 noncommercial development. It does not grant commercial-use rights or rights to

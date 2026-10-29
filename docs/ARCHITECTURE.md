@@ -38,10 +38,10 @@ tool loop, and recapture between steps; it never receives arbitrary selectors or
 
 Chrome connects the service worker to `com.browsefriend.native_host` through Native Messaging. The
 companion validates its small request allowlist, keeps authentication and model handlers separate,
-and delegates OAuth, token refresh, account selection, model discovery, and Responses streaming to
-the pinned DevKit. Setup applies a tracked downstream patch while building so the otherwise
-text-focused DevKit can carry typed function calls, results, and model-supported reasoning effort
-without exposing OAuth credentials.
+and delegates OAuth, token refresh, account selection, model discovery, Responses streaming, and
+transcript compaction to the pinned DevKit. Setup applies tracked downstream patches while building
+so the otherwise text-focused DevKit can carry typed function calls, results, model-supported
+reasoning effort, and canonical compaction output without exposing OAuth credentials.
 
 ## Main flows
 
@@ -97,14 +97,26 @@ while Act adds tool policy. Each request contains eligible transcript pairs, cur
 the original prompt, and any compact current-run action continuation. Earlier page snapshots are not
 copied into transcript history.
 
+The controller retains completed user/assistant exchanges in the memory-only chat session. When
+reusable context exceeds 256 KiB, it sends only older transcript prose to `/responses/compact`,
+caches the returned opaque canonical items with a model slug and assistant-message checkpoint, and
+keeps the latest eight exchanges verbatim. Only those recent exchanges include visible Act action
+records; older action labels and values are neither compacted nor resent. Page snapshots, system
+instructions, and current-run tool payloads never enter transcript compaction. Compacted data is
+model-specific because it is opaque model-generated state; BrowseFriend cannot safely assume that a
+different model can interpret it with the same semantics. A model change therefore invalidates
+incompatible compacted context, New chat clears it, and unsupported or malformed compaction falls
+back to the existing bounded raw-history path.
+
 The model owns semantic planning: interpreting the request, choosing and sequencing allowed tools,
 ranking plausible targets, and stopping when ambiguity prevents a confident choice. Extension code
 does not duplicate those judgments. It retains deterministic responsibility for validation,
 authorization, confirmations, sensitive-data rules, stale-target checks, resource limits, and state
 transitions because those boundaries must hold even when model judgment is wrong.
 
-The pinned DevKit sends each request with `store: false` and without a `conversation` or
-`previous_response_id`. Sign in with ChatGPT plan access does not grant BrowseFriend access to the
+The pinned DevKit sends each generation with `store: false` and without a `conversation` or
+`previous_response_id`; compaction is a separate stateless request whose output is supplied directly
+to later generations. Sign in with ChatGPT plan access does not grant BrowseFriend access to the
 user's ChatGPT conversations or memory; the model receives only the context BrowseFriend supplies.
 
 ### Settings and state
@@ -118,9 +130,10 @@ catalog model, while the chat footer resolves preference labels into the model a
 expected for the next request. It omits the effort summary when the catalog provides no default. The
 active conversation uses one global
 `chrome.storage.session` record shared across panels and windows. It survives service-worker
-suspension but not a browser restart or extension reload. New chat and logout clear it. The companion
-stores account data in the platform application-data directory and encrypts credentials with a key
-protected by macOS Keychain or Linux Secret Service.
+suspension but not a browser restart or extension reload. New chat presents a cancel-first
+confirmation and, when accepted, clears both transcript and compaction; logout clears them directly.
+The companion stores account data in the platform application-data directory and encrypts
+credentials with a key protected by macOS Keychain or Linux Secret Service.
 
 ## Trust boundaries
 

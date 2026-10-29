@@ -8,7 +8,12 @@ The extension never receives OAuth credentials. Its service worker talks to a No
 
 BrowseFriend does not create product accounts, subscriptions, or billing. It does not read ChatGPT cookies, conversations, memory, or private endpoints. The official flow can use eligible ChatGPT plan usage but does not grant access to ChatGPT history or memory.
 
-Model requests use `store: false`; BrowseFriend supplies only its fixed instructions, local transcript, current page context, and current prompt. The transcript uses one global Chrome session shared by open panels. It disappears when Chrome restarts or the extension reloads.
+Model requests use `store: false`; BrowseFriend supplies only its fixed instructions, local transcript,
+current page context, and current prompt. When reusable transcript context exceeds 256 KiB,
+BrowseFriend uses OpenAI's stateless compaction endpoint and keeps the latest eight exchanges
+verbatim. Past page-action records are included only for those eight exchanges. The transcript and
+opaque compacted context use one global Chrome session shared by open panels and disappear when
+Chrome restarts or the extension reloads.
 
 ## Prerequisites
 
@@ -43,7 +48,7 @@ Open BrowseFriend from Chrome's toolbar. The chat is usable immediately while th
 
 Signed-out users see **Continue with ChatGPT** inside the chat. OpenAI handles account and workspace selection in the browser, then returns to the local companion. A prompt submitted while setup is still running waits and sends automatically once ready. **Settings → Account** shows the selected identity, plan-access state, usage link, and logout action.
 
-Ask a question to capture the current HTTP or HTTPS page. BrowseFriend sends a bounded semantic snapshot—not raw HTML—and Debug mode can show the inspectable context attachment beside the message. If the page changes during generation, the completed answer is marked as stale. **New chat** clears the memory-only conversation.
+Ask a question to capture the current HTTP or HTTPS page. BrowseFriend sends a bounded semantic snapshot—not raw HTML—and Debug mode can show the inspectable context attachment beside the message. If the page changes during generation, the completed answer is marked as stale. **New chat** asks for confirmation before clearing the memory-only conversation and its compacted context.
 
 Use the control above the composer to switch from **Ask** to **Act**. Act can still answer ordinary
 questions, but it also lets the model request an allowlisted page tool. BrowseFriend performs one
@@ -89,8 +94,9 @@ python3 -m json.tool manifest.json
 
 `setup:devkit` preserves the upstream dependency lock while replacing only the advisory-affected
 `undici` package with the compatible patched version recorded in `scripts/setup-devkit.mjs`. It also
-applies the reviewed `patches/devkit-function-tools.patch` while building typed tool-call and
-reasoning-effort support, then restores the pinned submodule sources.
+applies the reviewed `patches/devkit-function-tools.patch` and `patches/devkit-compaction.patch`
+while building typed tool-call, reasoning-effort, and stateless transcript-compaction support, then
+restores the pinned submodule sources.
 
 The extension remains plain HTML, CSS, and JavaScript with no browser-side build. Chrome code lives in `extension/`; one application controller owns readiness and prompt workflows while authentication, chat rendering, settings, page reading, and page action execution remain isolated supporting features. The companion keeps authentication and model requests separate under `native-host/`. OpenAI's pinned DevKit lives in `vendor/sign-in-with-chatgpt-devkit/`.
 

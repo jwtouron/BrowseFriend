@@ -29,6 +29,8 @@ current implementation unless a task explicitly promotes them into scope.
 
 - [ ] Replace the single global transcript with persistent local chat history and explicit controls
   for creating, selecting, reopening, and deleting chats across the global side-panel experience.
+  Define durable storage, migration, and deletion rules for model-specific compacted context without
+  persisting page snapshots or obsolete action records.
 - [ ] Add an **Instructions** Settings section before Debug. Keep additive instructions normally
   editable; show the base `BASE_MODEL_INSTRUCTIONS` text disabled until an **Edit** action presents and
   confirms a safety warning. Include **Reset to default**, persist both values in

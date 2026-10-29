@@ -166,3 +166,23 @@ test("a timed-out model stream asks the companion to cancel its generation", asy
     params: { requestId: "generation-1" },
   });
 });
+
+test("transcript compaction uses the generation deadline and cancels on timeout", async () => {
+  const harness = createHarness();
+  const pending = harness.companion.request(
+    "model.compact",
+    { history: [] },
+    undefined,
+    "generation-1",
+  );
+  const [timer] = harness.timers.values();
+  assert.equal(timer.delay, 190_000);
+  timer.callback();
+
+  await assert.rejects(pending, { code: "companion_timeout" });
+  assert.deepEqual(harness.posted[1], {
+    id: "request-2",
+    method: "model.cancel",
+    params: { requestId: "generation-1" },
+  });
+});

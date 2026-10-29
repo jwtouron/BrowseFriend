@@ -81,12 +81,12 @@ export function installCompanionBridge({
       const id = explicitId || randomUUID();
       const timeoutMs = method === "auth.signIn"
         ? 11 * 60 * 1000
-        : method === "model.stream"
+        : ["model.stream", "model.compact"].includes(method)
           ? 190 * 1000
           : 30 * 1000;
       const timeoutId = setTimer(() => {
         pendingRequests.delete(id);
-        if (method === "model.stream") {
+        if (["model.stream", "model.compact"].includes(method)) {
           try {
             port.postMessage({
               id: randomUUID(),

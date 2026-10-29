@@ -96,6 +96,12 @@ while Act adds tool policy. Each request contains eligible transcript pairs, cur
 the original prompt, and any compact current-run action continuation. Earlier page snapshots are not
 copied into transcript history.
 
+The model owns semantic planning: interpreting the request, choosing and sequencing allowed tools,
+ranking plausible targets, and stopping when ambiguity prevents a confident choice. Extension code
+does not duplicate those judgments. It retains deterministic responsibility for validation,
+authorization, confirmations, sensitive-data rules, stale-target checks, resource limits, and state
+transitions because those boundaries must hold even when model judgment is wrong.
+
 The pinned DevKit sends each request with `store: false` and without a `conversation` or
 `previous_response_id`. Sign in with ChatGPT plan access does not grant BrowseFriend access to the
 user's ChatGPT conversations or memory; the model receives only the context BrowseFriend supplies.

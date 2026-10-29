@@ -152,6 +152,9 @@ test("page reader marks cached snapshots dirty and advances their revision", asy
   const second = await capture(harness.messageListeners[0]);
 
   assert.ok(second.snapshot.revision > first.snapshot.revision);
+  const firstElements = first.snapshot.records.filter((record) => record.type === "element").map((record) => record.ref);
+  const secondElements = second.snapshot.records.filter((record) => record.type === "element").map((record) => record.ref);
+  assert.deepEqual(secondElements, firstElements);
   assert.equal(harness.sentMessages[0].event, "dirty");
 });
 

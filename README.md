@@ -1,6 +1,6 @@
 # BrowseFriend
 
-BrowseFriend is a local-first Chrome side-panel companion. It provides a supported **Continue with ChatGPT** connection and a read-only Ask mode that shares inspectable semantic context from the active page.
+BrowseFriend is a local-first Chrome side-panel companion. It provides a supported **Continue with ChatGPT** connection, a read-only Ask mode, and an explicit Act mode for validated page interaction.
 
 ## Authentication boundary
 
@@ -45,6 +45,17 @@ Signed-out users see **Continue with ChatGPT** inside the chat. OpenAI handles a
 
 Ask a question to capture the current HTTP or HTTPS page. BrowseFriend sends a bounded semantic snapshot—not raw HTML—and Debug mode can show the inspectable context attachment beside the message. If the page changes during generation, the completed answer is marked as stale. **New chat** clears the memory-only conversation.
 
+Use the control above the composer to switch from **Ask** to **Act**. Act can still answer ordinary
+questions, but it also lets the model request an allowlisted page tool. BrowseFriend performs one
+validated action at a time and recaptures the page after each step, so dynamically revealed form
+controls become available on the next step. Switching tabs or sites, starting a New chat, logging
+out, or restarting Chrome returns to Ask; returning to an earlier tab does not restore Act.
+
+Submissions, detected downloads, ambiguous buttons, purchases, messages, account changes, and
+destructive operations pause for confirmation. File controls pause and highlight the page control
+so the user can choose files directly; BrowseFriend observes only the selected count. Stop restores
+the prompt only if the task has not already changed the page.
+
 Send changes to Stop while a prompt is waiting or generating. Stop leaves connection setup running, restores the prompt as an editable draft, and preserves any partial answer as stopped. Connection and response failures share a Retry action; retrying a response captures fresh page context and replaces the failed attempt.
 
 Appearance settings persist the System, Light, or Dark theme and one of seven accent colors; blue is the default. Settings can also use the first available model automatically or persist an explicit model choice. The selected model applies to the next response and does not clear the current chat.
@@ -63,11 +74,12 @@ npm run setup:devkit  # Install and build the pinned OpenAI local SDK.
 python3 -m json.tool manifest.json
 ```
 
-`setup:devkit` preserves the upstream dependency lock while replacing only the
-advisory-affected `undici` package with the compatible patched version recorded
-in `scripts/setup-devkit.mjs`.
+`setup:devkit` preserves the upstream dependency lock while replacing only the advisory-affected
+`undici` package with the compatible patched version recorded in `scripts/setup-devkit.mjs`. It also
+applies the reviewed `patches/devkit-function-tools.patch` while building typed tool-call support,
+then restores the pinned submodule sources.
 
-The extension remains plain HTML, CSS, and JavaScript with no browser-side build. Chrome code lives in `extension/`; one application controller owns readiness and prompt workflows while authentication, chat rendering, settings, and page reading remain isolated supporting features. The companion keeps authentication and model requests separate under `native-host/`. OpenAI's pinned DevKit lives in `vendor/sign-in-with-chatgpt-devkit/`.
+The extension remains plain HTML, CSS, and JavaScript with no browser-side build. Chrome code lives in `extension/`; one application controller owns readiness and prompt workflows while authentication, chat rendering, settings, page reading, and page action execution remain isolated supporting features. The companion keeps authentication and model requests separate under `native-host/`. OpenAI's pinned DevKit lives in `vendor/sign-in-with-chatgpt-devkit/`.
 
 ## Documentation
 
@@ -78,4 +90,4 @@ The extension remains plain HTML, CSS, and JavaScript with no browser-side build
 
 ## Product direction
 
-BrowseFriend should eventually explain the current page, show exactly what context will be shared, and propose browser actions before performing them. Consequential actions—submissions, purchases, account changes, or messages—must always require explicit confirmation.
+BrowseFriend explains the current page, shows inspectable shared context, and keeps page interaction behind explicit Act authorization. Consequential actions—submissions, purchases, account changes, downloads, or messages—must always require confirmation.

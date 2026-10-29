@@ -95,20 +95,32 @@ test("page reader accepts dirty events only from the top frame", () => {
 test("page reader reports top-level tab navigation as a page change", () => {
   const onMessage = createEvent();
   const onUpdated = createEvent();
+  const onActivated = createEvent();
   const reader = installPageReader({
     runtime: { id: "extension", onMessage, async sendMessage() {} },
-    tabs: { onUpdated },
+    tabs: { onUpdated, onActivated },
     scripting: {},
   });
   const received = [];
   reader.onDirty((event) => received.push(event));
 
   onUpdated.emit(9, { status: "complete" });
-  onUpdated.emit(9, { status: "loading" });
+  onUpdated.emit(9, { status: "loading", url: "https://example.test/next" });
+  onActivated.emit({ tabId: 12, windowId: 3 });
 
-  assert.deepEqual(received, [{
-    tabId: 9,
-    documentId: null,
-    revision: Number.MAX_SAFE_INTEGER,
-  }]);
+  assert.deepEqual(received, [
+    {
+      tabId: 9,
+      documentId: null,
+      revision: Number.MAX_SAFE_INTEGER,
+      url: "https://example.test/next",
+    },
+    {
+      tabId: 12,
+      windowId: 3,
+      activated: true,
+      documentId: null,
+      revision: Number.MAX_SAFE_INTEGER,
+    },
+  ]);
 });

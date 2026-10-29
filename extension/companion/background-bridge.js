@@ -42,7 +42,7 @@ export function installCompanionBridge({
         return;
       }
 
-      if (message?.event === "model.delta") {
+      if (typeof message?.event === "string" && message.event.startsWith("model.")) {
         const pending = pendingRequests.get(message.requestId);
         pending?.onEvent?.(message);
         return;

@@ -33,6 +33,9 @@ function createHarness({
   modelPreferenceGate,
   models,
   pageCapture,
+  pageActorCancelFile,
+  pageActorExecute,
+  pageActorPrepare,
   signInRequest,
   storedSession,
   streamRequest,
@@ -47,6 +50,8 @@ function createHarness({
   const companionCalls = [];
   const companionListeners = [];
   const dirtyListeners = [];
+  const fileListeners = [];
+  const fileCancellations = [];
   const onMessage = createEvent();
   let nextId = 1;
   let captureCount = 0;
@@ -129,11 +134,28 @@ function createHarness({
     },
     onDirty(listener) { dirtyListeners.push(listener); },
   };
+  const pageActor = {
+    async prepare(call, context) {
+      if (pageActorPrepare) return pageActorPrepare(call, context);
+      return { tool: call.name, kind: "click", target: "Fixture control", requiresConfirmation: false };
+    },
+    async execute(call, context) {
+      if (pageActorExecute) return pageActorExecute(call, context);
+      return { tool: call.name, kind: "click", target: "Fixture control", executed: true };
+    },
+    async cancelFile(context) {
+      fileCancellations.push(structuredClone(context));
+      if (pageActorCancelFile) return pageActorCancelFile(context);
+      return { cancelled: true };
+    },
+    onFileSelection(listener) { fileListeners.push(listener); },
+  };
   const controller = installAppController({
     runtime,
     storage,
     settingsStorage,
     companion,
+    pageActor,
     pageReader,
     randomUUID: () => `generated-${nextId++}`,
   });
@@ -143,6 +165,8 @@ function createHarness({
     companionListeners,
     controller,
     dirtyListeners,
+    fileCancellations,
+    fileListeners,
     get captureCount() { return captureCount; },
     onMessage,
     runtime,
@@ -437,4 +461,256 @@ test("concurrent readiness and sign-in intents share one operation", async () =>
   );
   signIn.resolve({ result: signInHarness.signedIn });
   await Promise.all([firstSignIn, secondSignIn]);
+});
+
+test("Act mode executes one tool at a time and continues with fresh page context", async () => {
+  let streams = 0;
+  const executed = [];
+  const harness = createHarness({
+    streamRequest({ onEvent, explicitId }) {
+      streams += 1;
+      if (streams === 1) {
+        return { result: { toolCall: { callId: "call-1", name: "page_click", arguments: '{"ref":"e1"}' } } };
+      }
+      onEvent({ event: "model.delta", requestId: explicitId, delta: "Done" });
+      return { result: { completed: true } };
+    },
+    pageActorExecute(call, context) {
+      executed.push({ call, context });
+      return { kind: "click", target: "Fixture control", executed: true };
+    },
+  });
+  await harness.controller.ensureReady();
+  await harness.controller.setMode("act");
+  await harness.controller.submit("submission-1", "Open the control");
+  await settle();
+  await settle();
+
+  const state = await harness.controller.getState();
+  assert.equal(state.mode, "act");
+  assert.equal(state.submission, null);
+  assert.equal(state.messages[1].text, "Done");
+  assert.equal(state.messages[1].actions[0].status, "complete");
+  assert.equal(executed.length, 1);
+  const modelCalls = harness.companionCalls.filter((call) => call.method === "model.stream");
+  assert.equal(modelCalls.length, 2);
+  assert.match(modelCalls[1].params.pageContext, /Page 3/);
+  assert.equal(modelCalls[1].params.continuation.callId, "call-1");
+});
+
+test("consequential Act actions pause for confirmation", async () => {
+  let streams = 0;
+  let executions = 0;
+  const harness = createHarness({
+    streamRequest({ onEvent, explicitId }) {
+      streams += 1;
+      if (streams === 1) {
+        return { result: { toolCall: { callId: "call-1", name: "page_submit", arguments: '{"ref":"e1"}' } } };
+      }
+      onEvent({ event: "model.delta", requestId: explicitId, delta: "Submitted" });
+      return { result: { completed: true } };
+    },
+    pageActorPrepare(call) {
+      return { tool: call.name, kind: "submit", target: "Send", requiresConfirmation: true };
+    },
+    pageActorExecute() {
+      executions += 1;
+      return { kind: "submit", target: "Send", executed: true };
+    },
+  });
+  await harness.controller.ensureReady();
+  await harness.controller.setMode("act");
+  await harness.controller.submit("submission-1", "Submit it");
+  await settle();
+
+  let state = await harness.controller.getState();
+  assert.equal(state.submission.phase, "waiting_confirmation");
+  assert.equal(executions, 0);
+  const actionId = state.submission.pendingAction.id;
+  await harness.controller.resolveAction(actionId, true);
+  await settle();
+  await settle();
+
+  state = await harness.controller.getState();
+  assert.equal(executions, 1);
+  assert.equal(state.submission, null);
+  assert.equal(state.messages[1].text, "Submitted");
+});
+
+test("file selection pauses for the user and resumes without exposing file names", async () => {
+  let streams = 0;
+  const harness = createHarness({
+    streamRequest({ onEvent, explicitId }) {
+      streams += 1;
+      if (streams === 1) {
+        return { result: { toolCall: { callId: "call-file", name: "page_choose_file", arguments: '{"ref":"e2"}' } } };
+      }
+      onEvent({ event: "model.delta", requestId: explicitId, delta: "Attached" });
+      return { result: { completed: true } };
+    },
+    pageActorPrepare(call) {
+      return { tool: call.name, kind: "file", target: "Photo", requiresConfirmation: false, waitingForUser: true };
+    },
+    pageActorExecute() {
+      return { kind: "file", target: "Photo", waitingForUser: true };
+    },
+  });
+  await harness.controller.ensureReady();
+  await harness.controller.setMode("act");
+  await harness.controller.submit("submission-1", "Attach a photo");
+  await settle();
+
+  let state = await harness.controller.getState();
+  assert.equal(state.submission.phase, "waiting_file");
+  harness.fileListeners[0]({
+    tabId: 4,
+    documentId: state.submission.pendingAction.context.documentId,
+    revision: state.submission.pendingAction.context.revision,
+    ref: "e2",
+    cancelled: false,
+    count: 1,
+  });
+  await settle();
+  await settle();
+
+  state = await harness.controller.getState();
+  assert.equal(state.submission, null);
+  assert.equal(state.messages[1].text, "Attached");
+  const continuation = harness.companionCalls.filter((call) => call.method === "model.stream").at(-1).params.continuation;
+  assert.match(continuation.output, /1 file/);
+  assert.doesNotMatch(continuation.output, /\.png|photo-name/);
+});
+
+test("cancelling a file handoff clears the page target and ends the task", async () => {
+  const harness = createHarness({
+    streamRequest() {
+      return { result: { toolCall: { callId: "call-file", name: "page_choose_file", arguments: '{"ref":"e2"}' } } };
+    },
+    pageActorPrepare(call) {
+      return { tool: call.name, kind: "file", target: "Photo", requiresConfirmation: false, waitingForUser: true };
+    },
+    pageActorExecute() {
+      return { kind: "file", target: "Photo", waitingForUser: true };
+    },
+  });
+  await harness.controller.ensureReady();
+  await harness.controller.setMode("act");
+  await harness.controller.submit("submission-1", "Attach a photo");
+  await settle();
+
+  let state = await harness.controller.getState();
+  const actionId = state.submission.pendingAction.id;
+  const documentId = state.submission.pendingAction.context.documentId;
+  await harness.controller.resolveAction(actionId, false);
+  await settle();
+
+  state = await harness.controller.getState();
+  assert.equal(state.submission, null);
+  assert.equal(state.messages[1].status, "stopped");
+  assert.equal(state.messages[1].actions[0].status, "cancelled");
+  assert.equal(harness.fileCancellations.length, 1);
+  assert.equal(harness.fileCancellations[0].documentId, documentId);
+});
+
+test("switching tabs clears the single global Act authorization permanently", async () => {
+  const harness = createHarness();
+  await harness.controller.ensureReady();
+  let state = await harness.controller.setMode("act");
+  assert.equal(state.mode, "act");
+
+  harness.dirtyListeners[0]({
+    tabId: 9,
+    activated: true,
+    documentId: null,
+    revision: Number.MAX_SAFE_INTEGER,
+  });
+  await settle();
+  state = await harness.controller.getState();
+  assert.equal(state.mode, "ask");
+
+  harness.dirtyListeners[0]({
+    tabId: 4,
+    activated: true,
+    documentId: null,
+    revision: Number.MAX_SAFE_INTEGER,
+  });
+  await settle();
+  assert.equal((await harness.controller.getState()).mode, "ask");
+});
+
+test("a stale prepared target recaptures and lets the model replan without execution", async () => {
+  let streams = 0;
+  let preparations = 0;
+  let executions = 0;
+  const harness = createHarness({
+    streamRequest({ onEvent, explicitId }) {
+      streams += 1;
+      if (streams === 1) {
+        return { result: { toolCall: { callId: "call-stale", name: "page_click", arguments: '{"ref":"e1"}' } } };
+      }
+      onEvent({ event: "model.delta", requestId: explicitId, delta: "Replanned" });
+      return { result: { completed: true } };
+    },
+    pageActorPrepare() {
+      preparations += 1;
+      throw { code: "stale_page", message: "Changed", retryable: true };
+    },
+    pageActorExecute() { executions += 1; },
+  });
+  await harness.controller.ensureReady();
+  await harness.controller.setMode("act");
+  await harness.controller.submit("submission-1", "Open the dynamic choice");
+  await settle();
+  await settle();
+
+  const state = await harness.controller.getState();
+  assert.equal(preparations, 1);
+  assert.equal(executions, 0);
+  assert.equal(state.messages[1].text, "Replanned");
+  assert.match(
+    harness.companionCalls.filter((call) => call.method === "model.stream").at(-1).params.continuation.output,
+    /stale_page/,
+  );
+});
+
+test("same-revision repeated actions stop without offering an unsafe retry", async () => {
+  const fixedPage = {
+    available: true,
+    tabId: 4,
+    snapshot: {
+      version: 1,
+      documentId: "fixed-doc",
+      revision: 1,
+      title: "Fixture page",
+      url: "https://example.test/",
+      records: [],
+    },
+  };
+  let calls = 0;
+  const harness = createHarness({
+    pageCapture: () => fixedPage,
+    streamRequest() {
+      calls += 1;
+      return {
+        result: {
+          toolCall: {
+            callId: `call-${calls}`,
+            name: "page_click",
+            arguments: '{"ref":"e1"}',
+          },
+        },
+      };
+    },
+  });
+  await harness.controller.ensureReady();
+  await harness.controller.setMode("act");
+  await harness.controller.submit("submission-1", "Keep clicking");
+  await settle();
+  await settle();
+
+  const state = await harness.controller.getState();
+  assert.equal(state.submission, null);
+  assert.equal(state.issue.error.code, "action_loop_detected");
+  assert.equal(state.issue.retry, null);
+  assert.equal(state.messages[1].actions.length, 1);
 });

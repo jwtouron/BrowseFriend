@@ -12,6 +12,8 @@ flowchart LR
   SW --> App[Application controller]
   App --> Reader[Page reader]
   Reader <--> Page[Active page content script]
+  App --> Actor[Page actor]
+  Actor <--> Page
   App <--> Bridge[Native Messaging bridge]
   Bridge <--> Host[Local native companion]
   Host --> DevKit[OpenAI local DevKit]
@@ -29,10 +31,16 @@ pages and returns a bounded semantic snapshot. The application controller combin
 with eligible local conversation history, selects an available model, and streams deltas through the
 side panel.
 
+The page actor is a separate mutation boundary. It accepts only shared typed-tool schemas, resolves
+opaque refs from the current snapshot, classifies risk from the live DOM, and rejects stale or
+sensitive targets. The application controller owns Act authorization, confirmation, the bounded
+tool loop, and recapture between steps; it never receives arbitrary selectors or scripts.
+
 Chrome connects the service worker to `com.browsefriend.native_host` through Native Messaging. The
 companion validates its small request allowlist, keeps authentication and model handlers separate,
 and delegates OAuth, token refresh, account selection, model discovery, and Responses streaming to
-the pinned DevKit.
+the pinned DevKit. Setup applies a tracked downstream patch while building so the otherwise
+text-focused DevKit can carry typed function calls and results without exposing OAuth credentials.
 
 ## Main flows
 
@@ -54,13 +62,29 @@ stream results. Page content is wrapped as untrusted data rather than instructio
 navigation advance the page revision, allowing the controller to mark captured context and its
 answer as stale. Retrying a failed response recaptures the page and replaces the failed attempt.
 
+### Act mode
+
+Ask is the default. Enabling Act captures the active page and creates one global session
+authorization tied to its tab and origin. Tab or origin changes, New chat, logout, or session loss
+clear it; BrowseFriend does not remember Act per tab. Act remains capable of ordinary text answers,
+but the native model handler additionally exposes the allowlisted schemas in
+`shared/page-tools.js`.
+
+The model may request one tool at a time. The actor prepares the target without mutation, and the
+controller either executes a low-risk action or pauses in one pending-confirmation state.
+Submissions, detected downloads, ambiguous controls, and consequential changes require confirmation.
+File selection instead highlights the page control and waits for a direct user choice. Each result
+is followed by a fresh semantic capture. Surviving DOM nodes retain opaque refs; replaced nodes get
+new refs, and stale calls return a non-executing result so the model can replan. A 32-call limit and
+same-revision repeat guard stop runaway loops.
+
 ### Model context and instructions
 
-The fixed Responses API instruction string is `MODEL_INSTRUCTIONS` in
-`native-host/model/handler.mjs`. It defines BrowseFriend's read-only role and the boundary that treats
-page content as untrusted data. Each request contains eligible user/assistant transcript pairs, an
-optional current-page context block, and the current prompt, in that order. Earlier page snapshots
-are not copied into transcript history.
+The shared Responses API instruction string is `BASE_MODEL_INSTRUCTIONS` in
+`native-host/model/handler.mjs`. It defines the untrusted-page boundary; Ask adds a read-only guard,
+while Act adds tool policy. Each request contains eligible transcript pairs, current-page context,
+the original prompt, and any compact current-run action continuation. Earlier page snapshots are not
+copied into transcript history.
 
 The pinned DevKit sends each request with `store: false` and without a `conversation` or
 `previous_response_id`. Sign in with ChatGPT plan access does not grant BrowseFriend access to the
@@ -84,8 +108,9 @@ protected by macOS Keychain or Linux Secret Service.
   account state are sanitized before crossing into the extension.
 - Model requests use `store: false`. BrowseFriend does not read ChatGPT cookies, conversations,
   memory, or private endpoints.
-- Page extraction, model communication, and future action execution remain separate. Consequential
-  actions require explicit user confirmation and stale-target validation.
+- Page extraction, model communication, and action execution remain separate. Consequential actions
+  require explicit user confirmation and stale-target validation in extension code, independent of
+  model instructions.
 
 See [Known Limitations](KNOWN_LIMITATIONS.md) for current constraints and the [Roadmap](TODO.md) for
 deferred architecture work.

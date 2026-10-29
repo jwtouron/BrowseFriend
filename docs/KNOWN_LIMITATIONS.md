@@ -16,11 +16,28 @@ random loopback listener only while completing the hosted OAuth callback.
 - Page context is derived from the rendered DOM and ARIA markup, not Chrome's computed
   accessibility tree. Canvas pixels, image-only content, closed shadow roots, CSS-only changes,
   and some custom controls may be missing or incomplete.
-- The pinned OpenAI DevKit accepts text messages only. BrowseFriend cannot send screenshots or
-  other images to the model, and the DevKit does not expose model tool calls for requesting more
-  page context.
+- BrowseFriend cannot send screenshots, page images, or user-selected files to the model. Its
+  setup-time downstream DevKit patch supports the narrow typed page-tool channel only.
 - Required site access produces Chrome's broad read/change warning even though Ask mode does not
   intentionally modify pages.
+
+## Page interaction
+
+- Act mode controls ordinary top-level DOM elements only. Embedded frames, closed shadow roots,
+  canvas controls, drag-and-drop, rich editors, and site-specific custom widgets may be unavailable.
+- Scripted clicks and input events are not trusted browser input. Sites may ignore them, require a
+  direct user gesture, or react differently from a physical click.
+- BrowseFriend recaptures after every action and replans when the DOM changes, but it cannot observe
+  network-idle state. `page_wait_for_change` waits five seconds; slower content may require another
+  prompt.
+- File selection always remains a direct user action. BrowseFriend highlights supported file inputs
+  or associated labels and observes only the selected count. Some sites upload immediately after
+  selection, before a later form submission confirmation.
+- Download confirmation covers explicit and recognizable download links. Without Chrome's broad
+  downloads permission, BrowseFriend cannot reliably detect, monitor, or cancel downloads started
+  indirectly by page scripts or server response headers.
+- Consequential-action classification is conservative but cannot understand every custom site.
+  Ambiguous buttons are confirmed; unsupported or sensitive targets fail closed.
 
 ## Chat behavior
 
@@ -37,5 +54,5 @@ random loopback listener only while completing the hosted OAuth callback.
 - Responses are based on a captured page revision. BrowseFriend reports when the page changes but
   does not restart an answer automatically.
 
-Revisit these constraints when the DevKit adds multimodal input or tool calling, OpenAI supports a
-pure-extension authentication flow, or packaged companion installers become available.
+Revisit these constraints when the DevKit adds multimodal input and native tool support, OpenAI
+supports a pure-extension authentication flow, or packaged companion installers become available.

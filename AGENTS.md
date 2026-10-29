@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-BrowseFriend combines a Chrome Manifest V3 side panel with a local Node.js companion. `extension/app/` owns connection and prompt workflow state; `extension/sidepanel/` renders it; `extension/auth/`, `extension/chat/`, `extension/settings/`, and `extension/page/read/` isolate supporting features. Native authentication and model requests live in `native-host/`, tests mirror subsystems under `tests/`, project documentation lives in `docs/`, and `vendor/sign-in-with-chatgpt-devkit/` pins OpenAI's SDK.
+BrowseFriend combines a Chrome Manifest V3 side panel with a local Node.js companion. `extension/app/` owns connection and prompt workflow state; `extension/sidepanel/` renders it; `extension/auth/`, `extension/chat/`, `extension/settings/`, `extension/page/read/`, and `extension/page/act/` isolate supporting features. Shared page-tool schemas live in `shared/`; Native authentication and model requests live under `native-host/`; tests mirror subsystems under `tests/`, project documentation lives in `docs/`, and `vendor/sign-in-with-chatgpt-devkit/` pins OpenAI's SDK. Keep downstream SDK changes reproducible as reviewed patches under `patches/`, never as a dirty submodule.
 
 Keep HTML accessible, CSS presentation-only, and browser behavior in JavaScript. Never add inline scripts. OAuth credentials belong exclusively in the native host; extension messages may contain only sanitized account state.
 Keep Debug last in Settings. Persist user settings in `chrome.storage.local` and propagate changes between open panels with `chrome.storage.onChanged`.
@@ -17,7 +17,7 @@ Authentication must use OpenAI's hosted **Continue with ChatGPT** flow through t
 
 Give mutable workflow state one owner and model it with small explicit state machines. Keep independent concerns as orthogonal fields, derive UI from state, and serialize operations that must not overlap. Do not scatter duplicate busy, authentication, or error flags across background and view code.
 
-Give asynchronous work stable IDs or epochs and ignore stale completion. Normalize errors once, represent recovery as typed intent instead of callbacks, and keep persistent readiness work independent from cancellable user actions. Add transition tests whenever a state or workflow edge changes.
+Give asynchronous work stable IDs or epochs and ignore stale completion. Normalize errors once, represent recovery as typed intent instead of callbacks, and keep persistent readiness work independent from cancellable user actions. The controller owns Ask/Act authorization, the tool loop, and pending confirmation; the page actor owns DOM validation and execution. Never re-resolve a stale action with page-provided selectors. Add transition tests whenever a state or workflow edge changes.
 
 ## Roadmap Maintenance
 

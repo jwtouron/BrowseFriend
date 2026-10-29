@@ -30,10 +30,14 @@ test("app client exposes intents and normalized failures", async () => {
 
   assert.deepEqual(await client.submit("id-1", "Question"), { accepted: true });
   assert.deepEqual(await client.stop("id-1"), { accepted: true });
+  assert.deepEqual(await client.setMode("act"), { accepted: true });
+  assert.deepEqual(await client.resolveAction("action-1", true), { accepted: true });
   await assert.rejects(client.retry(), { code: "failed", message: "No." });
   assert.deepEqual(sent, [
     { channel: "app", method: "app.submit", id: "id-1", text: "Question" },
     { channel: "app", method: "app.stop", id: "id-1" },
+    { channel: "app", method: "app.setMode", mode: "act" },
+    { channel: "app", method: "app.resolveAction", id: "action-1", approved: true },
     { channel: "app", method: "app.retry" },
   ]);
 });

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const PATCHED_UNDICI_VERSION = "7.30.1";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const devkitRoot = join(repositoryRoot, "vendor", "sign-in-with-chatgpt-devkit");
+const toolsPatch = join(repositoryRoot, "patches", "devkit-function-tools.patch");
 const targetUndici = join(devkitRoot, "node_modules", "undici");
 
 function requireSupportedNode() {
@@ -24,6 +25,12 @@ function runNpm(args) {
 
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`npm ${args[0]} failed with status ${result.status}.`);
+}
+
+function runGit(args) {
+  const result = spawnSync("git", ["-C", devkitRoot, ...args], { stdio: "inherit" });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`git ${args[0]} failed with status ${result.status}.`);
 }
 
 async function installPatchedUndici() {
@@ -60,6 +67,12 @@ async function installPatchedUndici() {
 requireSupportedNode();
 runNpm(["ci", "--prefix", devkitRoot, "--no-audit"]);
 await installPatchedUndici();
-runNpm(["run", "build", "-w", "@siwc/local", "--prefix", devkitRoot]);
+runGit(["apply", "--check", toolsPatch]);
+runGit(["apply", toolsPatch]);
+try {
+  runNpm(["run", "build", "-w", "@siwc/local", "--prefix", devkitRoot]);
+} finally {
+  runGit(["apply", "--reverse", toolsPatch]);
+}
 
 console.log(`OpenAI DevKit ready with undici ${PATCHED_UNDICI_VERSION}.`);

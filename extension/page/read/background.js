@@ -77,7 +77,22 @@ export function installPageReader({ runtime, tabs, scripting }) {
 
   tabs.onUpdated?.addListener((tabId, changeInfo) => {
     if (changeInfo.status !== "loading" && typeof changeInfo.url !== "string") return;
-    publishDirty({ tabId, documentId: null, revision: Number.MAX_SAFE_INTEGER });
+    publishDirty({
+      tabId,
+      documentId: null,
+      revision: Number.MAX_SAFE_INTEGER,
+      ...(typeof changeInfo.url === "string" ? { url: changeInfo.url } : {}),
+    });
+  });
+
+  tabs.onActivated?.addListener(({ tabId, windowId }) => {
+    publishDirty({
+      tabId,
+      windowId,
+      activated: true,
+      documentId: null,
+      revision: Number.MAX_SAFE_INTEGER,
+    });
   });
 
   return {

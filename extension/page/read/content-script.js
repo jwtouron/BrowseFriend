@@ -10,7 +10,7 @@
   const NATIVE_ROLES = new Map([
     ["A", "link"], ["ARTICLE", "article"], ["ASIDE", "complementary"],
     ["BUTTON", "button"], ["DIALOG", "dialog"], ["FOOTER", "contentinfo"],
-    ["FORM", "form"], ["HEADER", "banner"], ["IMG", "img"], ["MAIN", "main"],
+    ["FORM", "form"], ["HEADER", "banner"], ["IMG", "img"], ["LABEL", "label"], ["MAIN", "main"],
     ["NAV", "navigation"], ["OL", "list"], ["OPTION", "option"],
     ["PROGRESS", "progressbar"], ["SELECT", "combobox"], ["TABLE", "table"],
     ["TEXTAREA", "textbox"], ["UL", "list"],
@@ -30,6 +30,9 @@
   const state = {
     documentId: crypto.randomUUID(),
     revision: 0,
+    nextElementId: 1,
+    elementRefs: new WeakMap(),
+    elementsByRef: new Map(),
     dirty: true,
     dirtyNotified: false,
     lastMutationAt: performance.now(),
@@ -41,6 +44,15 @@
 
   function normalizeText(value, maximum = 4_000) {
     return String(value || "").replace(/\s+/g, " ").trim().slice(0, maximum);
+  }
+
+  function elementRef(element) {
+    let ref = state.elementRefs.get(element);
+    if (!ref) {
+      ref = `e${state.nextElementId++}`;
+      state.elementRefs.set(element, ref);
+    }
+    return ref;
   }
 
   function markDirty({ notify = true } = {}) {
@@ -138,7 +150,8 @@
     const limitations = new Set();
     let usedCharacters = 0;
     let truncated = false;
-    let nextId = 1;
+    let nextTextId = 1;
+    const elementsByRef = new Map();
 
     function addRecord(record) {
       const cost = JSON.stringify(record).length;
@@ -156,7 +169,7 @@
       if (node.nodeType === Node.TEXT_NODE) {
         if (!inheritedVisible) return;
         const text = normalizeText(node.nodeValue, 2_000);
-        if (text) addRecord({ ref: `n${nextId++}`, parentRef, type: "text", text });
+        if (text) addRecord({ ref: `t${nextTextId++}`, parentRef, type: "text", text });
         return;
       }
       if (node.nodeType !== Node.ELEMENT_NODE || EXCLUDED_TAGS.has(node.tagName)) return;
@@ -182,19 +195,28 @@
         }
         if (node.disabled === true) states.disabled = true;
         if (node.checked === true) states.checked = true;
+        const ref = elementRef(node);
         const record = {
-          ref: `n${nextId++}`,
+          ref,
           parentRef,
           type: "element",
           tag: node.tagName.toLowerCase(),
           ...(role ? { role } : {}),
           ...(name ? { name } : {}),
           ...(value ? { value } : {}),
+          ...(node.tagName === "INPUT" ? { controlType: String(node.type || "text").toLowerCase() } : {}),
+          ...(node.tagName === "INPUT" && node.type === "file" && node.accept
+            ? { accept: normalizeText(node.accept, 500) }
+            : {}),
+          ...(node.tagName === "INPUT" && node.type === "file" && node.multiple
+            ? { multiple: true }
+            : {}),
           ...(node.href ? { href: String(node.href).slice(0, 2_000) } : {}),
           ...(Object.keys(states).length ? { states } : {}),
           ...(elementBounds(node) ? { bounds: elementBounds(node) } : {}),
         };
         nextParent = addRecord(record) || parentRef;
+        if (nextParent === ref) elementsByRef.set(ref, node);
       }
 
       for (const child of node.childNodes) visit(child, nextParent, visible);
@@ -221,6 +243,7 @@
       truncated,
       stats: { records: records.length, characters: usedCharacters },
     };
+    state.elementsByRef = elementsByRef;
     state.cachedSnapshot = snapshot;
     state.dirty = false;
     state.dirtyNotified = false;
@@ -235,6 +258,9 @@
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
   }
+
+  state.captureSnapshot = captureSnapshot;
+  state.waitForQuiet = waitForQuiet;
 
   const observer = new MutationObserver(markDirty);
   function observeRoot(root) {

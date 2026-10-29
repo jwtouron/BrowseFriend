@@ -26,6 +26,8 @@ export function createAppClient(runtime) {
     start: () => request("app.start"),
     submit: (id, text) => request("app.submit", { id, text }),
     stop: (id) => request("app.stop", { id }),
+    setMode: (mode) => request("app.setMode", { mode }),
+    resolveAction: (id, approved) => request("app.resolveAction", { id, approved }),
     retry: () => request("app.retry"),
     clear: () => request("app.clear"),
     signIn: () => request("app.signIn"),

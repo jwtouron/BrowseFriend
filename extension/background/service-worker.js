@@ -1,5 +1,6 @@
 import { installAppController } from "../app/background.js";
 import { installCompanionBridge } from "../companion/background-bridge.js";
+import { installPageActor } from "../page/act/background.js";
 import { installPageReader } from "../page/read/background.js";
 
 const companion = installCompanionBridge({ runtime: chrome.runtime });
@@ -8,12 +9,19 @@ const pageReader = installPageReader({
   tabs: chrome.tabs,
   scripting: chrome.scripting,
 });
+const pageActor = installPageActor({
+  runtime: chrome.runtime,
+  tabs: chrome.tabs,
+  scripting: chrome.scripting,
+  pageReader,
+});
 installAppController({
   runtime: chrome.runtime,
   storage: chrome.storage.session,
   settingsStorage: chrome.storage.local,
   companion,
   pageReader,
+  pageActor,
   randomUUID: () => crypto.randomUUID(),
 });
 

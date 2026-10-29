@@ -1,9 +1,11 @@
 import { MODEL_KEY, normalizeModel } from "../settings/preferences.js";
+import { parsePageToolCall } from "../../shared/page-tools.js";
 
 const STORAGE_KEY = "browsefriend.chat.session";
 const MAX_HISTORY_BYTES = 480 * 1024;
 const MAX_SESSION_BYTES = 8 * 1024 * 1024;
 const MAX_DELTA_SAVE_DELAY_MS = 200;
+const MAX_ACTION_CALLS = 32;
 const CONNECTION_ERROR_CODES = new Set([
   "companion_timeout",
   "companion_unavailable",
@@ -21,6 +23,8 @@ function emptyChat(model = null) {
     model,
     historyTruncated: false,
     submission: null,
+    mode: "ask",
+    authorization: null,
   };
 }
 
@@ -89,6 +93,7 @@ export function installAppController({
   settingsStorage,
   companion,
   pageReader,
+  pageActor,
   randomUUID,
 }) {
   let chatPromise;
@@ -113,6 +118,8 @@ export function installAppController({
           model: saved.model || null,
           historyTruncated: saved.historyTruncated === true,
           submission: saved.submission || null,
+          mode: saved.mode === "act" && saved.authorization ? "act" : "ask",
+          authorization: saved.mode === "act" && saved.authorization ? saved.authorization : null,
         };
         if (restored.submission) {
           const assistant = restored.messages.find(
@@ -120,6 +127,8 @@ export function installAppController({
           );
           if (assistant?.status === "streaming") assistant.status = "stopped";
           restored.submission = null;
+          restored.mode = "ask";
+          restored.authorization = null;
         } else if (saved.generating) {
           restored.messages = restored.messages.map((message) =>
             message.status === "streaming"
@@ -162,6 +171,8 @@ export function installAppController({
       modelPreference,
       historyTruncated: chat.historyTruncated,
       submission: chat.submission,
+      mode: chat.mode,
+      authorization: chat.authorization,
     };
   }
 
@@ -235,6 +246,8 @@ export function installAppController({
     }
     connection = { phase, auth, error: null };
     models = [];
+    chat.mode = "ask";
+    chat.authorization = null;
     issue = connectionIssue(auth);
     await publish(chat);
     return false;
@@ -300,6 +313,52 @@ export function installAppController({
     };
   }
 
+  function pageOrigin(url) {
+    try {
+      return new URL(url).origin;
+    } catch {
+      return null;
+    }
+  }
+
+  function authorizedFor(chat, context) {
+    return chat.mode === "act" && context.available &&
+      chat.authorization?.tabId === context.tabId &&
+      chat.authorization?.origin === pageOrigin(context.url);
+  }
+
+  function assistantFor(chat, submission) {
+    return chat.messages.find((message) => message.id === submission.assistantId);
+  }
+
+  function actionLabel(prepared) {
+    const verb = {
+      check: "Changed",
+      click: "Clicked",
+      disclosure: "Opened",
+      download: "Downloaded from",
+      file: "Selected files for",
+      fill: "Filled",
+      navigation: "Opened",
+      scroll: "Scrolled",
+      select: "Selected",
+      submit: "Submitted",
+      wait: "Waited for",
+    }[prepared.kind] || "Used";
+    return `${verb} ${prepared.target || "the page"}`;
+  }
+
+  function publicAction(prepared, id, status = "running") {
+    return {
+      id,
+      status,
+      kind: prepared.kind,
+      target: prepared.target || "Page",
+      ...(prepared.value !== undefined ? { value: prepared.value } : {}),
+      ...(prepared.destination ? { destination: prepared.destination } : {}),
+    };
+  }
+
   async function failSubmission(chat, id, error) {
     if (chat.submission?.id !== id) return;
     const submission = chat.submission;
@@ -311,11 +370,13 @@ export function installAppController({
     }
     chat.submission = null;
     if (publicError.code !== "cancelled") {
+      const canRetry = !submission.actionExecuted &&
+        !["action_limit_reached", "action_loop_detected", "act_authorization_changed"].includes(publicError.code);
       issue = {
         kind: "error",
         scope: "generation",
         error: publicError,
-        retry: "generation",
+        retry: canRetry ? "generation" : null,
         assistantId: submission.assistantId || null,
         prompt: submission.text,
       };
@@ -326,7 +387,151 @@ export function installAppController({
     await publish(chat);
   }
 
-  async function streamSubmission(chat, submission, history, pageContext) {
+  async function captureForSubmission(chat, submission) {
+    const page = await pageReader.capture();
+    if (chat.submission?.id !== submission.id) return null;
+    const context = contextFor(page);
+    if (submission.mode === "act" && !authorizedFor(chat, context)) {
+      chat.mode = "ask";
+      chat.authorization = null;
+      throw {
+        code: "act_authorization_changed",
+        message: "Act mode stopped because the active tab or site changed.",
+        retryable: false,
+      };
+    }
+    submission.context = context;
+    return context;
+  }
+
+  function modelHistory(chat, submission) {
+    const userIndex = chat.messages.findIndex((message) => message.id === submission.userId);
+    return historyBefore(chat.messages, userIndex < 0 ? chat.messages.length : userIndex);
+  }
+
+  async function continueAfterAction(chat, submission, call, result, action) {
+    if (chat.submission?.id !== submission.id) return;
+    if (action) action.status = result.cancelled ? "cancelled" : "complete";
+    submission.actionExecuted = submission.actionExecuted || result.executed === true || result.waitingForUser === true;
+    submission.actionHistory.push(actionLabel(result));
+    submission.continuation = {
+      callId: call.callId,
+      name: call.name,
+      arguments: call.arguments,
+      output: JSON.stringify({
+        ok: true,
+        kind: result.kind,
+        target: result.target,
+        ...(result.value !== undefined ? { value: result.value } : {}),
+        ...(result.changed !== undefined ? { changed: result.changed } : {}),
+      }),
+    };
+    const context = await captureForSubmission(chat, submission);
+    if (!context || chat.submission?.id !== submission.id) return;
+    submission.phase = "streaming";
+    submission.pendingAction = null;
+    await publish(chat);
+    void streamSubmission(chat, submission);
+  }
+
+  async function executePageAction(chat, submission, call, prepared, action) {
+    try {
+      const result = await pageActor.execute(call, submission.context);
+      if (chat.submission?.id !== submission.id) return;
+      if (result.waitingForUser) {
+        action.status = "waiting";
+        submission.phase = "waiting_file";
+        submission.pendingAction = { id: action.id, call, prepared, context: submission.context };
+        await publish(chat);
+        return;
+      }
+      await continueAfterAction(chat, submission, call, result, action);
+    } catch (error) {
+      if (["stale_page", "stale_target"].includes(error?.code)) {
+        action.status = "stale";
+        submission.actionHistory.push(`Skipped stale ${prepared.target || "page control"}`);
+        submission.continuation = {
+          callId: call.callId,
+          name: call.name,
+          arguments: call.arguments,
+          output: JSON.stringify({ ok: false, code: error.code, message: error.message }),
+        };
+        const context = await captureForSubmission(chat, submission);
+        if (!context || chat.submission?.id !== submission.id) return;
+        submission.phase = "streaming";
+        submission.pendingAction = null;
+        await publish(chat);
+        void streamSubmission(chat, submission);
+        return;
+      }
+      throw error;
+    }
+  }
+
+  async function handleToolCall(chat, submission, rawCall) {
+    let call;
+    try {
+      call = parsePageToolCall(rawCall);
+    } catch (error) {
+      throw { code: "invalid_tool_call", message: error.message, retryable: true };
+    }
+    if (submission.mode !== "act" || !authorizedFor(chat, submission.context)) {
+      throw {
+        code: "act_authorization_changed",
+        message: "BrowseFriend no longer has permission to act on this page.",
+        retryable: false,
+      };
+    }
+    submission.actionCount += 1;
+    if (submission.actionCount > MAX_ACTION_CALLS) throw {
+      code: "action_limit_reached",
+      message: `BrowseFriend paused after ${MAX_ACTION_CALLS} page actions. Review the page and ask it to continue.`,
+      retryable: false,
+    };
+    const fingerprint = `${call.name}:${call.arguments}:${submission.context.documentId}:${submission.context.revision}`;
+    if (fingerprint === submission.lastActionFingerprint) throw {
+      code: "action_loop_detected",
+      message: "BrowseFriend stopped after the model repeated the same page action.",
+      retryable: false,
+    };
+    submission.lastActionFingerprint = fingerprint;
+
+    let prepared;
+    try {
+      prepared = await pageActor.prepare(call, submission.context);
+    } catch (error) {
+      if (!["stale_page", "stale_target"].includes(error?.code)) throw error;
+      submission.actionHistory.push("Skipped a stale page control");
+      submission.continuation = {
+        callId: call.callId,
+        name: call.name,
+        arguments: call.arguments,
+        output: JSON.stringify({ ok: false, code: error.code, message: error.message }),
+      };
+      const context = await captureForSubmission(chat, submission);
+      if (!context || chat.submission?.id !== submission.id) return;
+      await publish(chat);
+      void streamSubmission(chat, submission);
+      return;
+    }
+    if (chat.submission?.id !== submission.id) return;
+    const assistant = assistantFor(chat, submission);
+    const actionId = randomUUID();
+    const action = publicAction(prepared, actionId);
+    assistant.actions ||= [];
+    assistant.actions.push(action);
+
+    if (prepared.requiresConfirmation) {
+      action.status = "pending";
+      submission.phase = "waiting_confirmation";
+      submission.pendingAction = { id: actionId, call, prepared, context: submission.context };
+      await publish(chat);
+      return;
+    }
+    await executePageAction(chat, submission, call, prepared, action);
+  }
+
+  async function streamSubmission(chat, submission) {
     try {
       modelPreference = await resolveModelPreference(models);
       const model = selectedModel();
@@ -339,11 +544,14 @@ export function installAppController({
       await save(chat);
       if (chat.submission?.id !== submission.id) return;
       submission.requestStarted = true;
-      await companion.request("model.stream", {
+      const response = await companion.request("model.stream", {
         model: model.slug,
-        history,
+        history: modelHistory(chat, submission),
         prompt: submission.text,
-        pageContext,
+        pageContext: submission.context?.available ? JSON.stringify(submission.context.snapshot) : "",
+        mode: submission.mode,
+        actionHistory: submission.actionHistory,
+        ...(submission.continuation ? { continuation: submission.continuation } : {}),
       }, (event) => {
         if (chat.submission?.id !== submission.id || typeof event.delta !== "string") return;
         const assistant = chat.messages.find((message) => message.id === submission.assistantId);
@@ -354,6 +562,10 @@ export function installAppController({
       }, submission.id);
 
       if (chat.submission?.id !== submission.id) return;
+      if (response.result?.toolCall) {
+        await handleToolCall(chat, submission, response.result.toolCall);
+        return;
+      }
       const assistant = chat.messages.find((message) => message.id === submission.assistantId);
       if (assistant) assistant.status = "complete";
       chat.submission = null;
@@ -372,10 +584,8 @@ export function installAppController({
     await publish(chat);
 
     try {
-      const page = await pageReader.capture();
-      if (chat.submission?.id !== submission.id) return;
-      const context = contextFor(page);
-      let history;
+      const context = await captureForSubmission(chat, submission);
+      if (!context || chat.submission?.id !== submission.id) return;
       let user;
       let assistant;
 
@@ -391,14 +601,13 @@ export function installAppController({
           message: "That response is no longer available to retry.",
           retryable: false,
         };
-        history = historyBefore(chat.messages, userIndex);
         user.context = context;
         assistant.text = "";
         assistant.status = "streaming";
         assistant.error = null;
         assistant.stale = false;
+        assistant.actions = [];
       } else {
-        history = historyBefore(chat.messages);
         user = {
           id: randomUUID(),
           role: "user",
@@ -412,6 +621,7 @@ export function installAppController({
           text: "",
           status: "streaming",
           stale: false,
+          actions: [],
           createdAt: Date.now(),
         };
         chat.messages.push(user, assistant);
@@ -421,12 +631,7 @@ export function installAppController({
       submission.assistantId = assistant.id;
       submission.phase = "streaming";
       await publish(chat);
-      void streamSubmission(
-        chat,
-        submission,
-        history,
-        page.available ? JSON.stringify(page.snapshot) : "",
-      );
+      void streamSubmission(chat, submission);
     } catch (error) {
       await failSubmission(chat, submission.id, error);
     }
@@ -450,12 +655,104 @@ export function installAppController({
     };
 
     issue = issue?.scope === "generation" ? null : issue;
-    chat.submission = { id, text: prompt, phase: "queued" };
+    chat.submission = {
+      id,
+      text: prompt,
+      phase: "queued",
+      mode: chat.mode,
+      actionCount: 0,
+      actionHistory: [],
+      continuation: null,
+      lastActionFingerprint: null,
+      pendingAction: null,
+      actionExecuted: false,
+    };
     await publish(chat);
     if (connection.phase === "ready") void resumeSubmission();
     else if (connection.phase === "error") void ensureReady({ force: true });
     else if (connection.phase === "checking") void ensureReady();
     return publicState(chat);
+  }
+
+  async function setMode(mode) {
+    const chat = await loadChat();
+    if (!["ask", "act"].includes(mode)) throw {
+      code: "invalid_request",
+      message: "Choose Ask or Act mode.",
+      retryable: false,
+    };
+    if (chat.submission) throw {
+      code: "model_busy",
+      message: "Stop the current response before changing modes.",
+      retryable: true,
+    };
+    if (mode === "ask") {
+      chat.mode = "ask";
+      chat.authorization = null;
+      await publish(chat);
+      return publicState(chat);
+    }
+
+    const page = await pageReader.capture();
+    const context = contextFor(page);
+    const origin = context.available ? pageOrigin(context.url) : null;
+    if (!context.available || !origin) throw {
+      code: context.error?.code || "page_unavailable",
+      message: context.error?.message || "Act mode is unavailable on this page.",
+      retryable: false,
+    };
+    chat.mode = "act";
+    chat.authorization = { tabId: context.tabId, origin };
+    await publish(chat);
+    return publicState(chat);
+  }
+
+  async function resolveAction(id, approved) {
+    const chat = await loadChat();
+    const submission = chat.submission;
+    const pending = submission?.pendingAction;
+    if (!submission || !["waiting_confirmation", "waiting_file"].includes(submission.phase) ||
+        !pending || pending.id !== id) {
+      throw {
+        code: "action_unavailable",
+        message: "That action is no longer awaiting confirmation.",
+        retryable: false,
+      };
+    }
+    const assistant = assistantFor(chat, submission);
+    const action = assistant?.actions?.find((item) => item.id === id);
+    if (submission.phase === "waiting_file" && approved) {
+      throw {
+        code: "action_unavailable",
+        message: "Choose the file in the page, or cancel this action.",
+        retryable: false,
+      };
+    }
+    if (!approved) {
+      if (submission.phase === "waiting_file") {
+        void Promise.resolve(pageActor.cancelFile?.(pending.context)).catch(() => undefined);
+      }
+      if (action) action.status = "cancelled";
+      if (assistant) assistant.status = "stopped";
+      chat.submission = null;
+      issue = null;
+      await publish(chat);
+      return publicState(chat);
+    }
+
+    try {
+      const prepared = await pageActor.prepare(pending.call, pending.context);
+      if (chat.submission?.id !== submission.id) return publicState(chat);
+      if (action) action.status = "running";
+      submission.phase = "executing";
+      submission.pendingAction = null;
+      await publish(chat);
+      await executePageAction(chat, submission, pending.call, prepared, action);
+      return publicState(chat);
+    } catch (error) {
+      await failSubmission(chat, submission.id, error);
+      return publicState(chat);
+    }
   }
 
   async function stop(id) {
@@ -470,8 +767,13 @@ export function installAppController({
       }
       return { state: publicState(chat), draft: null };
     }
-    const draft = submission.text;
+    const draft = submission.actionExecuted ? null : submission.text;
     const assistant = chat.messages.find((message) => message.id === submission.assistantId);
+    const pendingAction = assistant?.actions?.find((action) => action.id === submission.pendingAction?.id);
+    if (pendingAction) pendingAction.status = "cancelled";
+    if (submission.phase === "waiting_file") {
+      void Promise.resolve(pageActor.cancelFile?.(submission.pendingAction?.context)).catch(() => undefined);
+    }
     if (assistant?.status === "streaming") {
       assistant.status = "stopped";
       assistant.error = null;
@@ -502,6 +804,13 @@ export function installAppController({
         text: retryIssue.prompt,
         phase: "queued",
         retryAssistantId: retryIssue.assistantId,
+        mode: chat.mode,
+        actionCount: 0,
+        actionHistory: [],
+        continuation: null,
+        lastActionFingerprint: null,
+        pendingAction: null,
+        actionExecuted: false,
       };
       await publish(chat);
       if (connection.phase === "ready") void resumeSubmission();
@@ -602,10 +911,65 @@ export function installAppController({
     return publicState(cleared);
   }
 
+  pageActor?.onFileSelection?.((event) => {
+    void (async () => {
+      const chat = await loadChat();
+      const submission = chat.submission;
+      const pending = submission?.pendingAction;
+      if (!submission || submission.phase !== "waiting_file" || !pending ||
+          pending.context.tabId !== event.tabId || pending.context.documentId !== event.documentId ||
+          pending.call.args.ref !== event.ref) return;
+      const assistant = assistantFor(chat, submission);
+      const action = assistant?.actions?.find((item) => item.id === pending.id);
+      if (event.cancelled) {
+        if (action) action.status = "cancelled";
+        if (assistant) assistant.status = "stopped";
+        chat.submission = null;
+        await publish(chat);
+        return;
+      }
+      await continueAfterAction(chat, submission, pending.call, {
+        ...pending.prepared,
+        executed: true,
+        waitingForUser: false,
+        value: `${event.count} ${event.count === 1 ? "file" : "files"} selected`,
+      }, action);
+    })().catch(async (error) => {
+      const chat = await loadChat();
+      if (chat.submission) await failSubmission(chat, chat.submission.id, error);
+    });
+  });
+
   pageReader.onDirty((event) => {
     void (async () => {
       const chat = await loadChat();
       let changed = false;
+      const authorized = chat.authorization;
+      const nextOrigin = event.url ? pageOrigin(event.url) : null;
+      const resetAct = chat.mode === "act" && authorized &&
+        ((event.activated && event.tabId !== authorized.tabId) ||
+         (event.tabId === authorized.tabId && nextOrigin && nextOrigin !== authorized.origin));
+      if (resetAct) {
+        chat.mode = "ask";
+        chat.authorization = null;
+        changed = true;
+        const submission = chat.submission;
+        if (submission?.mode === "act") {
+          const assistant = assistantFor(chat, submission);
+          if (assistant) {
+            assistant.status = "error";
+            assistant.error = {
+              code: "act_authorization_changed",
+              message: "Act mode stopped because the active tab or site changed.",
+              retryable: false,
+            };
+          }
+          chat.submission = null;
+          if (submission.requestStarted) {
+            void companion.request("model.cancel", { requestId: submission.id }).catch(() => undefined);
+          }
+        }
+      }
       for (let index = 0; index < chat.messages.length; index += 1) {
         const message = chat.messages[index];
         if (message.role !== "user" || !message.context?.available || message.context.stale ||
@@ -648,6 +1012,8 @@ export function installAppController({
     }
     if (message.method === "app.submit") operation = submit(message.id, message.text);
     if (message.method === "app.stop") operation = stop(message.id);
+    if (message.method === "app.setMode") operation = setMode(message.mode);
+    if (message.method === "app.resolveAction") operation = resolveAction(message.id, message.approved === true);
     if (message.method === "app.retry") operation = retry();
     if (message.method === "app.clear") operation = clear();
     if (message.method === "app.signIn") operation = signIn();
@@ -668,6 +1034,8 @@ export function installAppController({
     ensureReady,
     getState: async () => publicState(await loadChat()),
     retry,
+    resolveAction,
+    setMode,
     signIn,
     stop,
     submit,

@@ -24,6 +24,8 @@ const viewStack = document.querySelector("#view-stack");
 const chatView = document.querySelector("#chat-view");
 const settingsView = document.querySelector("#settings-view");
 const composer = document.querySelector("#composer");
+const modeSwitch = document.querySelector("#mode-switch");
+const modeInputs = document.querySelectorAll('input[name="page-mode"]');
 const messageInput = document.querySelector("#message-input");
 const clearMessageButton = document.querySelector("#clear-message");
 const sendMessageButton = document.querySelector("#send-message");
@@ -57,6 +59,15 @@ const contextViewer = document.querySelector("#context-viewer");
 const closeContextButton = document.querySelector("#close-context");
 const contextSummary = document.querySelector("#context-summary");
 const contextContent = document.querySelector("#context-content");
+const actionConfirmation = document.querySelector("#action-confirmation");
+const actionTitle = document.querySelector("#action-title");
+const actionDescription = document.querySelector("#action-description");
+const actionSite = document.querySelector("#action-site");
+const actionTarget = document.querySelector("#action-target");
+const actionValueRow = document.querySelector("#action-value-row");
+const actionValue = document.querySelector("#action-value");
+const confirmActionButton = document.querySelector("#confirm-action");
+const cancelActionButton = document.querySelector("#cancel-action");
 const messageTemplate = document.querySelector("#message-template");
 const suggestionButtons = document.querySelectorAll(".suggestion");
 
@@ -78,6 +89,8 @@ let currentState = {
   models: [],
   modelPreference: "automatic",
   submission: null,
+  mode: "ask",
+  authorization: null,
 };
 let optimisticSubmission = null;
 let debugMode = false;
@@ -86,6 +99,7 @@ let accent = "blue";
 let modelPreference = "automatic";
 let availableModels = [];
 let contextViewerOpen = false;
+let actionModalOpen = false;
 let settingsError = null;
 let localRecovery = null;
 const assistantSources = new WeakMap();
@@ -104,6 +118,7 @@ function createMessageElement(messageData) {
   const author = fragment.querySelector(".message__author");
   const content = fragment.querySelector(".message__content");
   const contextButton = fragment.querySelector(".context-chip");
+  const actions = fragment.querySelector(".message__actions");
   const status = fragment.querySelector(".message__status");
 
   message.dataset.messageId = messageData.id;
@@ -112,6 +127,14 @@ function createMessageElement(messageData) {
   if (messageData.role === "assistant") {
     assistantSources.set(message, messageData.text);
     renderMarkdown(content, messageData.text);
+    for (const action of messageData.actions || []) {
+      const item = document.createElement("div");
+      item.className = `message-action message-action--${action.status}`;
+      item.textContent = `${action.kind === "wait" ? "Waited for" : action.kind === "scroll" ? "Scrolled" : "Action on"} ${action.target}`;
+      if (action.value !== undefined) item.textContent += ` · ${action.value}`;
+      actions.append(item);
+    }
+    actions.hidden = actions.childElementCount === 0;
   } else {
     content.textContent = messageData.text;
   }
@@ -190,7 +213,7 @@ function renderNotice() {
     ? "Response failed"
     : "BrowseFriend could not connect";
   connectionNoticeMessage.textContent = notice.error?.message || "BrowseFriend could not continue.";
-  retryOperationButton.hidden = false;
+  retryOperationButton.hidden = !notice.retry;
   companionHelp.hidden = !["companion_unavailable", "companion_timeout"]
     .includes(notice.error?.code);
 }
@@ -225,6 +248,51 @@ function renderComposer() {
   suggestionButtons.forEach((button) => {
     button.disabled = messageInput.disabled;
   });
+}
+
+function renderMode() {
+  const mode = currentState.mode === "act" ? "act" : "ask";
+  const disabled = composerBusy();
+  modeSwitch.disabled = disabled;
+  modeInputs.forEach((input) => {
+    input.checked = input.value === mode;
+    input.disabled = disabled;
+  });
+}
+
+function showActionModal() {
+  const submission = currentState.submission;
+  const pending = submission?.pendingAction;
+  const waitingFile = submission?.phase === "waiting_file";
+  const waitingConfirmation = submission?.phase === "waiting_confirmation";
+  if (!pending || (!waitingFile && !waitingConfirmation)) {
+    if (actionModalOpen) {
+      actionModalOpen = false;
+      actionConfirmation.hidden = true;
+      if (!contextViewerOpen) {
+        topbar.inert = false;
+        viewStack.inert = false;
+      }
+    }
+    return;
+  }
+
+  actionModalOpen = true;
+  actionTitle.textContent = waitingFile ? "Choose a file on the page" : "Confirm page action";
+  actionDescription.textContent = waitingFile
+    ? "Use the highlighted page control to choose files. BrowseFriend will continue after the selection."
+    : "BrowseFriend paused before an action that may have an external effect.";
+  actionSite.textContent = currentState.authorization?.origin || "Current page";
+  actionTarget.textContent = pending.prepared?.target || "Page control";
+  const value = pending.prepared?.value;
+  actionValueRow.hidden = value === undefined;
+  actionValue.textContent = value === undefined ? "" : String(value);
+  confirmActionButton.hidden = waitingFile;
+  cancelActionButton.textContent = waitingFile ? "Cancel task" : "Cancel";
+  topbar.inert = true;
+  viewStack.inert = true;
+  actionConfirmation.hidden = false;
+  requestAnimationFrame(() => (waitingFile ? cancelActionButton : confirmActionButton).focus({ preventScroll: true }));
 }
 
 function renderAccount() {
@@ -262,11 +330,13 @@ function renderApp(state, {
   renderNotice();
   renderMessages();
   renderComposer();
+  renderMode();
+  showActionModal();
   renderAccount();
   renderModelsFromState();
 
   if (!restoreCompletionFocus || !document.hasFocus() ||
-      viewStack.classList.contains("view-stack--settings") || contextViewerOpen) return;
+      viewStack.classList.contains("view-stack--settings") || contextViewerOpen || actionModalOpen) return;
 
   const nextView = deriveViewState(currentState, optimisticSubmission);
   const submissionFinished = previousSubmission && !state.submission;
@@ -559,12 +629,40 @@ async function stopSubmission() {
     const result = await appClient.stop(pending.id);
     optimisticSubmission = null;
     renderApp(result.state, { restoreCompletionFocus: false });
-    setComposerValue(result.draft || fallbackDraft, { focus: true });
+    if (result.draft !== null) setComposerValue(result.draft || fallbackDraft, { focus: true });
+    else focusChatSurface();
   } catch (error) {
     optimisticSubmission = null;
     setComposerValue(fallbackDraft, { focus: true });
     renderComposer();
     showOperationError(error, { type: "start" });
+  }
+}
+
+async function updateMode(mode) {
+  if (composerBusy() || !["ask", "act"].includes(mode)) return;
+  modeInputs.forEach((input) => { input.disabled = true; });
+  try {
+    renderApp(await appClient.setMode(mode), { restoreCompletionFocus: false });
+    messageInput.focus({ preventScroll: true });
+  } catch (error) {
+    renderMode();
+    showOperationError(error, { type: "mode", mode }, "generation");
+  }
+}
+
+async function resolveAction(approved) {
+  const pending = currentState.submission?.pendingAction;
+  if (!pending) return;
+  confirmActionButton.disabled = true;
+  cancelActionButton.disabled = true;
+  try {
+    renderApp(await appClient.resolveAction(pending.id, approved), { restoreCompletionFocus: false });
+  } catch (error) {
+    showOperationError(error, { type: "start" }, "generation");
+  } finally {
+    confirmActionButton.disabled = false;
+    cancelActionButton.disabled = false;
   }
 }
 
@@ -619,6 +717,10 @@ async function retryOperation() {
     }
     if (recovery?.type === "clear") {
       await clearConversation();
+      return;
+    }
+    if (recovery?.type === "mode") {
+      await updateMode(recovery.mode);
       return;
     }
     if (recovery?.type === "start") {
@@ -704,6 +806,13 @@ clearButton.addEventListener("click", () => {
     .catch((error) => showOperationError(error, { type: "clear" }, "generation"));
 });
 stopResponseButton.addEventListener("click", () => void stopSubmission());
+modeInputs.forEach((input) => {
+  input.addEventListener("change", () => {
+    if (input.checked) void updateMode(input.value);
+  });
+});
+confirmActionButton.addEventListener("click", () => void resolveAction(true));
+cancelActionButton.addEventListener("click", () => void resolveAction(false));
 retryOperationButton.addEventListener("click", () => void retryOperation());
 openSettingsButton.addEventListener("click", showSettings);
 closeSettingsButton.addEventListener("click", showChat);
@@ -721,6 +830,18 @@ closeContextButton.addEventListener("click", hideContext);
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && contextViewerOpen) hideContext();
+  if (event.key === "Escape" && actionModalOpen) void resolveAction(false);
+  if (event.key === "Tab" && actionModalOpen) {
+    const buttons = [cancelActionButton, confirmActionButton]
+      .filter((button) => !button.hidden && !button.disabled);
+    if (!buttons.length) return;
+    const index = buttons.indexOf(document.activeElement);
+    const next = event.shiftKey
+      ? (index <= 0 ? buttons.length - 1 : index - 1)
+      : (index < 0 || index === buttons.length - 1 ? 0 : index + 1);
+    event.preventDefault();
+    buttons[next].focus({ preventScroll: true });
+  }
 });
 
 appClient.subscribe((event) => {

@@ -69,6 +69,82 @@ test("model handler streams deltas and treats page context as untrusted data", a
   ]);
 });
 
+test("Act mode exposes fixed tools and returns one typed tool call", async () => {
+  const harness = createHarness({
+    async streamResponse(options) {
+      harness.calls.push(["streamResponse", options]);
+      return {
+        text: "",
+        toolCalls: [{
+          type: "function_call",
+          callId: "call-1",
+          name: "page_click",
+          arguments: '{"ref":"e3"}',
+        }],
+      };
+    },
+  });
+
+  await harness.handle({
+    id: "act",
+    method: "model.stream",
+    params: {
+      model: "model-1",
+      history: [],
+      prompt: "Open pricing",
+      pageContext: "{}",
+      mode: "act",
+      actionHistory: [],
+    },
+  });
+
+  const options = harness.calls[0][1];
+  assert.equal(options.parallelToolCalls, false);
+  assert.equal(options.tools.some((tool) => tool.name === "page_click"), true);
+  assert.match(options.instructions, /Act only when the user's own request/);
+  assert.deepEqual(harness.sent.at(-1), {
+    id: "act",
+    ok: true,
+    result: {
+      completed: false,
+      toolCall: {
+        type: "function_call",
+        callId: "call-1",
+        name: "page_click",
+        arguments: '{"ref":"e3"}',
+      },
+    },
+  });
+});
+
+test("continuations use typed function items while Ask mode exposes no tools", async () => {
+  const harness = createHarness();
+  await harness.handle({
+    id: "ask",
+    method: "model.stream",
+    params: {
+      model: "model-1",
+      history: [],
+      prompt: "Summarize",
+      pageContext: "{}",
+      mode: "ask",
+      actionHistory: ["Opened Pricing"],
+      continuation: {
+        callId: "call-1",
+        name: "page_click",
+        arguments: '{"ref":"e3"}',
+        output: '{"ok":true}',
+      },
+    },
+  });
+
+  const options = harness.calls[0][1];
+  assert.equal(options.tools, undefined);
+  assert.match(options.instructions, /do not have page-action tools/i);
+  assert.equal(options.input.some((item) => item.type === "function_call" && item.callId === "call-1"), true);
+  assert.equal(options.input.some((item) => item.type === "function_call_output" && item.output === '{"ok":true}'), true);
+});
+
 test("model cancellation aborts the active request without exposing input", async () => {
   let started;
   const didStart = new Promise((resolve) => { started = resolve; });

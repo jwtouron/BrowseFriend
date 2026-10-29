@@ -4,7 +4,7 @@ import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sourceRoots = ["extension", "native-host", "scripts", "tests"];
+const sourceRoots = ["extension", "native-host", "scripts", "shared", "tests"];
 const supportedExtensions = new Set([".js", ".mjs"]);
 
 async function collectSourceFiles(directory) {

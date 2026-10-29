@@ -5,9 +5,8 @@ current implementation unless a task explicitly promotes them into scope.
 
 ## Page interaction
 
-- [ ] Add a separate **Act mode** with allowlisted actions, stale-target validation, previews, and
-  explicit confirmation for submissions, purchases, messages, account changes, and destructive
-  operations.
+- [ ] Add model-prompt file attachments with explicit previews, size/type limits, privacy controls,
+  multimodal transport support, and no implicit reuse of files selected for web forms.
 - [ ] Add same-origin and permitted cross-origin iframe context with clear frame attribution.
 - [ ] Evaluate an optional computed-accessibility-tree provider through Chrome DevTools Protocol;
   account for the `debugger` warning, attachment lifecycle, performance, and API stability.
@@ -29,7 +28,7 @@ current implementation unless a task explicitly promotes them into scope.
 - [ ] Replace the single global transcript with persistent local chat history and explicit controls
   for creating, selecting, reopening, and deleting chats across the global side-panel experience.
 - [ ] Add an **Instructions** Settings section before Debug. Keep additive instructions normally
-  editable; show the base `MODEL_INSTRUCTIONS` text disabled until an **Edit** action presents and
+  editable; show the base `BASE_MODEL_INSTRUCTIONS` text disabled until an **Edit** action presents and
   confirms a safety warning. Include **Reset to default**, persist both values in
   `chrome.storage.local`, synchronize panels, and keep consequential-action and page-data safety
   controls enforced in code rather than relying on editable instructions.
@@ -37,7 +36,7 @@ current implementation unless a task explicitly promotes them into scope.
   controls while preserving its non-color accessible status.
 - [ ] Add reasoning-effort selection when the pinned DevKit exposes the parameter and each model's
   supported effort values.
-- [ ] Add model-directed context expansion when the supported DevKit exposes tool calling.
+- [ ] Add model-directed context expansion through the typed tool channel.
 
 ## Distribution and authentication
 

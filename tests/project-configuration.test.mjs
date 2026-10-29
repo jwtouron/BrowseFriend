@@ -75,6 +75,16 @@ test("pinned DevKit response requests disable server-side conversation state", a
   assert.doesNotMatch(source, /previous_response_id|conversation:/);
 });
 
+test("DevKit tool support remains a reproducible downstream patch", async () => {
+  const setup = await readFile(new URL("../scripts/setup-devkit.mjs", import.meta.url), "utf8");
+  const patch = await readFile(new URL("../patches/devkit-function-tools.patch", import.meta.url), "utf8");
+
+  assert.match(setup, /devkit-function-tools\.patch/);
+  assert.match(setup, /apply.*--reverse/s);
+  assert.match(patch, /response\.output_item\.done/);
+  assert.match(patch, /parallel_tool_calls/);
+});
+
 test("native host paths follow Chrome's user-specific platform conventions", () => {
   assert.equal(
     appDataDirectory("darwin", {}, "/Users/tester"),

@@ -199,9 +199,9 @@ test("Appearance offers seven accent swatches with Blue selected by default", as
     "orange",
     "yellow",
     "green",
+    "cyan",
     "blue",
     "purple",
-    "cyan",
   ]);
   assert.match(html, /<html lang="en" data-accent="blue">/);
   assert.match(html, /name="accent-color" value="blue" checked/);

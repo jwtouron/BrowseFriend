@@ -32,7 +32,7 @@ current implementation unless a task explicitly promotes them into scope.
   Define durable storage, migration, and deletion rules for model-specific compacted context without
   persisting page snapshots or obsolete action records.
 - [ ] Add an **Instructions** Settings section before Debug. Keep additive instructions normally
-  editable; show the base `BASE_MODEL_INSTRUCTIONS` text disabled until an **Edit** action presents and
+  editable; show the base `baseInstructions` text from the shared contract disabled until an **Edit** action presents and
   confirms a safety warning. Include **Reset to default**, persist both values in
   `chrome.storage.local`, synchronize panels, and keep consequential-action and page-data safety
   controls enforced in code rather than relying on editable instructions.
@@ -42,22 +42,12 @@ current implementation unless a task explicitly promotes them into scope.
 
 ## Distribution and authentication
 
-- [x] Build an opt-in Go companion prototype using the documented direct OAuth/Responses flow,
-  with isolated encrypted sign-in, shared protocol checks, race tests, and macOS/Linux cross-builds.
-- [ ] Complete the [Go prototype browser trial](GO_PROTOTYPE.md), including real OAuth, persisted
-  login, inference/tools, cancellation, and locked/denied credential stores on macOS and Linux.
-- [ ] After evaluation, decide whether Go should become the default, design credential migration
-  and account selection, and remove redundant Node/DevKit runtime code and downstream patches.
-
-- [ ] Finish evaluating replacement of the pinned DevKit and downstream tool patch with a direct implementation
-  of OpenAI's documented local/open-source OAuth and Responses API flow. Preserve ID-token
-  validation, refresh serialization, OS-backed credential protection, account lifecycle, typed
-  tools, streaming, cancellation, error recovery, and the extension credential boundary.
-- [ ] Compare packaging the Go prototype with `deno compile` and Node single-executable packaging.
-  Prefer a language-neutral source for
-  shared tool schemas and require behavioral parity across Native Messaging, OAuth callbacks,
-  model discovery, tool calls, streaming, cancellation, file locking, and platform credential-store
-  commands. Compare macOS and Linux builds on x64 and ARM64, binary size, startup, and maintenance.
-  Packaging must still provide host registration, installers, and macOS signing and notarization
-  without requiring users to install a language runtime.
+- [x] Replace the Node/SDK native runtime with the standalone Go companion and public OAuth/Responses flow.
+- [ ] When adding CI, execute the produced companion binaries on **macOS ARM64, macOS x64,
+  Linux ARM64, and Linux x64**. Include protocol/framing, standalone install/uninstall, OAuth and
+  model transport against simulated providers, OS credential-store integration, and race tests.
+  Cross-compilation alone is not validation; distinguish native from emulated execution.
+- [ ] Add signed/notarized macOS and Linux installers and verify credential-store access after upgrades.
+  Users must not need to install a language runtime.
+- [ ] Add explicit account-selection support if multiple registrations become necessary.
 - [ ] Re-evaluate the native-companion requirement if OpenAI supports a secure pure-extension flow.

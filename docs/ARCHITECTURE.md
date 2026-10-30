@@ -1,6 +1,6 @@
 # Architecture
 
-BrowseFriend is a local-first Chrome Manifest V3 side-panel extension backed by a native Node.js
+BrowseFriend is a local-first Chrome Manifest V3 side-panel extension backed by a native Go
 companion. The extension owns presentation, page reading, and transient chat state. The companion
 owns credentials, OpenAI authentication, model discovery, and model requests.
 
@@ -16,10 +16,7 @@ flowchart LR
   Actor <--> Page
   App <--> Bridge[Native Messaging bridge]
   Bridge <--> Host[Local native companion]
-  Host --> DevKit[OpenAI local DevKit]
-  DevKit <--> OpenAI[OpenAI authentication and Responses API]
-  Host --> Go[Opt-in Go companion]
-  Go <--> OpenAI
+  Host <--> OpenAI[OpenAI authentication and Responses API]
 ```
 
 The side panel sends user intents and renders state owned by the service worker's application
@@ -40,39 +37,29 @@ tool loop, and recapture between steps; it never receives arbitrary selectors or
 
 Chrome connects the service worker to `com.browsefriend.native_host` through Native Messaging. The
 companion validates its small request allowlist and keeps authentication and model handlers separate.
-The default Node implementation delegates OAuth, token refresh, account selection, model discovery,
-Responses streaming, and
-transcript compaction to the pinned DevKit. Setup applies tracked downstream patches while building
-so the otherwise text-focused DevKit can carry typed function calls, results, model-supported
-reasoning effort, and canonical compaction output without exposing OAuth credentials.
+The companion implements the documented OAuth, discovery, token renewal, Responses streaming, and compaction protocols directly. ID tokens are verified with `coreos/go-oidc` and `go-jose`; HTTP and cryptography use Go’s standard library.
 
 ## Main flows
 
-### Go companion prototype
+### Native companion
 
-The optional Go binary implements the same eight auth/model messages and events as the Node host.
-Its packages separate Native Messaging, auth/identity verification, encrypted storage, and HTTP/SSE
-model transport. Node remains the default; the installer selects Go only with `--runtime=go` and
-registers the copied executable directly, without a Node launcher.
+The standalone Go executable implements the same eight auth/model messages and events as the
+extension's Native Messaging bridge expects. Its code separates framing, request state, OAuth,
+encrypted storage, model HTTP/SSE transport, and installation. The installer copies and atomically
+registers the executable; the installed process needs no source checkout or language runtime.
 
-Go implements the public [local-app OAuth flow](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)
-with `coreos/go-oidc` and `go-jose` for verified identity, and standard-library HTTP for model requests.
-It calls no DevKit runtime code. The Node source remains the authoritative policy/tool definition:
-the build script generates JSON containing tools, instructions, efforts, and limits and embeds it
-into Go. The compiled binary needs no source checkout or Node runtime. The vendored sign-in assets
-and Node comparison implementation remain in the repository.
+`shared/host-contract.json` is the canonical policy/tool/limits/registration definition. Go embeds it
+directly; `go generate ./shared` produces the committed browser module. Verification rejects drift.
+The browser still owns semantic page capture and action authorization; Go only transports model
+tool requests back through that established boundary.
 
-Prototype accounts live under a separate `go-prototype` application-data directory with a dedicated
-OS keyring entry. A single selected registration and stable host ID are encrypted with AES-256-GCM.
-Atomic writes and an interprocess lock protect rotation; pending successor credentials are saved
-before identity verification and remain unusable during a signing-key outage. Cancellation preserves
-in-flight refresh persistence. Logout clears tokens and retains registration details. Existing Node
-accounts are never imported. The prototype has its own versioned format and no legacy migration.
+A selected registration, stable host ID, credentials, and pending refresh state are encrypted with
+AES-256-GCM. Atomic writes and an interprocess lock protect rotation. Successor credentials are
+checkpointed before identity verification and remain unusable during a signing-key outage.
+Cancellation preserves in-flight refresh persistence. Logout removes tokens and retains registration.
+There is no version-migration framework or legacy account fallback.
 
-Both implementations execute shared behavioral contract scenarios; Go additionally tests real OAuth,
-storage, and HTTP/SSE against a local simulated provider with synthetic keys. Its test executable
-injects a fake client into the production handlers; the production executable has no test endpoint,
-credential, or key overrides. See [Go prototype evaluation](GO_PROTOTYPE.md).
+See [Native companion](NATIVE_HOST.md) for commands, storage names, and the verification record.
 
 ### Authentication
 
@@ -80,7 +67,7 @@ Opening the panel immediately shows chat and starts a single background readines
 controller launches the companion, reads saved authentication, refreshes credentials when needed,
 and discovers available models. If user action is required, the panel presents **Continue with
 ChatGPT** without discarding a draft or queued prompt. The companion temporarily listens on a random
-`127.0.0.1` port for the OAuth callback. The DevKit validates the result and persists encrypted
+`127.0.0.1` port for the OAuth callback. The companion validates the result and persists encrypted
 credentials; only sanitized account state returns to the extension.
 
 ### Ask mode
@@ -120,8 +107,8 @@ tool call, the task is complete even when that text reports ambiguity or another
 
 ### Model context and instructions
 
-The shared Responses API instruction string is `BASE_MODEL_INSTRUCTIONS` in
-`native-host/model/handler.mjs`. It defines the untrusted-page boundary; Ask adds a read-only guard,
+The shared Responses API instruction string is `baseInstructions` in
+`shared/host-contract.json`. It defines the untrusted-page boundary; Ask adds a read-only guard,
 while Act adds tool policy. Each request contains eligible transcript pairs, current-page context,
 the original prompt, and any compact current-run action continuation. Earlier page snapshots are not
 copied into transcript history.
@@ -143,7 +130,7 @@ does not duplicate those judgments. It retains deterministic responsibility for 
 authorization, confirmations, sensitive-data rules, stale-target checks, resource limits, and state
 transitions because those boundaries must hold even when model judgment is wrong.
 
-The pinned DevKit sends each generation with `store: false` and without a `conversation` or
+The companion sends each generation with `store: false` and without a `conversation` or
 `previous_response_id`; compaction is a separate stateless request whose output is supplied directly
 to later generations. Sign in with ChatGPT plan access does not grant BrowseFriend access to the
 user's ChatGPT conversations or memory; the model receives only the context BrowseFriend supplies.

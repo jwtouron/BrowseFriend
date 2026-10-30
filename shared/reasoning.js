@@ -1,12 +1,6 @@
-export const REASONING_EFFORT_ORDER = Object.freeze([
-  "max",
-  "xhigh",
-  "high",
-  "medium",
-  "low",
-  "minimal",
-  "none",
-]);
+import { HOST_CONTRACT } from "./host-contract.js";
+
+export const REASONING_EFFORT_ORDER = Object.freeze(HOST_CONTRACT.efforts);
 
 export const REASONING_EFFORTS = new Set(REASONING_EFFORT_ORDER);
 export const REASONING_EFFORT_LABELS = Object.freeze({

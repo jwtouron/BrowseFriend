@@ -3,65 +3,14 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { createAuthHandler } from "../../native-host/auth/handler.mjs";
-import { createModelHandler, BASE_MODEL_INSTRUCTIONS, MODEL_LIMITS } from "../../native-host/model/handler.mjs";
-import { createMessageDecoder, encodeMessage } from "../../native-host/messaging/protocol.mjs";
+import { HOST_CONTRACT } from "../../shared/host-contract.js";
+import { createMessageDecoder, encodeMessage } from "../helpers/native-protocol.mjs";
 import { PAGE_TOOL_SCHEMAS } from "../../shared/page-tools.js";
 
 const valid = { model: "model-1", history: [], prompt: "Question", pageContext: "{}" };
 
-function nodeDriver(mode = "") {
-  const events = [];
-  const send = (event) => events.push(event);
-  const client = {
-    async getSession() { return { status: mode === "plan-disabled" ? "connected" : "disconnected", sharing: false }; },
-    async signIn(options) { send({ event: "test.signIn", reconsent: options.reconsent }); return { status: "connected", sharing: true }; },
-    cancelSignIn() {},
-    async disconnect() {
-      if (mode === "revocation-failure") throw { code: "revocation_failed", message: "Revocation failed.", retryable: true };
-    },
-    async listModels() {
-      return [{ slug: "model-1", displayName: "Model One", defaultReasoningEffort: "medium", supportedReasoningEfforts: ["low", "medium"] }];
-    },
-    async streamResponse(options) {
-      const { signal, onDelta, ...safe } = options;
-      delete safe.parallelToolCalls;
-      send({ event: "test.options", options: safe });
-      if (options.model === "wait") {
-        await new Promise((resolve, reject) => signal.addEventListener("abort", () => reject({
-          code: "cancelled", message: "The request was cancelled.", retryable: false,
-        }), { once: true }));
-      }
-      if (options.model === "tool") return { toolCalls: [{
-        type: "function_call", callId: "call-1", name: "page_click", arguments: '{"ref":"e1"}',
-      }] };
-      if (options.model === "multi") return { toolCalls: [1, 2].map(() => ({
-        type: "function_call", callId: "call-1", name: "page_click", arguments: "{}",
-      })) };
-      if (options.model === "invalid") return { toolCalls: [{
-        type: "function_call", callId: "call-1", name: "execute_script", arguments: "{}",
-      }] };
-      onDelta("Hello ");
-      onDelta("world");
-      return {};
-    },
-    async compactResponse({ signal, ...options }) {
-      send({ event: "test.options", options });
-      return { compactedContext: '[{"encrypted_content":"opaque","type":"compaction"}]' };
-    },
-  };
-  const serializeError = (e) => ({ code: e.code, message: e.message, retryable: e.retryable === true });
-  const auth = createAuthHandler({ chatgpt: client, send, serializeError, isRevocationFailure: (e) => e.code === "revocation_failed" });
-  const model = createModelHandler({ chatgpt: client, send, serializeError });
-  return {
-    events,
-    send(request) { void (request.method.startsWith("auth.") ? auth(request) : model(request)); },
-    close() {},
-  };
-}
-
 function goDriver(t, mode = "") {
-  const child = spawn(fileURLToPath(new URL("../../build/browsefriend-go-test-host", import.meta.url)), [mode], {
+  const child = spawn(fileURLToPath(new URL("../../build/browsefriend-test-host", import.meta.url)), [mode], {
     stdio: ["pipe", "pipe", "pipe"],
   });
   const events = [];
@@ -84,9 +33,9 @@ async function waitFor(predicate, label) {
 }
 const response = (driver, id) => waitFor(() => driver.events.find((event) => event.id === id), id);
 
-for (const runtime of ["node", "go"]) {
+for (const runtime of ["native host"]) {
   test(runtime + ": native auth and model contracts", async (t) => {
-    const driver = runtime === "node" ? nodeDriver() : goDriver(t);
+    const driver = goDriver(t);
     const requests = [
       { id: "status", method: "auth.status" },
       { id: "login", method: "auth.signIn" },
@@ -126,7 +75,7 @@ for (const runtime of ["node", "go"]) {
   });
 
   test(runtime + ": validation, compacted context, and typed continuations", async (t) => {
-    const driver = runtime === "node" ? nodeDriver() : goDriver(t);
+    const driver = goDriver(t);
     const compactedContext = '[{"type":"compaction","encrypted_content":"opaque"}]';
     const params = {
       ...valid, compactedContext, history: [{ role: "assistant", content: "Earlier" }],
@@ -163,7 +112,7 @@ for (const runtime of ["node", "go"]) {
 
   for (const mode of ["plan-disabled", "revocation-failure"]) {
     test(runtime + ": " + mode, async (t) => {
-      const driver = runtime === "node" ? nodeDriver(mode) : goDriver(t, mode);
+      const driver = goDriver(t, mode);
       if (mode === "plan-disabled") {
         driver.send({ id: "login", method: "auth.signIn" });
         assert.equal((await response(driver, "login")).result.state, "signed_in");
@@ -180,15 +129,15 @@ for (const runtime of ["node", "go"]) {
   }
 }
 
-test("Go embeds the same tools, instructions, and limits as the Node host", async () => {
-  const contract = JSON.parse(await readFile(new URL("../../native-host/go/internal/companion/contract.json", import.meta.url), "utf8"));
+test("native companion and extension share tools, instructions, and limits", async () => {
+  const contract = JSON.parse(await readFile(new URL("../../shared/host-contract.json", import.meta.url), "utf8"));
   assert.deepEqual(contract.tools, PAGE_TOOL_SCHEMAS);
-  assert.deepEqual(contract.limits, MODEL_LIMITS);
-  assert.equal(contract.baseInstructions, BASE_MODEL_INSTRUCTIONS);
+  assert.deepEqual(contract.limits, HOST_CONTRACT.limits);
+  assert.equal(contract.baseInstructions, HOST_CONTRACT.baseInstructions);
 });
 
 test("production Go binary handles fragmented frames and recovers from malformed JSON", async (t) => {
-  const child = spawn(fileURLToPath(new URL("../../build/browsefriend-native-host-go", import.meta.url)), [], {
+  const child = spawn(fileURLToPath(new URL("../../build/browsefriend-native-host", import.meta.url)), [], {
     stdio: ["pipe", "pipe", "pipe"],
   });
   const events = [];

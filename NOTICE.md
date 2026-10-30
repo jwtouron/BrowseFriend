@@ -1,29 +1,18 @@
 # Third-Party Notice
 
-The optional Go prototype uses `github.com/coreos/go-oidc/v3` v3.21.0 and
-`github.com/go-jose/go-jose/v4` v4.1.4 (Apache-2.0), and
-`golang.org/x/oauth2` v0.36.0 plus the Go standard library (BSD-style licenses).
-The build writes their complete LICENSE/NOTICE texts to
-`build/GO-THIRD-PARTY-NOTICES.txt`; include that file when sharing Go binaries.
-Go implements the documented public protocol; the retained DevKit and branded sign-in assets
-continue to carry the following notices.
+The Go native companion links to:
 
-BrowseFriend links to the OpenAI Sign in with ChatGPT DevKit pinned at
-`vendor/sign-in-with-chatgpt-devkit`.
+- `github.com/coreos/go-oidc/v3` v3.21.0 and `github.com/go-jose/go-jose/v4` v4.1.4 (Apache-2.0).
+- `golang.org/x/oauth2` v0.36.0 and the Go standard library (BSD-style licenses).
 
-OpenAI-authored DevKit code and documentation are licensed under the **Sign in
-with ChatGPT DevKit Noncommercial License v1.0**. The complete license,
-third-party dependency inventory, font licenses, and applicable notices are
-preserved inside that submodule.
+The Go build writes complete linked-module LICENSE/NOTICE texts to
+`build/THIRD-PARTY-NOTICES.txt`. Include this file when sharing binaries.
 
-BrowseFriend keeps the pinned source tree unchanged and applies
-`patches/devkit-function-tools.patch` and `patches/devkit-compaction.patch` only while building the
-local package. Those downstream patches add the typed function-call transport used by Act mode,
-model-supported reasoning-effort selection, and stateless Responses API transcript compaction. They
-remain subject to the same DevKit license and notice requirements.
+The ChatGPT sign-in SVG in `extension/auth/assets/` was retained unchanged from OpenAI's
+Sign in with ChatGPT DevKit, commit `0a36fef`. Its accompanying original license is preserved as
+`OPENAI-LICENSE.txt`. OpenAI marks remain subject to the
+[OpenAI brand guidelines](https://openai.com/brand/); the code license does not grant trademark rights
+or permission to imply endorsement. The SDK runtime and its build patches have been removed.
 
-The DevKit license permits personal learning, experimentation, and other
-noncommercial development. It does not grant commercial-use rights or rights to
-OpenAI trademarks and branded assets beyond their separately authorized use.
-Review the pinned license and OpenAI's current Sign in with ChatGPT terms before
-redistributing BrowseFriend or changing its intended use.
+BrowseFriend implements OpenAI's documented public OAuth and Responses protocol directly. Removing
+a runtime dependency does not expand rights to copied assets or change the service's terms.

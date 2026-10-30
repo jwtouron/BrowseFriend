@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createMessageDecoder, encodeMessage } from "../../native-host/messaging/protocol.mjs";
+import { createMessageDecoder, encodeMessage } from "../helpers/native-protocol.mjs";
 
 test("native protocol decodes messages split across chunks", () => {
   const messages = [];

@@ -1,16 +1,10 @@
 # Known Limitations
 
-BrowseFriend currently requires a separately installed native companion. The default companion
-requires Node.js. Distribution still needs platform installers and signing; users should not need
-to install a language runtime themselves.
-
-The opt-in [Go prototype](GO_PROTOTYPE.md) removes the Node/DevKit runtime requirement for the
-companion. Automated protocol parity, simulated OAuth/HTTP tests, and four cross-builds pass, but
-live OpenAI sign-in/inference and actual Linux keyring behavior still require evaluation. Go retains
-only one selected registration; existing Node accounts are deliberately separate. It supports the
-current text/tools/compaction feature set, with no new attachment UI or multimodal transport.
-Builds remain unsigned development artifacts; installers, account migration, and making Go the
-default remain deferred.
+BrowseFriend requires a separately installed Go native companion. Its standalone binary needs
+neither Node nor Go installed. Development still uses both toolchains for builds and tests.
+The user reports successful use in Chrome on macOS ARM64. The companion supports one selected
+registration. Signed/notarized installers, Windows support, account selection, and CI remain deferred.
+See [Native companion](NATIVE_HOST.md) for the platform verification record.
 
 Chrome communicates with the companion through Native Messaging over standard input/output; the
 companion is not a permanent localhost service. **Continue with ChatGPT** temporarily opens a
@@ -24,15 +18,8 @@ random loopback listener only while completing the hosted OAuth callback.
 - Page context is derived from the rendered DOM and ARIA markup, not Chrome's computed
   accessibility tree. Canvas pixels, image-only content, closed shadow roots, CSS-only changes,
   and some custom controls may be missing or incomplete.
-- The pinned DevKit does not natively expose function tools, reasoning effort, or transcript
-  compaction through its local wrapper. `npm run setup:devkit` temporarily applies
-  `patches/devkit-function-tools.patch` and `patches/devkit-compaction.patch` to add BrowseFriend's
-  narrow typed page-tool transport, retain model-supported reasoning levels, forward the chosen
-  effort, and call `/responses/compact`. On the default Node host, Act mode, reasoning selection,
-  and long-chat compaction therefore depend on maintaining and retesting these downstream patches
-  whenever the DevKit is updated. The Go prototype implements these operations directly.
 - BrowseFriend cannot send screenshots, page images, or user-selected files to the model. The
-  downstream tool patch does not add multimodal input.
+  current model transport supports text and typed tools; multimodal input remains future work.
 - Required site access produces Chrome's broad read/change warning even though Ask mode does not
   intentionally modify pages.
 
@@ -75,5 +62,4 @@ random loopback listener only while completing the hosted OAuth callback.
 - Responses are based on a captured page revision. BrowseFriend reports when the page changes but
   does not restart an answer automatically.
 
-Revisit these constraints when the DevKit adds multimodal input and native tool support, OpenAI
-supports a pure-extension authentication flow, or packaged companion installers become available.
+Revisit these constraints when multimodal transport, a supported pure-extension authentication flow, or packaged installers become available.

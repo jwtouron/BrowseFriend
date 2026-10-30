@@ -1,5 +1,4 @@
 node_modules/
 *.log
 .DS_Store
-build/
-native-host/go/internal/companion/contract.json
+/build/

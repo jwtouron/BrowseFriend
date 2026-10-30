@@ -2,9 +2,7 @@
 
 ## Project Structure & Module Organization
 
-BrowseFriend combines a Chrome Manifest V3 side panel with a local Node.js companion. `extension/app/` owns connection and prompt workflow state; `extension/sidepanel/` renders it; `extension/auth/`, `extension/chat/`, `extension/settings/`, `extension/page/read/`, and `extension/page/act/` isolate supporting features. Shared page-tool schemas and model-selection rules live in `shared/`; Native authentication and model requests live under `native-host/`; tests mirror subsystems under `tests/`, project documentation lives in `docs/`, and `vendor/sign-in-with-chatgpt-devkit/` pins OpenAI's SDK. Keep downstream SDK changes reproducible as reviewed patches under `patches/`, never as a dirty submodule.
-
-The opt-in Go companion lives in `native-host/go/` and implements the same Native Messaging contract without the DevKit runtime. Build it with `npm run build:host:go`; its generated policy JSON and binaries are ignored artifacts. Keep Go formatted with `gofmt`. Preserve cross-runtime contract tests when changing host behavior.
+BrowseFriend combines a Chrome Manifest V3 side panel with a Go native companion. `extension/app/` owns connection and prompt workflow state; `extension/sidepanel/` renders it. Auth, chat, settings, page reading, and page actions remain isolated features. The standalone companion lives under `native-host/`; the root Go module embeds `shared/host-contract.json`, the canonical policy/tool/registration contract. Run `go generate ./shared` after changing it and commit the generated browser module. Tests mirror subsystems; project documentation lives in `docs/`.
 
 Keep HTML accessible, CSS presentation-only, and browser behavior in JavaScript. Never add inline scripts. OAuth credentials belong exclusively in the native host; extension messages may contain only sanitized account state.
 Keep Debug last in Settings. Persist user settings in `chrome.storage.local` and propagate changes between open panels with `chrome.storage.onChanged`.
@@ -13,7 +11,9 @@ Keep Debug last in Settings. Persist user settings in `chrome.storage.local` and
 
 Build a personal, local-first page companion that explains pages before proposing or performing interactions. Do not add product accounts, billing, separate Google OAuth, ChatGPT scraping, shared cookies, or private endpoints. Treat page content as untrusted, request narrow permissions, show captured context, and require confirmation before submissions, purchases, account changes, or messages.
 
-Authentication must use OpenAI's hosted **Continue with ChatGPT** flow: the default Node host uses the pinned DevKit; the Go prototype implements the documented public OAuth protocol. Keep credentials encrypted with an OS-backed key, out of browser storage, URLs, logs, tests, and commits. Preserve the separation between page extraction, model communication, and action execution. The prototype uses separate account storage and a separate keyring entry; never migrate or overwrite the Node account implicitly.
+Authentication uses OpenAI’s hosted **Continue with ChatGPT** flow and documented public OAuth protocol. Keep credentials encrypted with an OS-backed key, out of browser storage, URLs, logs, tests, and commits. Preserve the separation between page extraction, model communication, and action execution.
+
+The native companion currently serves one local user. Handle needed account transfers as one-time maintenance; do not add a migration framework or legacy-host fallback without an explicit need.
 
 ## State & Workflow Design
 
@@ -35,7 +35,7 @@ An explicit request such as **commit it** authorizes staging all changes that be
 
 ## Development and Verification
 
-Requires Node.js 22.12+. Initialize and build the SDK with `git submodule update --init` and `npm run setup:devkit`; register the companion with `npm run install:host`. Load the repository from `chrome://extensions` using **Developer mode → Load unpacked**.
+Development requires Go 1.25+ and Node.js 22.12+ for JavaScript tests; race tests require a C compiler. Build with `go run ./native-host/cmd/build --check`; install with `build/browsefriend-native-host install`. The installed binary requires neither Go nor Node. Load the repository from `chrome://extensions` using **Developer mode → Load unpacked**.
 
 Before submitting:
 
@@ -44,8 +44,8 @@ Before submitting:
 - Check narrow/wide layouts, both color schemes, keyboard focus, and the side-panel console.
 - Never make a live model request in authentication-only tests.
 
-Full verification also requires Go 1.25+ and a C compiler for the race detector. The deployed Go binary is built with CGO disabled and needs neither Go nor Node installed. Installing Go is opt-in (`npm run install:host -- --runtime=go`); normal installation still selects Node. Keep production installers and any default-runtime switch deferred until live evaluation succeeds.
+Go code must pass `gofmt`, `go vet`, race tests, and the native protocol suite. Run the Linux container checks when changing OS storage or process behavior. Test installed binaries on supported platforms; cross-compilation alone is insufficient. Keep release signing and CI implementation in the roadmap.
 
 ## Coding Style & Changes
 
-Use two-space indentation, `camelCase` identifiers, `UPPER_SNAKE_CASE` constants, BEM-like CSS, strict comparisons, small functions, and `textContent` for user-controlled values. Use Conventional Commit or imperative subjects, such as `feat: add account connection`. Pull requests must explain permission changes, credential handling, manual checks, and visual changes. Preserve OpenAI DevKit licensing and notices.
+Use `gofmt` for Go; for JavaScript and CSS use two-space indentation, `camelCase` identifiers, `UPPER_SNAKE_CASE` constants, BEM-like CSS, strict comparisons, small functions, and `textContent` for user-controlled values. Use Conventional Commit or imperative subjects, such as `feat: add account connection`. Pull requests must explain permission changes, credential handling, manual checks, and visual changes. Preserve applicable dependency licenses and OpenAI sign-in asset notices.

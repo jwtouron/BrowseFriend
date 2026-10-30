@@ -5,7 +5,7 @@ BrowseFriend is a local-first Chrome side-panel companion. It provides a support
 ## Authentication boundary
 
 The extension never receives OAuth credentials. Its service worker talks to a native-messaging host
-(Node by default, Go as an opt-in prototype) that runs OpenAI's loopback sign-in flow and returns only
+written in Go that runs OpenAI's loopback sign-in flow and returns only
 display-safe account state. Tokens are encrypted with a random key protected by macOS Keychain or
 Linux Secret Service.
 
@@ -21,39 +21,27 @@ Chrome restarts or the extension reloads.
 ## Prerequisites
 
 - Google Chrome 141 or newer on macOS or desktop Linux.
-- Node.js 22.12 or newer.
-- Go 1.25+ to build/test the prototype; a C compiler for race tests.
+- Node.js 22.12 or newer for JavaScript tests only.
+- Go 1.25+ to build/test the companion; a C compiler for race tests.
 - Linux only: Secret Service plus `secret-tool` (usually the `libsecret-tools` package).
 - A ChatGPT account eligible for Sign in with ChatGPT plan usage.
 
-The official DevKit is licensed for noncommercial use. BrowseFriend is currently a personal, noncommercial project; review [NOTICE.md](NOTICE.md) before redistributing it.
+BrowseFriend is a personal, noncommercial project. Review [NOTICE.md](NOTICE.md) for dependency and sign-in asset attribution.
 
 ## Install for development
 
 ```sh
-git submodule update --init
-npm run setup:devkit
-npm run install:host
-```
-
-If Homebrew installed versioned Node on macOS, first run:
-
-```sh
-export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
+go run ./native-host/cmd/build --check
+build/browsefriend-native-host install
 ```
 
 Then open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select this repository. The checked-in manifest key gives development builds the stable ID expected by the native host. Reload the extension after code changes.
 
-Moving the repository invalidates the installed launcher path; rerun `npm run install:host`. To unregister the companion without deleting saved account data, run `npm run uninstall:host`.
+The installer copies the standalone binary into the application-data directory and registers it with Chrome. Moving the repository does not affect the installed copy. Unregister it with `build/browsefriend-native-host uninstall`; account data is preserved.
 
 ## Use
 
-An opt-in **Go companion prototype** can replace the Node process while keeping the same extension.
-It uses a fresh, separately encrypted sign-in. Build with `npm run build:host:go`, then opt in with
-`npm run install:host -- --runtime=go` and reload the extension. Restore Node with
-`npm run install:host -- --runtime=node`. Go 1.25+ is needed to build; the resulting binary needs no
-Go, Node, or DevKit runtime. See [Go prototype evaluation](docs/GO_PROTOTYPE.md) for verification,
-storage details, limitations, and the browser trial.
+See [Native companion](docs/NATIVE_HOST.md) for standalone commands, storage locations, tests, and platform verification.
 
 Open BrowseFriend from Chrome's toolbar. The chat is usable immediately while the header indicator quietly checks the local companion, saved account, and available models. Yellow means connecting, green means ready, and red means an action or retry is required.
 
@@ -99,26 +87,22 @@ If the panel reports that the companion is unavailable, rerun `npm run install:h
 npm test              # Run authentication, bridge, UI, and security tests.
 npm run lint          # Check JavaScript syntax.
 npm run verify        # Run all local syntax, test, and manifest checks.
-npm run setup:devkit  # Install and build the pinned OpenAI local SDK.
-npm run build:host:go # Build the standalone Go prototype.
-npm run test:host:go  # Go race/vet checks and Node/Go contract parity.
+npm run build:host    # Build the standalone companion.
+npm run test:host     # Go race/vet checks and coverage.
+npm run install:host  # Development shortcut for build + installation.
 python3 -m json.tool manifest.json
 ```
 
-`setup:devkit` preserves the upstream dependency lock while replacing only the advisory-affected
-`undici` package with the compatible patched version recorded in `scripts/setup-devkit.mjs`. It also
-applies the reviewed `patches/devkit-function-tools.patch` and `patches/devkit-compaction.patch`
-while building typed tool-call, reasoning-effort, and stateless transcript-compaction support, then
-restores the pinned submodule sources.
+Go-only builds use `go run ./native-host/cmd/build --check`. Add `--cross` to build macOS/Linux ARM64/x64 artifacts. The build emits `build/THIRD-PARTY-NOTICES.txt`; include it when sharing binaries. Node is used for development tests, not for the installed companion.
 
-The extension remains plain HTML, CSS, and JavaScript with no browser-side build. Chrome code lives in `extension/`; one application controller owns readiness and prompt workflows while authentication, chat rendering, settings, page reading, and page action execution remain isolated supporting features. The companion keeps authentication and model requests separate under `native-host/`. OpenAI's pinned DevKit lives in `vendor/sign-in-with-chatgpt-devkit/`.
+The extension remains plain HTML, CSS, and JavaScript with no browser-side build. Chrome code lives in `extension/`; one application controller owns readiness and prompt workflows while authentication, chat rendering, settings, page reading, and page action execution remain isolated supporting features. The companion keeps authentication and model requests separate under `native-host/`.
 
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) explains components, data flows, storage, and trust boundaries.
 - [Known limitations](docs/KNOWN_LIMITATIONS.md) records current platform and model constraints.
 - [Roadmap](docs/TODO.md) tracks explicitly deferred work and investigations.
-- [Third-party notice](NOTICE.md) summarizes DevKit licensing and redistribution requirements.
+- [Third-party notice](NOTICE.md) summarizes dependency licenses and sign-in asset attribution.
 
 ## Product direction
 

@@ -43,11 +43,12 @@ current implementation unless a task explicitly promotes them into scope.
 ## Distribution and authentication
 
 - [x] Replace the Node/SDK native runtime with the standalone Go companion and public OAuth/Responses flow.
-- [ ] When adding CI, execute the produced companion binaries on **macOS ARM64, macOS x64,
-  Linux ARM64, Linux x64, Windows x64, and Windows ARM64**. Include protocol/framing, standalone
-  install/uninstall, OAuth and model transport against simulated providers, OS credential-store
-  integration, and race tests where supported (Go has no Windows ARM64 race detector).
-  Cross-compilation alone is not validation; distinguish native execution from Wine/emulation.
+- [x] Configure GitHub CI for **macOS ARM64, macOS x64, Linux ARM64, Linux x64, Windows x64,
+  and Windows ARM64**, with simulated providers, isolated OS credential-store integration, production
+  binary/installation checks, race tests where supported, and licensed development artifacts.
+- [ ] After the initial push, confirm all six native CI jobs pass and record their actual platform
+  results. Windows ARM64 has no Go race detector. Cross-compilation and Wine do not substitute for
+  successful native execution.
 - [ ] Run `tests/windows/verify.ps1` on native Windows for both architectures, including ACL/reparse
   enforcement and protected-key persistence; manually verify Chrome sign-in, Ask/Act, cancellation,
   restart, and logout. Wine compatibility coverage does not complete these checks.

@@ -68,6 +68,11 @@ There is no version-migration framework or legacy account fallback.
 
 See [Native companion](NATIVE_HOST.md) for commands, storage names, and the verification record.
 
+Build and distribution are separate from the installed runtime. The Go build helper creates native
+production binaries and packages them with project/dependency licenses and checksums. GitHub CI is
+configured to test six native targets in isolated credential-store environments before uploading
+development artifacts; hosted execution remains pending until the first push. See [CI](CI.md).
+
 ### Authentication
 
 Opening the panel immediately shows chat and starts a single background readiness operation. The

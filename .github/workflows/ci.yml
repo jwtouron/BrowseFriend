@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: '1.27.3'
+  NODE_VERSION: '24.22.1'
+
+jobs:
+  workflow:
+    name: Workflow and formatting
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+      - name: Validate workflow
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: Check Go formatting and whitespace
+        run: |
+          test -z "$(gofmt -l native-host shared)"
+          git diff --check
+
+  native:
+    name: Native ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    env:
+      CGO_ENABLED: ${{ matrix.goos == 'windows' && matrix.goarch == 'arm64' && '0' || '1' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+            nodearch: x64
+          - runner: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+            nodearch: arm64
+          - runner: macos-15-intel
+            goos: darwin
+            goarch: amd64
+            nodearch: x64
+          - runner: macos-15
+            goos: darwin
+            goarch: arm64
+            nodearch: arm64
+          - runner: windows-2025
+            goos: windows
+            goarch: amd64
+            nodearch: x64
+          - runner: windows-11-arm
+            goos: windows
+            goarch: arm64
+            nodearch: arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          architecture: ${{ matrix.nodearch }}
+          cache-dependency-path: go.sum
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          architecture: ${{ matrix.nodearch }}
+          package-manager-cache: false
+      - name: Assert native toolchains
+        shell: bash
+        env:
+          EXPECTED_GOOS: ${{ matrix.goos }}
+          EXPECTED_GOARCH: ${{ matrix.goarch }}
+          EXPECTED_NODEARCH: ${{ matrix.nodearch }}
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { execFileSync } from 'node:child_process';
+          assert.equal(execFileSync('go', ['env', 'GOOS'], { encoding: 'utf8' }).trim(), process.env.EXPECTED_GOOS);
+          assert.equal(execFileSync('go', ['env', 'GOARCH'], { encoding: 'utf8' }).trim(), process.env.EXPECTED_GOARCH);
+          assert.equal(process.arch, process.env.EXPECTED_NODEARCH);
+          JS
+      - name: Install Linux credential-store dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends dbus-x11 gnome-keyring libsecret-tools
+      - name: Configure Windows x64 race compiler
+        if: matrix.goos == 'windows' && matrix.goarch == 'amd64'
+        shell: pwsh
+        run: |
+          $compiler = (Get-Command gcc -ErrorAction Stop).Source
+          $target = & $compiler -dumpmachine
+          if ($LASTEXITCODE -ne 0 -or $target.Trim() -ne 'x86_64-w64-mingw32') {
+            throw 'Windows x64 race tests require a native MinGW-w64 compiler.'
+          }
+          $library = & $compiler --print-file-name libsynchronization.a
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $library.Trim())) {
+            throw 'MinGW-w64 synchronization runtime is missing.'
+          }
+          "CC=$compiler" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Verify Linux in an isolated Secret Service session
+        if: runner.os == 'Linux'
+        env:
+          BROWSEFRIEND_TEST_SECRET_SERVICE: '1'
+        run: |
+          dbus-run-session -- bash -euo pipefail -c '
+            printf "%s" "browsefriend-synthetic-fixture" | gnome-keyring-daemon --unlock --components=secrets
+            npm run verify
+          '
+      - name: Verify macOS with a disposable Keychain
+        if: runner.os == 'macOS'
+        env:
+          BROWSEFRIEND_TEST_MAC_KEYCHAIN: '1'
+        run: npm run verify
+      - name: Verify native Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tests/windows/verify.ps1
+      - name: Package tested production binary
+        shell: bash
+        run: |
+          go run ./native-host/cmd/build --check --package
+          git diff --exit-code
+      - name: Upload companion and licenses
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browsefriend-${{ matrix.goos }}-${{ matrix.goarch }}-${{ github.sha }}
+          path: build/packages/*
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error

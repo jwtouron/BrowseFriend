@@ -46,6 +46,7 @@ func buildTarget(platform, arch string) {
 		run(env, "go", "build", "-o", prefix+"-test-host.exe", "./native-host/cmd/test-host")
 		run(env, "go", "test", "-c", "-o", prefix+"-companion.test.exe", "./native-host/internal/companion")
 		run(env, "go", "test", "-c", "-o", prefix+"-command.test.exe", "./native-host/cmd/browsefriend-native-host")
+		run(env, "go", "test", "-c", "-o", prefix+"-build.test.exe", "./native-host/cmd/build")
 	}
 }
 func main() {
@@ -54,6 +55,7 @@ func main() {
 	test := flag.Bool("test", false, "run local Go tests and vet")
 	cross := flag.Bool("cross", false, "build all macOS/Linux/Windows ARM64/x64 targets and Windows tests")
 	windowsTests := flag.Bool("windows-tests", false, "cross-compile Windows ARM64/x64 binaries and tests")
+	pack := flag.Bool("package", false, "archive the local production binary with its licenses and checksum")
 	install := flag.Bool("install", false, "install the local standalone binary")
 	uninstall := flag.Bool("uninstall", false, "unregister the local standalone binary")
 	flag.Parse()
@@ -143,6 +145,14 @@ func main() {
 	}
 	if err = os.WriteFile("build/THIRD-PARTY-NOTICES.txt", []byte(notices.String()), 0644); err != nil {
 		panic(err)
+	}
+	if *pack {
+		archive, err := packageHost(root, host, runtime.GOOS, runtime.GOARCH)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		fmt.Println("Package:", archive)
 	}
 	if *install {
 		run(nil, host, "install")

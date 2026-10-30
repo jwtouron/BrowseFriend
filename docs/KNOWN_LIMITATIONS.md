@@ -6,7 +6,8 @@ The user reports successful use in Chrome on macOS ARM64. The companion supports
 registration. Windows 11 x64/ARM64 binaries and test suites are provided, with x64 compatibility
 tested through Wine on macOS. Native Windows execution, Windows ARM64 execution, Windows security
 enforcement, and manual Chrome browser checks remain pending. Wine results do not establish native
-Windows support. Signed installers, account selection, and CI remain deferred.
+Windows support. CI is configured for all six native targets, but first hosted execution remains
+pending until the initial push. Signed installers and account selection remain deferred.
 See [Native companion](NATIVE_HOST.md) for the platform verification record.
 
 Chrome communicates with the companion through Native Messaging over standard input/output; the

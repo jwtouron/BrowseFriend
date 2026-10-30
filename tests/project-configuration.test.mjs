@@ -9,7 +9,7 @@ test("project Markdown uses the root exceptions and docs directory", async () =>
   const root = new URL("../", import.meta.url);
   const markdown = (await readdir(root)).filter((p) => p.endsWith(".md")).sort();
   assert.deepEqual(markdown, ["AGENTS.md", "NOTICE.md", "README.md"]);
-  for (const name of ["ARCHITECTURE.md", "KNOWN_LIMITATIONS.md", "TODO.md", "NATIVE_HOST.md"]) {
+  for (const name of ["ARCHITECTURE.md", "KNOWN_LIMITATIONS.md", "TODO.md", "NATIVE_HOST.md", "CI.md"]) {
     await access(new URL("../docs/" + name, import.meta.url));
   }
 });

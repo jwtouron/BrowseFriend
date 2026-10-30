@@ -79,7 +79,11 @@ The build emits six macOS/Linux/Windows ARM64/x64 binaries and `build/THIRD-PART
 notices with distributed binaries. Cross-compilation does not establish platform runtime support.
 `--windows-tests` builds just the Windows target artifacts in addition to the local binaries.
 Both `--cross` and `--windows-tests` compile Windows Go tests and the protocol test drivers.
-CI must eventually execute all six target binaries, as specified in the roadmap.
+The [CI workflow](CI.md) is configured to execute all six targets natively. Its first hosted runs
+remain pending until the initial push; writing the workflow does not mark native verification complete.
+
+Add `--package` to archive the local production binary and its licenses under `build/packages/`,
+with a SHA-256 sidecar. The helper packages only its native target, even when combined with `--cross`.
 
 ## Windows verification commands
 
@@ -92,6 +96,7 @@ Native Windows execution remains pending. On each Windows architecture, run:
 This runs the full suite, including native-only ACL/reparse enforcement tests, without touching the
 real Chrome registration. Tests use temporary data directories and a dedicated HKCU test subtree.
 Manual Chrome sign-in, page interaction, restart, and logout verification is separate.
+The configured native CI jobs invoke the same suite; first hosted results are still pending.
 
 For local x64 compatibility checks on macOS/Linux, install Wine and run:
 
@@ -115,7 +120,8 @@ installer checks still run. Their success under Wine does not certify Windows se
 ## Verification record
 
 On 2026-10-29, macOS ARM64 passed the full JavaScript suite, Go race tests, vet, and short fuzz runs
-for SSE and compacted-context parsing. A production-binary protocol test runs with an empty `PATH`
+for SSE and compacted-context parsing. Disposable-Keychain integration, installed-binary checks,
+and archive contents/checksums also passed. A production-binary protocol test runs with an empty `PATH`
 to check that framing and validation require no language runtime. The installed companion read the
 existing local account as signed in after a one-time manual transfer; there is no account-transfer
 or legacy fallback code in the application.
@@ -125,7 +131,7 @@ installation, and removal of the standalone binary. macOS x64 and Linux x64 were
 but have not received runtime validation. Future CI must execute each target as described above.
 
 On 2026-10-29, Wine 11.20 Staging on macOS ARM64 executed the x64 Windows companion tests,
-the command-line tests, and all ten JavaScript host-contract/configuration checks. Coverage includes
+the command-line and packaging tests, and all ten JavaScript host-contract/configuration checks. Coverage includes
 simulated OAuth/model HTTP, encrypted persistence, DPAPI key recovery in a new process, refresh
 serialization, cancellation, registration conflicts, and busy-file handling. The installed production
 Windows executable reported signed out; dry runs, installation, and repeated uninstallation passed.

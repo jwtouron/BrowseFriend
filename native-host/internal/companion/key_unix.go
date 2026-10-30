@@ -14,13 +14,21 @@ import (
 	"strings"
 )
 
-func platformKey(_ string) KeyProvider { return osKey }
+type keyring struct{ keychain, service string }
 
-func osKey(ctx context.Context, create bool) ([]byte, error) {
+func platformKey(_ string) KeyProvider {
+	return keyring{service: "com.browsefriend.native-host.credentials"}.key
+}
+
+func (location keyring) key(ctx context.Context, create bool) ([]byte, error) {
 	var read *exec.Cmd
 	secretTool := "/usr/bin/secret-tool"
 	if runtime.GOOS == "darwin" {
-		read = exec.CommandContext(ctx, "/usr/bin/security", "find-generic-password", "-a", "local-encryption-key", "-s", "com.browsefriend.native-host.credentials", "-w")
+		args := []string{"find-generic-password", "-a", "local-encryption-key", "-s", location.service, "-w"}
+		if location.keychain != "" {
+			args = append(args, location.keychain)
+		}
+		read = exec.CommandContext(ctx, "/usr/bin/security", args...)
 	} else if runtime.GOOS == "linux" {
 		if _, err := os.Stat(secretTool); err != nil {
 			secretTool = "/usr/local/bin/secret-tool"
@@ -55,7 +63,11 @@ func osKey(ctx context.Context, create bool) ([]byte, error) {
 	encoded := base64.StdEncoding.EncodeToString(key)
 	var write *exec.Cmd
 	if runtime.GOOS == "darwin" {
-		write = exec.CommandContext(ctx, "/usr/bin/security", "add-generic-password", "-a", "local-encryption-key", "-s", "com.browsefriend.native-host.credentials", "-w", encoded)
+		args := []string{"add-generic-password", "-a", "local-encryption-key", "-s", location.service, "-w", encoded}
+		if location.keychain != "" {
+			args = append(args, location.keychain)
+		}
+		write = exec.CommandContext(ctx, "/usr/bin/security", args...)
 	} else {
 		write = exec.CommandContext(ctx, secretTool, "store", "--label=BrowseFriend credentials", "application", "browsefriend", "key", "native-host-credentials")
 		write.Stdin = strings.NewReader(encoded)

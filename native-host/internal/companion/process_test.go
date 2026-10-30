@@ -20,14 +20,53 @@ import (
 	"time"
 )
 
-func TestProductionBinaryWireWithoutLanguageRuntime(t *testing.T) {
+func productionBinary(t *testing.T) string {
+	t.Helper()
 	path := os.Getenv("BROWSEFRIEND_TEST_BINARY")
 	if path == "" {
 		t.Skip("run native build --test to exercise the compiled artifact")
 	}
+	return path
+}
+func TestProductionBinaryWireWithoutLanguageRuntime(t *testing.T) {
+	checkProductionBinary(t, productionBinary(t))
+}
+func TestInstalledProductionBinary(t *testing.T) {
+	source := productionBinary(t)
+	paths := testPaths(t)
+	t.Cleanup(func() {
+		if err := Uninstall(paths, false, io.Discard); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := Install(paths, source, false, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(paths.Data, "account.enc")
+	if err := os.WriteFile(marker, []byte("synthetic-preserved-account"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	checkProductionBinary(t, paths.Binary)
+	if err := Uninstall(paths, false, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(paths.Binary); !os.IsNotExist(err) {
+		t.Fatal("installed binary remains")
+	}
+	data, err := os.ReadFile(marker)
+	if err != nil || string(data) != "synthetic-preserved-account" {
+		t.Fatal("account data changed", err)
+	}
+}
+func checkProductionBinary(t *testing.T, path string) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path)
+	args := []string{contract.ExtensionOrigin}
+	if runtime.GOOS == "windows" {
+		args = append(args, "--parent-window=0")
+	}
+	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Env = append(os.Environ(), "PATH=")
 	input, err := cmd.StdinPipe()
 	if err != nil {

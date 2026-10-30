@@ -41,7 +41,8 @@ The installer copies the standalone binary into the application-data directory a
 
 On Windows, installation uses the current user's registry and needs no administrator access. Close
 BrowseFriend before replacing or removing a running companion. A downloaded Windows executable can
-register itself with `./browsefriend-windows-amd64.exe install` (use the ARM64 file on ARM64).
+register itself with `./browsefriend-native-host.exe install` after extracting the matching x64 or
+ARM64 archive.
 
 Windows x64 and ARM64 binaries are cross-compiled. Automated x64 compatibility tests run under Wine
 on macOS. Native Windows testing, ARM64 runtime testing, and manual Chrome browser verification
@@ -104,6 +105,17 @@ python3 -m json.tool manifest.json
 
 Go-only builds use `go run ./native-host/cmd/build --check`. Add `--cross` to build macOS/Linux/Windows ARM64/x64 artifacts and compile Windows tests. The build emits `build/THIRD-PARTY-NOTICES.txt`; include it when sharing binaries. Node is used for development tests, not for the installed companion. Native Windows verification is prepared in `tests/windows/verify.ps1`; its execution is pending.
 
+## Continuous integration and downloads
+
+GitHub Actions is configured to build and test all six native OS/architecture targets. Each passing
+target produces a companion archive with its licenses and SHA-256 checksum, retained as a workflow
+artifact for seven days. Build one locally with `go run ./native-host/cmd/build --check --package`;
+output is written to `build/packages/`. No OpenAI credentials or live model requests are used in CI.
+
+The first hosted runs remain pending until the initial push. Manual Chrome browser verification
+is separate, and downloadable builds do not yet have release signing/notarization. See
+[CI and artifact instructions](docs/CI.md) for the matrix, isolated credential-store checks, and downloads.
+
 The extension remains plain HTML, CSS, and JavaScript with no browser-side build. Chrome code lives in `extension/`; one application controller owns readiness and prompt workflows while authentication, chat rendering, settings, page reading, and page action execution remain isolated supporting features. The companion keeps authentication and model requests separate under `native-host/`.
 
 ## Documentation
@@ -111,6 +123,7 @@ The extension remains plain HTML, CSS, and JavaScript with no browser-side build
 - [Architecture](docs/ARCHITECTURE.md) explains components, data flows, storage, and trust boundaries.
 - [Known limitations](docs/KNOWN_LIMITATIONS.md) records current platform and model constraints.
 - [Roadmap](docs/TODO.md) tracks explicitly deferred work and investigations.
+- [CI and artifacts](docs/CI.md) describes native verification and downloadable development builds.
 - [Third-party notice](NOTICE.md) summarizes dependency licenses and sign-in asset attribution.
 
 ## Product direction

@@ -85,7 +85,7 @@ async function main() {
     const artifact = join(root, "build", "browsefriend-windows-amd64.exe");
     const windowsArtifact = (await run(join(wineDirectory, "winepath"), ["-w", artifact], env, { quiet: true })).trim();
     console.log("Running Windows Go tests under Wine (without the race detector).");
-    for (const suite of ["companion", "command"]) {
+    for (const suite of ["companion", "command", "build"]) {
       await run(wine, [join(root, "build", `browsefriend-windows-amd64-${suite}.test.exe`), "-test.v", "-test.timeout=3m"], { ...env, BROWSEFRIEND_TEST_BINARY: windowsArtifact });
     }
     console.log("Running JavaScript native-host contracts against Windows executables.");

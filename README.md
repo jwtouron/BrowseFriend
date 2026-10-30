@@ -6,8 +6,8 @@ BrowseFriend is a local-first Chrome side-panel companion. It provides a support
 
 The extension never receives OAuth credentials. Its service worker talks to a native-messaging host
 written in Go that runs OpenAI's loopback sign-in flow and returns only
-display-safe account state. Tokens are encrypted with a random key protected by macOS Keychain or
-Linux Secret Service.
+display-safe account state. Tokens are encrypted with a random key protected by macOS Keychain,
+Linux Secret Service, or Windows current-user DPAPI.
 
 BrowseFriend does not create product accounts, subscriptions, or billing. It does not read ChatGPT cookies, conversations, memory, or private endpoints. The official flow can use eligible ChatGPT plan usage but does not grant access to ChatGPT history or memory.
 
@@ -20,7 +20,7 @@ Chrome restarts or the extension reloads.
 
 ## Prerequisites
 
-- Google Chrome 141 or newer on macOS or desktop Linux.
+- Google Chrome 141 or newer on macOS, desktop Linux, or Windows 11 (x64/ARM64).
 - Node.js 22.12 or newer for JavaScript tests only.
 - Go 1.25+ to build/test the companion; a C compiler for race tests.
 - Linux only: Secret Service plus `secret-tool` (usually the `libsecret-tools` package).
@@ -31,13 +31,20 @@ BrowseFriend is a personal, noncommercial project. Review [NOTICE.md](NOTICE.md)
 ## Install for development
 
 ```sh
-go run ./native-host/cmd/build --check
-build/browsefriend-native-host install
+go run ./native-host/cmd/build --check --install
 ```
 
 Then open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select this repository. The checked-in manifest key gives development builds the stable ID expected by the native host. Reload the extension after code changes.
 
-The installer copies the standalone binary into the application-data directory and registers it with Chrome. Moving the repository does not affect the installed copy. Unregister it with `build/browsefriend-native-host uninstall`; account data is preserved.
+The installer copies the standalone binary into the application-data directory and registers it with Chrome. Moving the repository does not affect the installed copy. Unregister it with `go run ./native-host/cmd/build --check --uninstall`; account data is preserved.
+
+On Windows, installation uses the current user's registry and needs no administrator access. Close
+BrowseFriend before replacing or removing a running companion. A downloaded Windows executable can
+register itself with `./browsefriend-windows-amd64.exe install` (use the ARM64 file on ARM64).
+
+Windows x64 and ARM64 binaries are cross-compiled. Automated x64 compatibility tests run under Wine
+on macOS. Native Windows testing, ARM64 runtime testing, and manual Chrome browser verification
+remain pending; see the [verification record](docs/NATIVE_HOST.md#verification-record).
 
 ## Use
 
@@ -90,10 +97,11 @@ npm run verify        # Run all local syntax, test, and manifest checks.
 npm run build:host    # Build the standalone companion.
 npm run test:host     # Go race/vet checks and coverage.
 npm run install:host  # Development shortcut for build + installation.
+npm run test:windows:wine # Optional Windows x64 compatibility tests; requires Wine.
 python3 -m json.tool manifest.json
 ```
 
-Go-only builds use `go run ./native-host/cmd/build --check`. Add `--cross` to build macOS/Linux ARM64/x64 artifacts. The build emits `build/THIRD-PARTY-NOTICES.txt`; include it when sharing binaries. Node is used for development tests, not for the installed companion.
+Go-only builds use `go run ./native-host/cmd/build --check`. Add `--cross` to build macOS/Linux/Windows ARM64/x64 artifacts and compile Windows tests. The build emits `build/THIRD-PARTY-NOTICES.txt`; include it when sharing binaries. Node is used for development tests, not for the installed companion. Native Windows verification is prepared in `tests/windows/verify.ps1`; its execution is pending.
 
 The extension remains plain HTML, CSS, and JavaScript with no browser-side build. Chrome code lives in `extension/`; one application controller owns readiness and prompt workflows while authentication, chat rendering, settings, page reading, and page action execution remain isolated supporting features. The companion keeps authentication and model requests separate under `native-host/`.
 

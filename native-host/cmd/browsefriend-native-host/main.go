@@ -4,13 +4,39 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
+	"strconv"
+	"strings"
 
 	"browsefriend/native-host/internal/companion"
 	hostcontract "browsefriend/shared"
 )
 
+func nativeArguments(args []string, platform string) bool {
+	if len(args) == 0 {
+		return true
+	}
+	if args[0] != hostcontract.Contract.ExtensionOrigin {
+		return false
+	}
+	if len(args) == 1 {
+		return true
+	}
+	if platform != "windows" || len(args) != 2 || !strings.HasPrefix(args[1], "--parent-window=") {
+		return false
+	}
+	value := strings.TrimPrefix(args[1], "--parent-window=")
+	for _, digit := range value {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+	}
+	_, err := strconv.ParseUint(value, 10, 64)
+	return err == nil
+}
+
 func main() {
-	if len(os.Args) > 1 && os.Args[1] != hostcontract.Contract.ExtensionOrigin {
+	if !nativeArguments(os.Args[1:], runtime.GOOS) {
 		paths, err := companion.SystemPaths()
 		if err == nil {
 			dry := false
@@ -48,7 +74,7 @@ func main() {
 		os.Exit(1)
 	}
 	writer := &companion.Writer{Out: os.Stdout}
-	client := companion.NewConnection(&companion.Store{Directory: dir, Key: companion.OSKey}, func(s companion.Session) { _ = writer.Send(map[string]any{"event": "auth.changed", "payload": s}) })
+	client := companion.NewConnection(companion.NewStore(dir), func(s companion.Session) { _ = writer.Send(map[string]any{"event": "auth.changed", "payload": s}) })
 	handler := companion.NewHandler(client, func(v any) {
 		if writer.Send(v) != nil {
 			os.Exit(1)

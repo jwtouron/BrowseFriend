@@ -13,9 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os/exec"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -67,16 +65,6 @@ func hostID() string {
 	b[6] = (b[6] & 15) | 64
 	b[8] = (b[8] & 63) | 128
 	return fmt.Sprintf("urn:uuid:%x-%x-%x-%x-%x", b[:4], b[4:6], b[6:8], b[8:10], b[10:])
-}
-func openBrowser(ctx context.Context, u string) error {
-	command := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		command = "/usr/bin/open"
-	}
-	if exec.CommandContext(ctx, command, u).Run() != nil {
-		return failure("browser_unavailable", "The browser could not be opened. Check your default browser and try again.", false)
-	}
-	return nil
 }
 func session(a *Account) Session {
 	s := Session{State: "signed_out"}

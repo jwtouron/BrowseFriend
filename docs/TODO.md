@@ -44,10 +44,14 @@ current implementation unless a task explicitly promotes them into scope.
 
 - [x] Replace the Node/SDK native runtime with the standalone Go companion and public OAuth/Responses flow.
 - [ ] When adding CI, execute the produced companion binaries on **macOS ARM64, macOS x64,
-  Linux ARM64, and Linux x64**. Include protocol/framing, standalone install/uninstall, OAuth and
-  model transport against simulated providers, OS credential-store integration, and race tests.
-  Cross-compilation alone is not validation; distinguish native from emulated execution.
-- [ ] Add signed/notarized macOS and Linux installers and verify credential-store access after upgrades.
+  Linux ARM64, Linux x64, Windows x64, and Windows ARM64**. Include protocol/framing, standalone
+  install/uninstall, OAuth and model transport against simulated providers, OS credential-store
+  integration, and race tests where supported (Go has no Windows ARM64 race detector).
+  Cross-compilation alone is not validation; distinguish native execution from Wine/emulation.
+- [ ] Run `tests/windows/verify.ps1` on native Windows for both architectures, including ACL/reparse
+  enforcement and protected-key persistence; manually verify Chrome sign-in, Ask/Act, cancellation,
+  restart, and logout. Wine compatibility coverage does not complete these checks.
+- [ ] Add signed/notarized macOS and Linux installers, Windows signing/installers, and verify credential-store access after upgrades.
   Users must not need to install a language runtime.
 - [ ] Add explicit account-selection support if multiple registrations become necessary.
 - [ ] Re-evaluate the native-companion requirement if OpenAI supports a secure pure-extension flow.

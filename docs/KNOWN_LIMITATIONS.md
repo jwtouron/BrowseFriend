@@ -3,7 +3,10 @@
 BrowseFriend requires a separately installed Go native companion. Its standalone binary needs
 neither Node nor Go installed. Development still uses both toolchains for builds and tests.
 The user reports successful use in Chrome on macOS ARM64. The companion supports one selected
-registration. Signed/notarized installers, Windows support, account selection, and CI remain deferred.
+registration. Windows 11 x64/ARM64 binaries and test suites are provided, with x64 compatibility
+tested through Wine on macOS. Native Windows execution, Windows ARM64 execution, Windows security
+enforcement, and manual Chrome browser checks remain pending. Wine results do not establish native
+Windows support. Signed installers, account selection, and CI remain deferred.
 See [Native companion](NATIVE_HOST.md) for the platform verification record.
 
 Chrome communicates with the companion through Native Messaging over standard input/output; the

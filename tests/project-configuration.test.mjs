@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { access, readFile, readdir } from "node:fs/promises";
-import { spawnSync } from "node:child_process";
+import { runHost } from "./helpers/host-process.mjs";
 import test from "node:test";
 import { HOST_CONTRACT } from "../shared/host-contract.js";
 
@@ -27,7 +27,7 @@ test("manifest exposes only required permissions and matches the native contract
 });
 test("standalone companion supports non-mutating install and uninstall dry runs", () => {
   for (const command of ["install", "uninstall"]) {
-    const result = spawnSync(new URL("../build/browsefriend-native-host", import.meta.url).pathname, [
+    const result = runHost("native", [
       command, "--dry-run",
     ], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
@@ -40,6 +40,7 @@ test("native companion notices include linked dependencies and license texts", a
   assert.match(notices, /github\.com\/coreos\/go-oidc\/v3 v3\.21\.0/);
   assert.match(notices, /github\.com\/go-jose\/go-jose\/v4 v4\.1\.4/);
   assert.match(notices, /golang\.org\/x\/oauth2 v0\.36\.0/);
+  assert.match(notices, /golang\.org\/x\/sys v0\.45\.0/);
   assert.match(notices, /Apache License/);
   assert.match(notices, /Redistribution and use in source and binary forms/);
 });

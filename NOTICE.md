@@ -3,9 +3,9 @@
 The Go native companion links to:
 
 - `github.com/coreos/go-oidc/v3` v3.21.0 and `github.com/go-jose/go-jose/v4` v4.1.4 (Apache-2.0).
-- `golang.org/x/oauth2` v0.36.0 and the Go standard library (BSD-style licenses).
+- `golang.org/x/oauth2` v0.36.0, `golang.org/x/sys` v0.45.0 (Windows integration), and the Go standard library (BSD-style licenses).
 
-The Go build writes complete linked-module LICENSE/NOTICE texts to
+The Go build writes complete LICENSE/NOTICE texts for dependencies across all target platforms to
 `build/THIRD-PARTY-NOTICES.txt`. Include this file when sharing binaries.
 
 The ChatGPT sign-in SVG in `extension/auth/assets/` was retained unchanged from OpenAI's

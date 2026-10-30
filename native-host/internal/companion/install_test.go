@@ -5,17 +5,15 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	hostcontract "browsefriend/shared"
 )
 
 func TestInstallUninstall(t *testing.T) {
-	home := t.TempDir()
-	paths, err := Paths("darwin", home, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	paths := testPaths(t)
+	var err error
 	source := filepath.Join(t.TempDir(), "host")
 	if err := os.WriteFile(source, []byte("synthetic-executable"), 0700); err != nil {
 		t.Fatal(err)
@@ -49,7 +47,7 @@ func TestInstallUninstall(t *testing.T) {
 	}
 	for path, mode := range map[string]os.FileMode{paths.Binary: 0700, paths.Manifest: 0600} {
 		info, err := os.Stat(path)
-		if err != nil || info.Mode().Perm() != mode {
+		if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != mode) {
 			t.Fatal(path, err)
 		}
 	}
@@ -69,7 +67,7 @@ func TestInstallUninstall(t *testing.T) {
 	}
 }
 func TestInstallationFailurePreservesRegistration(t *testing.T) {
-	paths, _ := Paths("linux", t.TempDir(), "")
+	paths := testPaths(t)
 	source := filepath.Join(t.TempDir(), "host")
 	os.WriteFile(source, []byte("binary"), 0700)
 	if err := Install(paths, source, false, &bytes.Buffer{}); err != nil {
@@ -94,6 +92,9 @@ func TestInstallationFailurePreservesRegistration(t *testing.T) {
 	if _, err := os.Stat(paths.Binary); err != nil {
 		t.Fatal("other registration caused binary removal")
 	}
+	if runtime.GOOS == "windows" {
+		return
+	} // Windows reparse-point checks have native-only tests.
 	os.Remove(paths.Binary)
 	os.Symlink(source, paths.Binary)
 	if err := Install(paths, source, false, &bytes.Buffer{}); publicError(err).Code != "storage_unsafe" {
@@ -103,13 +104,13 @@ func TestInstallationFailurePreservesRegistration(t *testing.T) {
 func TestPlatformPaths(t *testing.T) {
 	mac, _ := Paths("darwin", "/Users/tester", "")
 	linux, _ := Paths("linux", "/home/tester", "/custom")
-	if mac.Data != "/Users/tester/Library/Application Support/BrowseFriend/native-host" {
+	if mac.Data != filepath.Join("/Users/tester", "Library", "Application Support", "BrowseFriend", "native-host") {
 		t.Fatal(mac)
 	}
-	if linux.Data != "/custom/browsefriend/native-host" || linux.Manifest != "/custom/google-chrome/NativeMessagingHosts/com.browsefriend.native_host.json" {
+	if linux.Data != filepath.Join("/custom", "browsefriend", "native-host") || linux.Manifest != filepath.Join("/custom", "google-chrome", "NativeMessagingHosts", "com.browsefriend.native_host.json") {
 		t.Fatal(linux)
 	}
-	if _, err := Paths("windows", "test", ""); err == nil {
+	if _, err := Paths("unsupported", "test", ""); err == nil {
 		t.Fatal("unsupported platform accepted")
 	}
 }

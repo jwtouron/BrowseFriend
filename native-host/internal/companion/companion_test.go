@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -45,7 +46,7 @@ func TestEncryptedStorage(t *testing.T) {
 		t.Fatal("plaintext credentials")
 	}
 	info, _ := os.Stat(path)
-	if info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Fatal("permissions")
 	}
 	err = s.WithLock(ctx, func(a *Account) error {
@@ -79,11 +80,13 @@ func TestUnsafeStorageAndCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(s.Directory, "account.enc")
-	os.Chmod(path, 0644)
-	if err := s.WithLock(ctx, func(*Account) error { return nil }); publicError(err).Code != "storage_unsafe" {
-		t.Fatal(err)
+	if runtime.GOOS != "windows" {
+		os.Chmod(path, 0644)
+		if err := s.WithLock(ctx, func(*Account) error { return nil }); publicError(err).Code != "storage_unsafe" {
+			t.Fatal(err)
+		}
+		os.Chmod(path, 0600)
 	}
-	os.Chmod(path, 0600)
 	entered, release := make(chan struct{}), make(chan struct{})
 	done := make(chan error, 1)
 	go func() { done <- s.WithLock(ctx, func(*Account) error { close(entered); <-release; return nil }) }()
@@ -97,6 +100,9 @@ func TestUnsafeStorageAndCancellation(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
+	if runtime.GOOS == "windows" {
+		return
+	} // Windows reparse-point checks have native-only tests.
 	other := filepath.Join(t.TempDir(), "symlink")
 	os.Symlink(s.Directory, other)
 	if err := (&Store{Directory: other, Key: s.Key}).WithLock(ctx, func(*Account) error { return nil }); publicError(err).Code != "storage_unsafe" {

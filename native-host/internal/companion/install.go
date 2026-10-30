@@ -8,14 +8,16 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	hostcontract "browsefriend/shared"
 )
 
-type HostPaths struct{ Data, Manifest, Binary string }
+type HostPaths struct{ Data, Manifest, Binary, RegistryKey string }
 
 func Paths(platform, home, config string) (HostPaths, error) {
-	var data, manifest string
+	var data, manifest, registryKey string
+	binary := "browsefriend-native-host"
 	switch platform {
 	case "darwin":
 		data = filepath.Join(home, "Library", "Application Support", "BrowseFriend", "native-host")
@@ -26,69 +28,49 @@ func Paths(platform, home, config string) (HostPaths, error) {
 		}
 		data = filepath.Join(config, "browsefriend", "native-host")
 		manifest = filepath.Join(config, "google-chrome", "NativeMessagingHosts")
+	case "windows":
+		if config == "" {
+			config = filepath.Join(home, "AppData", "Local")
+		}
+		data = filepath.Join(config, "BrowseFriend", "native-host")
+		manifest = data
+		binary += ".exe"
+		registryKey = `Software\Google\Chrome\NativeMessagingHosts\` + hostcontract.Contract.HostName
 	default:
-		return HostPaths{}, failure("unsupported_platform", "BrowseFriend supports macOS and Linux.", false)
+		return HostPaths{}, failure("unsupported_platform", "BrowseFriend supports macOS, Linux, and Windows.", false)
 	}
-	return HostPaths{Data: data, Manifest: filepath.Join(manifest, hostcontract.Contract.HostName+".json"), Binary: filepath.Join(data, "browsefriend-native-host")}, nil
+	return HostPaths{Data: data, Manifest: filepath.Join(manifest, hostcontract.Contract.HostName+".json"), Binary: filepath.Join(data, binary), RegistryKey: registryKey}, nil
 }
 func SystemPaths() (HostPaths, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return HostPaths{}, err
 	}
-	return Paths(runtime.GOOS, home, os.Getenv("XDG_CONFIG_HOME"))
+	config, err := configHome()
+	if err != nil {
+		return HostPaths{}, err
+	}
+	return Paths(runtime.GOOS, home, config)
 }
-func privateDirectory(path string) error {
-	if err := os.MkdirAll(path, 0700); err != nil {
-		return err
+func samePath(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return failure("storage_unsafe", "Use a private directory, not a symbolic link.", false)
-	}
-	return os.Chmod(path, 0700)
+	return a == b
 }
-func atomicFile(path string, source io.Reader, mode os.FileMode) error {
-	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
-		return failure("storage_unsafe", "Refusing to replace a non-regular file.", false)
-	} else if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	temp, err := os.CreateTemp(filepath.Dir(path), ".browsefriend-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(temp.Name())
-	if err = temp.Chmod(mode); err == nil {
-		_, err = io.Copy(temp, source)
-	}
-	if err == nil {
-		err = temp.Sync()
-	}
-	closed := temp.Close()
-	if err != nil {
-		return err
-	}
-	if closed != nil {
-		return closed
-	}
-	if err = os.Rename(temp.Name(), path); err != nil {
-		return err
-	}
-	dir, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
+func registrationConflict() error {
+	return failure("registration_conflict", "The Chrome registration belongs to another installation. It has been preserved.", false)
 }
 func Install(paths HostPaths, source string, dry bool, out io.Writer) error {
 	fmt.Fprintf(out, "BrowseFriend native companion\nBinary: %s\nChrome manifest: %s\n", paths.Binary, paths.Manifest)
+	if paths.RegistryKey != "" {
+		fmt.Fprintf(out, "Registry: HKCU\\%s\n", paths.RegistryKey)
+	}
 	if dry {
 		return nil
+	}
+	if err := checkRegistration(paths); err != nil {
+		return err
 	}
 	if err := privateDirectory(paths.Data); err != nil {
 		return err
@@ -116,29 +98,35 @@ func Install(paths HostPaths, source string, dry bool, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return atomicFile(paths.Manifest, bytes.NewReader(append(data, '\n')), 0600)
+	if err = atomicFile(paths.Manifest, bytes.NewReader(append(data, '\n')), 0600); err != nil {
+		return err
+	}
+	return registerHost(paths)
 }
 func Uninstall(paths HostPaths, dry bool, out io.Writer) error {
 	fmt.Fprintf(out, "Remove BrowseFriend registration: %s\nSaved account data is preserved.\n", paths.Manifest)
 	if dry {
 		return nil
 	}
+	if err := checkRegistration(paths); err != nil {
+		return err
+	}
 	data, err := os.ReadFile(paths.Manifest)
 	if os.IsNotExist(err) {
-		return nil
+		return unregisterHost(paths)
 	}
 	if err != nil {
 		return err
 	}
 	var manifest object
-	if json.Unmarshal(data, &manifest) != nil || manifest["name"] != hostcontract.Contract.HostName || manifest["path"] != paths.Binary {
-		return failure("registration_conflict", "The Chrome registration belongs to another installation. It has been preserved.", false)
+	if json.Unmarshal(data, &manifest) != nil || manifest["name"] != hostcontract.Contract.HostName || !samePath(text(manifest["path"]), paths.Binary) {
+		return registrationConflict()
 	}
-	if err := os.Remove(paths.Manifest); err != nil {
+	if err := removeBinary(paths.Binary); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	if err := os.Remove(paths.Binary); err != nil && !os.IsNotExist(err) {
+	if err := unregisterHost(paths); err != nil {
 		return err
 	}
-	return nil
+	return os.Remove(paths.Manifest)
 }

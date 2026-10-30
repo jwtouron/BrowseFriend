@@ -49,7 +49,14 @@ func TestProductionBinaryWireWithoutLanguageRuntime(t *testing.T) {
 	input.Write(append(header, body...))
 	var framed bytes.Buffer
 	writer := Writer{Out: &framed}
-	writer.Send(object{"id": "artifact", "method": "auth.readTokens"})
+	requestID := "artifact\n雪🧭"
+	request := object{"id": requestID, "method": "auth.readTokens", "padding": ""}
+	unpadded, _ := json.Marshal(request)
+	// 266 has a literal 0x0A in its frame header, detecting Windows text-mode I/O.
+	request["padding"] = strings.Repeat("x", 266-len(unpadded))
+	if err := writer.Send(request); err != nil {
+		t.Fatal(err)
+	}
 	data := framed.Bytes()
 	input.Write(data[:2])
 	input.Write(data[2:9])
@@ -69,7 +76,7 @@ func TestProductionBinaryWireWithoutLanguageRuntime(t *testing.T) {
 	if err = json.Unmarshal(payload, &reply); err != nil {
 		t.Fatal(err)
 	}
-	if reply["id"] != "artifact" || reply["ok"] != false || reply["error"].(map[string]any)["code"] != "invalid_request" {
+	if reply["id"] != requestID || reply["ok"] != false || reply["error"].(map[string]any)["code"] != "invalid_request" {
 		t.Fatal(reply)
 	}
 	input.Close()
@@ -85,8 +92,11 @@ func TestProcessHelper(t *testing.T) {
 		return
 	}
 	store := &Store{Directory: os.Getenv("BROWSEFRIEND_TEST_DIRECTORY"), Key: func(context.Context, bool) ([]byte, error) { return bytes.Repeat([]byte{7}, 32), nil }}
+	if mode == "read-protected" {
+		store = NewStore(store.Directory)
+	}
 	switch mode {
-	case "read":
+	case "read", "read-protected":
 		if err := store.WithLock(context.Background(), func(a *Account) error {
 			if a.ClientID != "test-client" || a.HostID == "" {
 				t.Fatal("account missing")
@@ -215,15 +225,16 @@ func TestOSKeyLinuxSecretService(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	first, err := OSKey(ctx, true)
+	key := platformKey(t.TempDir())
+	first, err := key(ctx, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := OSKey(ctx, false)
+	second, err := key(ctx, false)
 	if err != nil || !bytes.Equal(first, second) {
 		t.Fatal("key did not persist", err)
 	}
-	third, err := OSKey(ctx, true)
+	third, err := key(ctx, true)
 	if err != nil || !bytes.Equal(first, third) {
 		t.Fatal("key overwritten", err)
 	}
@@ -231,7 +242,7 @@ func TestOSKeyLinuxSecretService(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := OSKey(ctx, false); err == nil {
+	if _, err := key(ctx, false); err == nil {
 		t.Fatal("missing key accepted")
 	}
 }

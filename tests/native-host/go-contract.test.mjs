@@ -1,16 +1,15 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { HOST_CONTRACT } from "../../shared/host-contract.js";
 import { createMessageDecoder, encodeMessage } from "../helpers/native-protocol.mjs";
 import { PAGE_TOOL_SCHEMAS } from "../../shared/page-tools.js";
+import { spawnHost } from "../helpers/host-process.mjs";
 
 const valid = { model: "model-1", history: [], prompt: "Question", pageContext: "{}" };
 
 function goDriver(t, mode = "") {
-  const child = spawn(fileURLToPath(new URL("../../build/browsefriend-test-host", import.meta.url)), [mode], {
+  const child = spawnHost("test", [mode], {
     stdio: ["pipe", "pipe", "pipe"],
   });
   const events = [];
@@ -23,7 +22,7 @@ function goDriver(t, mode = "") {
 }
 
 async function waitFor(predicate, label) {
-  const end = Date.now() + 5000;
+  const end = Date.now() + (process.env.BROWSEFRIEND_TEST_WINE ? 30_000 : 5000);
   while (Date.now() < end) {
     const found = predicate();
     if (found) return found;
@@ -137,7 +136,7 @@ test("native companion and extension share tools, instructions, and limits", asy
 });
 
 test("production Go binary handles fragmented frames and recovers from malformed JSON", async (t) => {
-  const child = spawn(fileURLToPath(new URL("../../build/browsefriend-native-host", import.meta.url)), [], {
+  const child = spawnHost("native", [], {
     stdio: ["pipe", "pipe", "pipe"],
   });
   const events = [];

@@ -48,6 +48,13 @@ extension's Native Messaging bridge expects. Its code separates framing, request
 encrypted storage, model HTTP/SSE transport, and installation. The installer copies and atomically
 registers the executable; the installed process needs no source checkout or language runtime.
 
+Platform-specific adapters implement secure files, locks, OS key protection, browser launching, and
+Chrome registration. Shared code retains the account state machine, AES-GCM format, refresh
+serialization, OAuth validation, and model transport. Windows uses current-user DPAPI for its AES
+key, protected user/SYSTEM ACLs, `LockFileEx`, and per-user HKCU registration. The other platforms
+retain Keychain/Secret Service and Unix file protections. A store binds its key provider to its data
+directory; test-only injection and isolated Wine prefixes never change production security policy.
+
 `shared/host-contract.json` is the canonical policy/tool/limits/registration definition. Go embeds it
 directly; `go generate ./shared` produces the committed browser module. Verification rejects drift.
 The browser still owns semantic page capture and action authorization; Go only transports model
@@ -149,7 +156,7 @@ active conversation uses one global
 suspension but not a browser restart or extension reload. New chat presents a cancel-first
 confirmation and, when accepted, clears both transcript and compaction; logout clears them directly.
 The companion stores account data in the platform application-data directory and encrypts
-credentials with a key protected by macOS Keychain or Linux Secret Service.
+credentials with a key protected by macOS Keychain, Linux Secret Service, or Windows current-user DPAPI.
 
 ## Trust boundaries
 

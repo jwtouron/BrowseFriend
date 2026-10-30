@@ -1,5 +1,8 @@
 # Third-Party Notice
 
+BrowseFriend-authored code is licensed under the [MIT License](LICENSE). That grant does not
+relicense third-party dependencies or OpenAI artwork, names, and marks.
+
 The Go native companion links to:
 
 - `github.com/coreos/go-oidc/v3` v3.21.0 and `github.com/go-jose/go-jose/v4` v4.1.4 (Apache-2.0).
@@ -8,11 +11,14 @@ The Go native companion links to:
 The Go build writes complete LICENSE/NOTICE texts for dependencies across all target platforms to
 `build/THIRD-PARTY-NOTICES.txt`. Include this file when sharing binaries.
 
-The ChatGPT sign-in SVG in `extension/auth/assets/` was retained unchanged from OpenAI's
-Sign in with ChatGPT DevKit, commit `0a36fef`. Its accompanying original license is preserved as
-`OPENAI-LICENSE.txt`. OpenAI marks remain subject to the
-[OpenAI brand guidelines](https://openai.com/brand/); the code license does not grant trademark rights
-or permission to imply endorsement. The SDK runtime and its build patches have been removed.
+The ChatGPT sign-in SVG in `extension/auth/assets/` belongs to OpenAI and was retained unchanged
+from the [Sign in with ChatGPT DevKit](https://github.com/openai/sign-in-with-chatgpt-devkit), commit
+`0a36fef`. The artwork is outside BrowseFriend's MIT grant. Its use remains subject to the
+[OpenAI brand guidelines](https://openai.com/brand/) and
+[Sign in with ChatGPT terms](https://openai.com/policies/sign-in-with-chatgpt-terms/), including the
+restriction against implying endorsement. No DevKit runtime code or build patches remain in the
+current tree. The DevKit code license excludes branded visual assets and is not an artwork license.
 
 BrowseFriend implements OpenAI's documented public OAuth and Responses protocol directly. Removing
 a runtime dependency does not expand rights to copied assets or change the service's terms.
+Earlier revisions containing DevKit code or patches retain their applicable original terms.

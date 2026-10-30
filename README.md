@@ -26,7 +26,8 @@ Chrome restarts or the extension reloads.
 - Linux only: Secret Service plus `secret-tool` (usually the `libsecret-tools` package).
 - A ChatGPT account eligible for Sign in with ChatGPT plan usage.
 
-BrowseFriend is a personal, noncommercial project. Review [NOTICE.md](NOTICE.md) for dependency and sign-in asset attribution.
+BrowseFriend is a personal, local-first project. Its original code is [MIT licensed](LICENSE).
+Dependencies and OpenAI sign-in artwork retain their separate terms; see [NOTICE.md](NOTICE.md).
 
 ## Install for development
 

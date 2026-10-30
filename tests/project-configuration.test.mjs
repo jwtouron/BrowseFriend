@@ -64,6 +64,27 @@ test("stable native host entrypoint imports resolve", async () => {
   await Promise.all(imports.map((path) => access(new URL(path, hostUrl))));
 });
 
+test("Go host installation is explicitly selected and uses isolated storage", () => {
+  const result = spawnSync(process.execPath, [
+    new URL("../native-host/install.mjs", import.meta.url).pathname,
+    "--runtime=go",
+    "--dry-run",
+  ], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Runtime: go/);
+  assert.match(result.stdout, /go-prototype/);
+  assert.match(result.stdout, new RegExp(HOST_NAME.replaceAll(".", "\\.")));
+});
+
+test("Go binary notices include the linked dependencies and their license texts", async () => {
+  const notices = await readFile(new URL("../build/GO-THIRD-PARTY-NOTICES.txt", import.meta.url), "utf8");
+  assert.match(notices, /github\.com\/coreos\/go-oidc\/v3 v3\.21\.0/);
+  assert.match(notices, /github\.com\/go-jose\/go-jose\/v4 v4\.1\.4/);
+  assert.match(notices, /golang\.org\/x\/oauth2 v0\.36\.0/);
+  assert.match(notices, /Apache License/);
+  assert.match(notices, /Redistribution and use in source and binary forms/);
+});
+
 test("pinned DevKit response requests disable server-side conversation state", async () => {
   const source = await readFile(new URL(
     "../vendor/sign-in-with-chatgpt-devkit/packages/local/dist/responses.js",

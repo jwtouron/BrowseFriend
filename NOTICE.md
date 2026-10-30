@@ -1,5 +1,13 @@
 # Third-Party Notice
 
+The optional Go prototype uses `github.com/coreos/go-oidc/v3` v3.21.0 and
+`github.com/go-jose/go-jose/v4` v4.1.4 (Apache-2.0), and
+`golang.org/x/oauth2` v0.36.0 plus the Go standard library (BSD-style licenses).
+The build writes their complete LICENSE/NOTICE texts to
+`build/GO-THIRD-PARTY-NOTICES.txt`; include that file when sharing Go binaries.
+Go implements the documented public protocol; the retained DevKit and branded sign-in assets
+continue to carry the following notices.
+
 BrowseFriend links to the OpenAI Sign in with ChatGPT DevKit pinned at
 `vendor/sign-in-with-chatgpt-devkit`.
 

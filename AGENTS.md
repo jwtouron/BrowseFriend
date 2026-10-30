@@ -4,6 +4,8 @@
 
 BrowseFriend combines a Chrome Manifest V3 side panel with a local Node.js companion. `extension/app/` owns connection and prompt workflow state; `extension/sidepanel/` renders it; `extension/auth/`, `extension/chat/`, `extension/settings/`, `extension/page/read/`, and `extension/page/act/` isolate supporting features. Shared page-tool schemas and model-selection rules live in `shared/`; Native authentication and model requests live under `native-host/`; tests mirror subsystems under `tests/`, project documentation lives in `docs/`, and `vendor/sign-in-with-chatgpt-devkit/` pins OpenAI's SDK. Keep downstream SDK changes reproducible as reviewed patches under `patches/`, never as a dirty submodule.
 
+The opt-in Go companion lives in `native-host/go/` and implements the same Native Messaging contract without the DevKit runtime. Build it with `npm run build:host:go`; its generated policy JSON and binaries are ignored artifacts. Keep Go formatted with `gofmt`. Preserve cross-runtime contract tests when changing host behavior.
+
 Keep HTML accessible, CSS presentation-only, and browser behavior in JavaScript. Never add inline scripts. OAuth credentials belong exclusively in the native host; extension messages may contain only sanitized account state.
 Keep Debug last in Settings. Persist user settings in `chrome.storage.local` and propagate changes between open panels with `chrome.storage.onChanged`.
 
@@ -11,7 +13,7 @@ Keep Debug last in Settings. Persist user settings in `chrome.storage.local` and
 
 Build a personal, local-first page companion that explains pages before proposing or performing interactions. Do not add product accounts, billing, separate Google OAuth, ChatGPT scraping, shared cookies, or private endpoints. Treat page content as untrusted, request narrow permissions, show captured context, and require confirmation before submissions, purchases, account changes, or messages.
 
-Authentication must use OpenAI's hosted **Continue with ChatGPT** flow through the pinned local DevKit. Keep credentials encrypted with an OS-backed key, out of browser storage, URLs, logs, tests, and commits. Preserve the separation between page extraction, model communication, and action execution.
+Authentication must use OpenAI's hosted **Continue with ChatGPT** flow: the default Node host uses the pinned DevKit; the Go prototype implements the documented public OAuth protocol. Keep credentials encrypted with an OS-backed key, out of browser storage, URLs, logs, tests, and commits. Preserve the separation between page extraction, model communication, and action execution. The prototype uses separate account storage and a separate keyring entry; never migrate or overwrite the Node account implicitly.
 
 ## State & Workflow Design
 
@@ -41,6 +43,8 @@ Before submitting:
 - Exercise missing-helper, authentication, page-unavailable, stale-page, streaming, cancellation, restored-chat, New chat, and logout states.
 - Check narrow/wide layouts, both color schemes, keyboard focus, and the side-panel console.
 - Never make a live model request in authentication-only tests.
+
+Full verification also requires Go 1.25+ and a C compiler for the race detector. The deployed Go binary is built with CGO disabled and needs neither Go nor Node installed. Installing Go is opt-in (`npm run install:host -- --runtime=go`); normal installation still selects Node. Keep production installers and any default-runtime switch deferred until live evaluation succeeds.
 
 ## Coding Style & Changes
 

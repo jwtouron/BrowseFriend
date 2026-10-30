@@ -8,8 +8,11 @@
   },
   "scripts": {
     "setup:devkit": "node scripts/setup-devkit.mjs",
+    "build:host:go": "node scripts/build-go-host.mjs",
+    "test:host:go": "node scripts/build-go-host.mjs --test && node --test tests/native-host/go-contract.test.mjs",
     "install:host": "node native-host/install.mjs",
     "uninstall:host": "node native-host/install.mjs --uninstall",
+    "pretest": "node scripts/build-go-host.mjs --test",
     "test": "node --test tests/*.test.mjs tests/extension/*.test.mjs tests/native-host/*.test.mjs",
     "lint": "node scripts/check-syntax.mjs",
     "verify": "npm run lint && npm test && node -e \"JSON.parse(require('node:fs').readFileSync('manifest.json', 'utf8'))\""

@@ -4,7 +4,10 @@ BrowseFriend is a local-first Chrome side-panel companion. It provides a support
 
 ## Authentication boundary
 
-The extension never receives OAuth credentials. Its service worker talks to a Node.js native-messaging host that runs OpenAI's loopback sign-in flow and returns only display-safe account state. Tokens are encrypted with a random key protected by macOS Keychain or Linux Secret Service.
+The extension never receives OAuth credentials. Its service worker talks to a native-messaging host
+(Node by default, Go as an opt-in prototype) that runs OpenAI's loopback sign-in flow and returns only
+display-safe account state. Tokens are encrypted with a random key protected by macOS Keychain or
+Linux Secret Service.
 
 BrowseFriend does not create product accounts, subscriptions, or billing. It does not read ChatGPT cookies, conversations, memory, or private endpoints. The official flow can use eligible ChatGPT plan usage but does not grant access to ChatGPT history or memory.
 
@@ -19,6 +22,7 @@ Chrome restarts or the extension reloads.
 
 - Google Chrome 141 or newer on macOS or desktop Linux.
 - Node.js 22.12 or newer.
+- Go 1.25+ to build/test the prototype; a C compiler for race tests.
 - Linux only: Secret Service plus `secret-tool` (usually the `libsecret-tools` package).
 - A ChatGPT account eligible for Sign in with ChatGPT plan usage.
 
@@ -43,6 +47,13 @@ Then open `chrome://extensions`, enable **Developer mode**, choose **Load unpack
 Moving the repository invalidates the installed launcher path; rerun `npm run install:host`. To unregister the companion without deleting saved account data, run `npm run uninstall:host`.
 
 ## Use
+
+An opt-in **Go companion prototype** can replace the Node process while keeping the same extension.
+It uses a fresh, separately encrypted sign-in. Build with `npm run build:host:go`, then opt in with
+`npm run install:host -- --runtime=go` and reload the extension. Restore Node with
+`npm run install:host -- --runtime=node`. Go 1.25+ is needed to build; the resulting binary needs no
+Go, Node, or DevKit runtime. See [Go prototype evaluation](docs/GO_PROTOTYPE.md) for verification,
+storage details, limitations, and the browser trial.
 
 Open BrowseFriend from Chrome's toolbar. The chat is usable immediately while the header indicator quietly checks the local companion, saved account, and available models. Yellow means connecting, green means ready, and red means an action or retry is required.
 
@@ -89,6 +100,8 @@ npm test              # Run authentication, bridge, UI, and security tests.
 npm run lint          # Check JavaScript syntax.
 npm run verify        # Run all local syntax, test, and manifest checks.
 npm run setup:devkit  # Install and build the pinned OpenAI local SDK.
+npm run build:host:go # Build the standalone Go prototype.
+npm run test:host:go  # Go race/vet checks and Node/Go contract parity.
 python3 -m json.tool manifest.json
 ```
 

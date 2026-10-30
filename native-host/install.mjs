@@ -1,4 +1,4 @@
-import { access, chmod, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -21,7 +21,11 @@ const devkitEntry = join(
   "dist",
   "index.js",
 );
-const dataDirectory = appDataDirectory();
+const runtimeChoice = process.argv.find((argument) => argument.startsWith("--runtime="))?.slice(10) || "node";
+if (!["node", "go"].includes(runtimeChoice)) throw new Error("Choose --runtime=node or --runtime=go.");
+const goRuntime = runtimeChoice === "go";
+const dataDirectory = goRuntime ? join(appDataDirectory(), "go-prototype") : appDataDirectory();
+const goBinary = join(scriptDirectory, "..", "build", "browsefriend-native-host-go");
 const launcherPath = join(dataDirectory, "browsefriend-native-host");
 const manifestDirectory = nativeHostManifestDirectory();
 const manifestPath = join(manifestDirectory, `${HOST_NAME}.json`);
@@ -33,6 +37,7 @@ function shellQuote(value) {
 }
 
 function printPlan(action) {
+  console.log("Runtime: " + runtimeChoice);
   console.log(`${action} BrowseFriend native messaging host`);
   console.log(`Extension origin: ${EXTENSION_ORIGIN}`);
   console.log(`Host manifest: ${manifestPath}`);
@@ -44,9 +49,11 @@ async function install() {
   if (dryRun) return;
 
   try {
-    await access(devkitEntry);
+    await access(goRuntime ? goBinary : devkitEntry);
   } catch {
-    throw new Error("The OpenAI DevKit is not built. Run `npm run setup:devkit` first.");
+    throw new Error(goRuntime
+      ? "The Go host is not built. Run npm run build:host:go first."
+      : "The OpenAI DevKit is not built. Run npm run setup:devkit first.");
   }
 
   await mkdir(dataDirectory, { recursive: true, mode: 0o700 });
@@ -57,7 +64,8 @@ async function install() {
     `exec ${shellQuote(process.execPath)} ${shellQuote(hostEntry)} "$@"`,
     "",
   ].join("\n");
-  await writeFile(launcherPath, launcher, { mode: 0o700 });
+  if (goRuntime) await copyFile(goBinary, launcherPath);
+  else await writeFile(launcherPath, launcher, { mode: 0o700 });
   await chmod(launcherPath, 0o700);
 
   const manifest = {

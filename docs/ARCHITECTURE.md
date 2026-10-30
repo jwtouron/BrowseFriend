@@ -18,6 +18,8 @@ flowchart LR
   Bridge <--> Host[Local native companion]
   Host --> DevKit[OpenAI local DevKit]
   DevKit <--> OpenAI[OpenAI authentication and Responses API]
+  Host --> Go[Opt-in Go companion]
+  Go <--> OpenAI
 ```
 
 The side panel sends user intents and renders state owned by the service worker's application
@@ -37,13 +39,40 @@ sensitive targets. The application controller owns Act authorization, confirmati
 tool loop, and recapture between steps; it never receives arbitrary selectors or scripts.
 
 Chrome connects the service worker to `com.browsefriend.native_host` through Native Messaging. The
-companion validates its small request allowlist, keeps authentication and model handlers separate,
-and delegates OAuth, token refresh, account selection, model discovery, Responses streaming, and
+companion validates its small request allowlist and keeps authentication and model handlers separate.
+The default Node implementation delegates OAuth, token refresh, account selection, model discovery,
+Responses streaming, and
 transcript compaction to the pinned DevKit. Setup applies tracked downstream patches while building
 so the otherwise text-focused DevKit can carry typed function calls, results, model-supported
 reasoning effort, and canonical compaction output without exposing OAuth credentials.
 
 ## Main flows
+
+### Go companion prototype
+
+The optional Go binary implements the same eight auth/model messages and events as the Node host.
+Its packages separate Native Messaging, auth/identity verification, encrypted storage, and HTTP/SSE
+model transport. Node remains the default; the installer selects Go only with `--runtime=go` and
+registers the copied executable directly, without a Node launcher.
+
+Go implements the public [local-app OAuth flow](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)
+with `coreos/go-oidc` and `go-jose` for verified identity, and standard-library HTTP for model requests.
+It calls no DevKit runtime code. The Node source remains the authoritative policy/tool definition:
+the build script generates JSON containing tools, instructions, efforts, and limits and embeds it
+into Go. The compiled binary needs no source checkout or Node runtime. The vendored sign-in assets
+and Node comparison implementation remain in the repository.
+
+Prototype accounts live under a separate `go-prototype` application-data directory with a dedicated
+OS keyring entry. A single selected registration and stable host ID are encrypted with AES-256-GCM.
+Atomic writes and an interprocess lock protect rotation; pending successor credentials are saved
+before identity verification and remain unusable during a signing-key outage. Cancellation preserves
+in-flight refresh persistence. Logout clears tokens and retains registration details. Existing Node
+accounts are never imported. The prototype has its own versioned format and no legacy migration.
+
+Both implementations execute shared behavioral contract scenarios; Go additionally tests real OAuth,
+storage, and HTTP/SSE against a local simulated provider with synthetic keys. Its test executable
+injects a fake client into the production handlers; the production executable has no test endpoint,
+credential, or key overrides. See [Go prototype evaluation](GO_PROTOTYPE.md).
 
 ### Authentication
 

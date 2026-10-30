@@ -42,12 +42,19 @@ current implementation unless a task explicitly promotes them into scope.
 
 ## Distribution and authentication
 
-- [ ] Evaluate replacing the pinned DevKit and downstream tool patch with a direct implementation
+- [x] Build an opt-in Go companion prototype using the documented direct OAuth/Responses flow,
+  with isolated encrypted sign-in, shared protocol checks, race tests, and macOS/Linux cross-builds.
+- [ ] Complete the [Go prototype browser trial](GO_PROTOTYPE.md), including real OAuth, persisted
+  login, inference/tools, cancellation, and locked/denied credential stores on macOS and Linux.
+- [ ] After evaluation, decide whether Go should become the default, design credential migration
+  and account selection, and remove redundant Node/DevKit runtime code and downstream patches.
+
+- [ ] Finish evaluating replacement of the pinned DevKit and downstream tool patch with a direct implementation
   of OpenAI's documented local/open-source OAuth and Responses API flow. Preserve ID-token
   validation, refresh serialization, OS-backed credential protection, account lifecycle, typed
   tools, streaming, cancellation, error recovery, and the extension credential boundary.
-- [ ] If the direct protocol proves suitable, prototype the native companion in Go and compare it
-  with `deno compile` and Node single-executable packaging. Prefer a language-neutral source for
+- [ ] Compare packaging the Go prototype with `deno compile` and Node single-executable packaging.
+  Prefer a language-neutral source for
   shared tool schemas and require behavioral parity across Native Messaging, OAuth callbacks,
   model discovery, tool calls, streaming, cancellation, file locking, and platform credential-store
   commands. Compare macOS and Linux builds on x64 and ARM64, binary size, startup, and maintenance.

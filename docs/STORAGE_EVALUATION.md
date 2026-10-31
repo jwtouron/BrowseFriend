@@ -166,7 +166,9 @@ The evaluation callback seam also exposes a lock-scoped save function, without s
 
 macOS synthetic OS-keyring/race checks, Linux fork cancellation/OS-store checks, six-target fork
 compilation, and Windows x64/Wine companion checks passed. The context fork also passed
-[all six native CI targets](https://github.com/jwtouron/go-keyring/actions/runs/41150791174), including Windows. Production Linux and final source-pin
-verification are recorded in [Native companion](NATIVE_HOST.md). Broader Windows ACL acceptance
-remains unadopted pending native tests; the existing strict policy stays and automatic repair is
-removed. Handle any future credential transfer as one-time maintenance, without a migration framework.
+[all six native CI targets](https://github.com/jwtouron/go-keyring/actions/runs/41152685749),
+including Windows, after merging upstream through `66b55cc` at fork revision `1a3d07a`.
+Production Linux and final source-pin verification are recorded in [Native companion](NATIVE_HOST.md).
+Broader Windows ACL acceptance remains unadopted pending native tests; the existing strict policy
+stays and automatic repair is removed. Handle any future credential transfer as one-time maintenance,
+without a migration framework.

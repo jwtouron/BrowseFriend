@@ -16,4 +16,4 @@ require (
 	golang.org/x/oauth2 v0.36.0 // indirect
 )
 
-replace github.com/zalando/go-keyring => github.com/jwtouron/go-keyring v0.2.9-0.20261031003251-fce83d213507
+replace github.com/zalando/go-keyring => github.com/jwtouron/go-keyring v0.2.9-0.20261031005413-1a3d07acf90f

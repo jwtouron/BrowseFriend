@@ -92,15 +92,17 @@ BrowseFriend pins a reviewed fork commit through module replacements in both mod
 packaged dependency notices identify the replacement source and version. Dependency updates and
 upstream synchronization are separate from building or publishing BrowseFriend artifacts.
 
-The fork's [native run for `fce83d2`](https://github.com/jwtouron/go-keyring/actions/runs/41150791174)
+The fork's [native run for `1a3d07a`](https://github.com/jwtouron/go-keyring/actions/runs/41152685749)
 passed all six targets on 2026-10-30 (local date), including native Windows x64 race tests and
 Windows ARM64 ordinary tests. This verifies the keyring library, not BrowseFriend's full Windows
 companion, ACL/reparse tests, or browser behavior. BrowseFriend's first hosted matrix remains
-pending its initial push. The fork stays pinned to that reviewed revision; text checkout is LF
+pending its initial push. Both modules pin that reviewed revision; text checkout is LF
 on Windows as verified with `core.autocrlf=true`.
 
 The [initial upstream-check run](https://github.com/jwtouron/go-keyring/actions/runs/41151110557)
-exercised the conflict guard: upstream `66b55cc` includes unreleased `ListUsers` and secret
-content-type changes that conflict with the v0.2.8-based context patch. The workflow aborted the
-merge and left the maintained branch unchanged; no update PR was created. Resolving that sync
-requires a separate review and full native verification, tracked in the roadmap.
+exercised the conflict guard and left the maintained branch unchanged. Upstream through `66b55cc`
+was then merged manually, retaining the fork's CI and extending its new `ListUsers` API with
+context-aware backends. Secret Service content-type detection and upstream tests are included;
+new tests cover cancellation and attribute validation. After the merge, the
+[upstream checker passed](https://github.com/jwtouron/go-keyring/actions/runs/41152711675)
+without proposing another update.

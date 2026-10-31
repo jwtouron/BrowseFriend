@@ -28,9 +28,6 @@ random loopback listener only while completing the hosted OAuth callback.
   dependency replacement to compile. Those databases remain evaluation-only. The runtime now uses
   the context-aware keyring fork and `gofrs/flock`; their source pins and licenses are tracked.
 
-The keyring fork remains based on reviewed upstream v0.2.8. The upstream checker reports conflicts
-with newer unreleased changes; that manual sync is tracked in the [roadmap](TODO.md).
-
 ## Page understanding
 
 - BrowseFriend reads ordinary HTTP and HTTPS top-level documents only. Chrome-internal pages,

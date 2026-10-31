@@ -35,8 +35,8 @@ github.com/jrapoport/chestnut v0.0.0-20241027081206-953a7bc277b4 h1:oYeEa86tEaZu
 github.com/jrapoport/chestnut v0.0.0-20241027081206-953a7bc277b4/go.mod h1:XiMXe85r5SfItYwc9Dbb2R3ioSBnBtRhCyrEd2Dz/6g=
 github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=
 github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
-github.com/jwtouron/go-keyring v0.2.9-0.20261031003251-fce83d213507 h1:KCsqWEia4AEAcpAHFFkazA9Lq5VGmJgaOfVJNyAGoW8=
-github.com/jwtouron/go-keyring v0.2.9-0.20261031003251-fce83d213507/go.mod h1:HGrwR2xmg6mQHufDdQNzMsqAvn3VHgqHMKYK++vFNc8=
+github.com/jwtouron/go-keyring v0.2.9-0.20261031005413-1a3d07acf90f h1:S8iaksDuE1+ZkW6dshy+xuWxvTppo9HL24MQdKeWAuk=
+github.com/jwtouron/go-keyring v0.2.9-0.20261031005413-1a3d07acf90f/go.mod h1:HGrwR2xmg6mQHufDdQNzMsqAvn3VHgqHMKYK++vFNc8=
 github.com/klauspost/compress v1.17.11 h1:In6xLpyWOi1+C7tXUUWv2ot1QvBjxevKAaI6IXrJmUc=
 github.com/klauspost/compress v1.17.11/go.mod h1:pMDklpSncoRMuLFrf1W9Ss9KT+0rH90U12bZKk7uwG0=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=

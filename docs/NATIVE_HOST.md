@@ -175,7 +175,18 @@ The integrated companion also passed Linux ARM64 race/vet, synthetic Secret Serv
 compiled-binary execution, and install/uninstall checks in Docker on 2026-10-30. The full local
 verification suite passed all 110 JavaScript tests plus Go race/vet checks.
 
-The keyring fork subsequently passed [all six native CI targets](https://github.com/jwtouron/go-keyring/actions/runs/41150791174)
-at `fce83d213507b57f7297b08e96bd9b14678e6676`, including Credential Manager tests on Windows x64
-(with race detection) and ARM64. This is library-level verification; BrowseFriend's complete native
-Windows companion, ACL/reparse enforcement, and manual Chrome checks remain pending.
+The keyring fork subsequently passed
+[all six native CI targets](https://github.com/jwtouron/go-keyring/actions/runs/41152685749)
+at `1a3d07acf90f17ae74c6a5114b655b8587d45b00`, including Credential Manager tests on Windows x64
+(with race detection) and ARM64. This revision merges Zalando upstream through `66b55cc`, including
+user listing and Secret Service content-type detection, while retaining context cancellation.
+The upstream checker also passed without proposing another merge.
+
+With both module pins updated, BrowseFriend passed all 110 JavaScript tests, macOS ARM64 race/vet
+and synthetic Keychain checks, Linux ARM64 Docker race/vet and binary installation/removal, and
+Windows x64 Wine Go/JavaScript contracts and installation/removal. Both Windows architectures and
+their tests compiled. The separate storage-evaluation checks, including synthetic Keychain access
+and the expected Chestnut build-failure probe, passed. Generated dependency notices identify the
+new fork revision and retain its MIT/Apache license texts. Fork CI is library-level verification;
+BrowseFriend's complete native Windows companion, ACL/reparse enforcement, and manual Chrome checks
+remain pending.

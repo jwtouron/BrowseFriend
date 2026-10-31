@@ -48,10 +48,9 @@ current implementation unless a task explicitly promotes them into scope.
   ownership, and validated `gofrs/flock` locking; preserve refresh checkpoints and cancellation boundaries.
 - [x] Publish the reviewed `jwtouron/go-keyring` fork, pin its remote revision in both modules, and
   enable native CI and weekly/manual upstream-update PRs. All six fork native targets passed; see [CI](CI.md).
-- [ ] Review and merge unreleased Zalando changes through `66b55cc` (`ListUsers` and Secret Service
-  content-type detection), resolve context-fork conflicts while retaining its own CI, and rerun all
-  six native targets before updating BrowseFriend's pin. The upstream-check conflict guard was
-  exercised successfully; it currently reports this pending manual sync rather than creating a PR.
+- [x] Merge unreleased Zalando changes through `66b55cc` (`ListUsers` and Secret Service content-type
+  detection), retain context cancellation and the fork's CI, and update both BrowseFriend pins to
+  `1a3d07a` after all six native targets pass. The upstream checker now reports the fork as current.
 - [ ] Validate safe inherited Windows ACLs natively before simplifying production acceptance checks.
   Existing unsafe ACLs are rejected rather than automatically repaired.
 - [x] Replace the Node/SDK native runtime with the standalone Go companion and public OAuth/Responses flow.

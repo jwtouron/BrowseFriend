@@ -32,14 +32,26 @@ Linux uses `$XDG_CONFIG_HOME/browsefriend/native-host/`, defaulting to `~/.confi
 Windows uses `%LOCALAPPDATA%\BrowseFriend\native-host\`, discovered through the Windows known-folder API.
 The directory contains the installed `browsefriend-native-host`, `account.enc`, and `account.lock`.
 
-The entire account record is encrypted with AES-256-GCM. macOS uses Keychain service
-`com.browsefriend.native-host.credentials`, account `local-encryption-key`. Linux requires
-`secret-tool` and Secret Service, with attributes `application=browsefriend key=native-host-credentials`.
-Windows stores the AES key in `key.dpapi`, protected by current-user DPAPI with no interactive
-prompts. Directories and files receive protected ACLs for the current user and SYSTEM. Owner,
-permissions, and reparse targets are validated; `LockFileEx` serializes refreshes, and flushed
-temporary files are replaced through Windows file APIs. Unix retains owner-only modes and `flock`.
-Unreadable, missing, or corrupt keys never cause an existing account to be silently reset.
+The entire account record is encrypted with AES-256-GCM. The keyring entry uses service
+`com.browsefriend.native-host.credentials`, account `local-encryption-key`, through the pinned
+`jwtouron/go-keyring` context-support fork. This preserves the existing macOS entry and encoding.
+Linux uses Secret Service directly over D-Bus, without `secret-tool`. Windows uses Credential Manager;
+new installations do not create `key.dpapi`. No automatic account-migration framework is shipped.
+
+Directories and files receive owner-only Unix modes or protected Windows ACLs for the current user
+and SYSTEM. Owner, permissions, and symlink/reparse targets are validated. Existing unsafe Windows
+ACLs are rejected rather than repaired. `gofrs/flock` locks a separately validated file and verifies
+its identity before entering an account transaction. Key reuse is limited to that transaction;
+each save atomically commits using flushed private temporary files. Unreadable, missing, or corrupt
+keys never cause an existing account to be silently reset.
+
+Lock acquisition has a 45-second limit; key lookups have a 20-second budget. Key creation finishes
+under an independent 20-second commit context before the account lock is released. Atomic saves,
+refresh successor persistence, and local logout cleanup have explicit commit/recovery boundaries.
+Windows credential calls are synchronous and do not prompt; context is checked before they start,
+but a native call cannot be interrupted. macOS commands and Linux waits support cancellation;
+Linux resource cleanup can add up to two seconds per cleanup call. An accepted write cannot be
+rolled back merely because the caller stopped waiting.
 
 Windows keeps the host manifest beside its executable and registers its absolute path in the
 default string value of
@@ -50,6 +62,10 @@ registration value and preserves other registry values/subkeys and saved account
 There is one current registration. Logout clears access, refresh, and retained ID tokens and attempts
 remote revocation, while retaining registration and host identity. An unavailable keyring or damaged
 file fails without resetting or replacing saved credentials.
+
+The isolated [storage evaluation](STORAGE_EVALUATION.md) measures library and permission-policy
+alternatives with synthetic accounts. It has its own module and commands; it records the baseline comparison and subsequent production integration. Its legacy keyring
+adapter deliberately retains the upstream cancellation-limit probe.
 
 ## Policy and verification
 
@@ -114,7 +130,7 @@ Results are saved to ignored `build/windows-wine-results.json`; failures produce
 No real ChatGPT credentials or live model calls are involved.
 
 The Wine run uses no race detector. Native-only security-enforcement tests are explicitly skipped
-with a pending-verification explanation; the remaining storage, DPAPI, locking, registration, and
+with a pending-verification explanation; the remaining storage, Credential Manager, locking, registration, and
 installer checks still run. Their success under Wine does not certify Windows security enforcement.
 
 ## Verification record
@@ -141,10 +157,25 @@ enforcement, Windows race tests, and manual Chrome browser verification remain p
 Wine 11.20's [`SetSecurityInfo` implementation](https://github.com/wine-mirror/wine/blob/wine-11.20/dlls/advapi32/security.c#L2761)
 does not reliably preserve protected-DACL inheritance flags. Directories
 and temporary files are therefore created with protected security descriptors from the outset and
-always validated afterward; no production check is bypassed for Wine. Repair of an existing unsafe
-directory still requires APIs whose behavior must be validated on native Windows.
+always validated afterward; no production check is bypassed for Wine. Existing unsafe directories are rejected; the companion no longer attempts ACL repair.
 
 The user previously reported successful Go companion use in Chrome on this Mac. After the final
 replacement, manually check reconnection, a completed Ask response, a harmless Act continuation,
 Stop/Retry, and persistence after Chrome restart. Those browser checks and live account operations
 are separate from automated authentication tests.
+
+On 2026-10-30, the context-aware keyring integration passed macOS ARM64 race tests and synthetic
+Keychain persistence, including the old raw key encoding. The fork passed macOS command cancellation
+and child-reaping tests, Linux D-Bus authentication/prompt cancellation and isolated Secret Service
+round trips, and compilation for all six targets. Wine x64 passed Credential Manager persistence,
+account locking/cancellation, simulated HTTP, the ten JavaScript contracts, and install/uninstall.
+Native Windows ACL/reparse enforcement remains pending; Wine is compatibility coverage only.
+
+The integrated companion also passed Linux ARM64 race/vet, synthetic Secret Service persistence,
+compiled-binary execution, and install/uninstall checks in Docker on 2026-10-30. The full local
+verification suite passed all 110 JavaScript tests plus Go race/vet checks.
+
+The keyring fork subsequently passed [all six native CI targets](https://github.com/jwtouron/go-keyring/actions/runs/41150791174)
+at `fce83d213507b57f7297b08e96bd9b14678e6676`, including Credential Manager tests on Windows x64
+(with race detection) and ARM64. This is library-level verification; BrowseFriend's complete native
+Windows companion, ACL/reparse enforcement, and manual Chrome checks remain pending.

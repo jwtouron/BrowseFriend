@@ -5,12 +5,44 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+type testRoundTripper func(*http.Request) (*http.Response, error)
+
+func (fn testRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return fn(r) }
+
+func TestLogoutRemovesLocalCredentialsAfterCancelledRevocation(t *testing.T) {
+	f := newFixture(t)
+	f.login(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	transport := f.c.HTTP.Transport
+	f.c.HTTP.Transport = testRoundTripper(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/revoke" {
+			cancel()
+			return nil, context.Canceled
+		}
+		return transport.RoundTrip(r)
+	})
+	s, err := f.c.SignOut(ctx)
+	if publicError(err).Code != "revocation_failed" || s.State != "signed_out" {
+		t.Fatal(s, err)
+	}
+	if err := f.c.Store.WithLock(context.Background(), func(tx *AccountTransaction) error {
+		if tx.Account.Credentials != nil || tx.Account.Pending != nil || tx.Account.IDToken != "" {
+			t.Fatal("local credentials retained")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestPublicSessionAndErrorsContainOnlyDisplayFields(t *testing.T) {
 	s := session(&Account{Identity: object{"name": "Person", "email": "synthetic@example.invalid", "subject": "private-subject", "token": "private-token"}, Credentials: &Credentials{Access: "private-token"}, Scopes: []string{sharing}})
@@ -29,9 +61,11 @@ func TestPublicSessionAndErrorsContainOnlyDisplayFields(t *testing.T) {
 
 func expire(t *testing.T, f *fixture) {
 	t.Helper()
-	if err := f.c.Store.WithLock(context.Background(), func(a *Account) error {
+	if err := f.c.Store.WithLock(context.Background(), func(tx *AccountTransaction) error {
+		a := tx.Account
+
 		a.Credentials.ExpiresAt = time.Now().Add(-time.Hour).UnixMilli()
-		return f.c.Store.Save(context.Background(), a)
+		return tx.Save(context.Background())
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +91,9 @@ func TestRefreshRejectsInvalidIdentityAndRevokedGrants(t *testing.T) {
 			if publicError(err).Code != want {
 				t.Fatal(err)
 			}
-			if err := f.c.Store.WithLock(context.Background(), func(a *Account) error {
+			if err := f.c.Store.WithLock(context.Background(), func(tx *AccountTransaction) error {
+				a := tx.Account
+
 				if a.Credentials != nil || a.Pending != nil || a.IDToken != "" {
 					t.Fatal("invalid grant retained")
 				}
@@ -146,7 +182,7 @@ func TestStoreFailuresPreserveEncryptedAccount(t *testing.T) {
 	unavailable := &Store{Directory: f.c.Store.Directory, Key: func(context.Context, bool) ([]byte, error) {
 		return nil, failure("storage_encryption_unavailable", "Unlock your credential store.", true)
 	}}
-	if err := unavailable.WithLock(context.Background(), func(a *Account) error { return unavailable.Save(context.Background(), a) }); publicError(err).Code != "storage_encryption_unavailable" {
+	if err := unavailable.WithLock(context.Background(), func(tx *AccountTransaction) error { return tx.Save(context.Background()) }); publicError(err).Code != "storage_encryption_unavailable" {
 		t.Fatal(err)
 	}
 	after, _ := os.ReadFile(path)

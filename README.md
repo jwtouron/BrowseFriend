@@ -7,7 +7,7 @@ BrowseFriend is a local-first Chrome side-panel companion. It provides a support
 The extension never receives OAuth credentials. Its service worker talks to a native-messaging host
 written in Go that runs OpenAI's loopback sign-in flow and returns only
 display-safe account state. Tokens are encrypted with a random key protected by macOS Keychain,
-Linux Secret Service, or Windows current-user DPAPI.
+Linux Secret Service, or Windows Credential Manager.
 
 BrowseFriend does not create product accounts, subscriptions, or billing. It does not read ChatGPT cookies, conversations, memory, or private endpoints. The official flow can use eligible ChatGPT plan usage but does not grant access to ChatGPT history or memory.
 
@@ -23,7 +23,7 @@ Chrome restarts or the extension reloads.
 - Google Chrome 141 or newer on macOS, desktop Linux, or Windows 11 (x64/ARM64).
 - Node.js 22.12 or newer for JavaScript tests only.
 - Go 1.25+ to build/test the companion; a C compiler for race tests.
-- Linux only: Secret Service plus `secret-tool` (usually the `libsecret-tools` package).
+- Linux only: a running D-Bus session and Secret Service provider (for example GNOME Keyring).
 - A ChatGPT account eligible for Sign in with ChatGPT plan usage.
 
 BrowseFriend is a personal, local-first project. Its original code is [MIT licensed](LICENSE).
@@ -124,6 +124,7 @@ The extension remains plain HTML, CSS, and JavaScript with no browser-side build
 - [Known limitations](docs/KNOWN_LIMITATIONS.md) records current platform and model constraints.
 - [Roadmap](docs/TODO.md) tracks explicitly deferred work and investigations.
 - [CI and artifacts](docs/CI.md) describes native verification and downloadable development builds.
+- [Storage evaluation](docs/STORAGE_EVALUATION.md) records the original library comparison and subsequent keyring integration.
 - [Third-party notice](NOTICE.md) summarizes dependency licenses and sign-in asset attribution.
 
 ## Product direction

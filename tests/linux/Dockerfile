@@ -1,5 +1,5 @@
 FROM golang:1.27.3-bookworm
-RUN apt-get update && apt-get install -y --no-install-recommends dbus-x11 gnome-keyring libsecret-tools && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends dbus-x11 gnome-keyring && rm -rf /var/lib/apt/lists/*
 WORKDIR /work
 COPY go.mod go.sum ./
 COPY shared ./shared

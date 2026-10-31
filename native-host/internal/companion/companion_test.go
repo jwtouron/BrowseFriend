@@ -32,10 +32,12 @@ func testStore(t *testing.T) *Store {
 func TestEncryptedStorage(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
-	err := s.WithLock(ctx, func(a *Account) error {
+	err := s.WithLock(ctx, func(tx *AccountTransaction) error {
+		a := tx.Account
+
 		a.ClientID = "client-test"
 		a.Credentials = &Credentials{Access: "synthetic-secret", Refresh: "synthetic-renewal", ExpiresAt: time.Now().Add(time.Hour).UnixMilli()}
-		return s.Save(ctx, a)
+		return tx.Save(ctx)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -49,11 +51,13 @@ func TestEncryptedStorage(t *testing.T) {
 	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Fatal("permissions")
 	}
-	err = s.WithLock(ctx, func(a *Account) error {
+	err = s.WithLock(ctx, func(tx *AccountTransaction) error {
+		a := tx.Account
+
 		if a.Credentials.Access != "synthetic-secret" {
 			t.Fatal("lost credentials")
 		}
-		return s.Save(ctx, a)
+		return tx.Save(ctx)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +68,10 @@ func TestEncryptedStorage(t *testing.T) {
 	}
 	second[len(second)-1] ^= 1
 	os.WriteFile(path, second, 0600)
-	err = s.WithLock(ctx, func(a *Account) error { t.Fatal("damaged ciphertext accepted"); return nil })
+	err = s.WithLock(ctx, func(tx *AccountTransaction) error {
+		t.Fatal("damaged ciphertext accepted")
+		return nil
+	})
 	if publicError(err).Code != "storage_decryption_failed" {
 		t.Fatal(err)
 	}
@@ -76,24 +83,26 @@ func TestEncryptedStorage(t *testing.T) {
 func TestUnsafeStorageAndCancellation(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
-	if err := s.WithLock(ctx, func(a *Account) error { return s.Save(ctx, a) }); err != nil {
+	if err := s.WithLock(ctx, func(tx *AccountTransaction) error { return tx.Save(ctx) }); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(s.Directory, "account.enc")
 	if runtime.GOOS != "windows" {
 		os.Chmod(path, 0644)
-		if err := s.WithLock(ctx, func(*Account) error { return nil }); publicError(err).Code != "storage_unsafe" {
+		if err := s.WithLock(ctx, func(*AccountTransaction) error { return nil }); publicError(err).Code != "storage_unsafe" {
 			t.Fatal(err)
 		}
 		os.Chmod(path, 0600)
 	}
 	entered, release := make(chan struct{}), make(chan struct{})
 	done := make(chan error, 1)
-	go func() { done <- s.WithLock(ctx, func(*Account) error { close(entered); <-release; return nil }) }()
+	go func() {
+		done <- s.WithLock(ctx, func(*AccountTransaction) error { close(entered); <-release; return nil })
+	}()
 	<-entered
 	cancelCtx, cancel := context.WithCancel(ctx)
 	cancel()
-	if err := s.WithLock(cancelCtx, func(*Account) error { return nil }); err != context.Canceled {
+	if err := s.WithLock(cancelCtx, func(*AccountTransaction) error { return nil }); err != context.Canceled {
 		t.Fatal(err)
 	}
 	close(release)
@@ -105,7 +114,7 @@ func TestUnsafeStorageAndCancellation(t *testing.T) {
 	} // Windows reparse-point checks have native-only tests.
 	other := filepath.Join(t.TempDir(), "symlink")
 	os.Symlink(s.Directory, other)
-	if err := (&Store{Directory: other, Key: s.Key}).WithLock(ctx, func(*Account) error { return nil }); publicError(err).Code != "storage_unsafe" {
+	if err := (&Store{Directory: other, Key: s.Key}).WithLock(ctx, func(*AccountTransaction) error { return nil }); publicError(err).Code != "storage_unsafe" {
 		t.Fatal(err)
 	}
 }
@@ -323,7 +332,9 @@ func TestOAuthAndModelHTTP(t *testing.T) {
 	if err != nil || s.State != "signed_out" {
 		t.Fatal(s, err)
 	}
-	if err := f.c.Store.WithLock(ctx, func(a *Account) error {
+	if err := f.c.Store.WithLock(ctx, func(tx *AccountTransaction) error {
+		a := tx.Account
+
 		if a.Credentials != nil || a.IDToken != "" || a.Pending != nil {
 			t.Fatal("logout retained tokens")
 		}
@@ -341,7 +352,9 @@ func TestOAuthRejectsInvalidIdentity(t *testing.T) {
 	if _, err := f.c.SignIn(context.Background(), false); publicError(err).Code != "invalid_id_token" {
 		t.Fatal(err)
 	}
-	if err := f.c.Store.WithLock(context.Background(), func(a *Account) error {
+	if err := f.c.Store.WithLock(context.Background(), func(tx *AccountTransaction) error {
+		a := tx.Account
+
 		if a.Credentials != nil {
 			t.Fatal("invalid identity activated")
 		}
@@ -357,9 +370,11 @@ func TestRefreshRecoveryAcrossRestart(t *testing.T) {
 	f := newFixture(t)
 	f.login(t)
 	ctx := context.Background()
-	if err := f.c.Store.WithLock(ctx, func(a *Account) error {
+	if err := f.c.Store.WithLock(ctx, func(tx *AccountTransaction) error {
+		a := tx.Account
+
 		a.Credentials.ExpiresAt = time.Now().Add(-time.Hour).UnixMilli()
-		return f.c.Store.Save(ctx, a)
+		return tx.Save(ctx)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +384,9 @@ func TestRefreshRecoveryAcrossRestart(t *testing.T) {
 	if _, err := f.c.Models(ctx); publicError(err).Code != "identity_verification_unavailable" {
 		t.Fatal(err)
 	}
-	if err := f.c.Store.WithLock(ctx, func(a *Account) error {
+	if err := f.c.Store.WithLock(ctx, func(tx *AccountTransaction) error {
+		a := tx.Account
+
 		if a.Pending == nil {
 			t.Fatal("rotation checkpoint missing")
 		}

@@ -14,6 +14,23 @@ Chrome communicates with the companion through Native Messaging over standard in
 companion is not a permanent localhost service. **Continue with ChatGPT** temporarily opens a
 random loopback listener only while completing the hosted OAuth callback.
 
+## Credential storage
+
+- Windows requires protected owner/SYSTEM ACLs. Safe inherited permissions or normal Administrators
+  entries can cause a storage error. The companion no longer repairs existing ACLs automatically;
+  the simpler policy remains deferred until native Windows validation.
+- The context-aware go-keyring fork cancels macOS commands and Linux waits, but cancellation cannot
+  undo an OS-accepted write. Windows Credential Manager calls do not prompt and normally finish
+  synchronously; they cannot be interrupted or given a guaranteed hard deadline. Linux uses a
+  `plain` Secret Service session on local D-Bus; this concerns transport, not plaintext disk storage.
+- The [storage evaluation](STORAGE_EVALUATION.md) found no clear database replacement for the single
+  encrypted account record. Keeper's fixed open timeout delays cancellation, and Chestnut needs a
+  dependency replacement to compile. Those databases remain evaluation-only. The runtime now uses
+  the context-aware keyring fork and `gofrs/flock`; their source pins and licenses are tracked.
+
+The keyring fork remains based on reviewed upstream v0.2.8. The upstream checker reports conflicts
+with newer unreleased changes; that manual sync is tracked in the [roadmap](TODO.md).
+
 ## Page understanding
 
 - BrowseFriend reads ordinary HTTP and HTTPS top-level documents only. Chrome-internal pages,

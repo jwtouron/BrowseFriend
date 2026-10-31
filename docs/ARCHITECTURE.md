@@ -48,12 +48,31 @@ extension's Native Messaging bridge expects. Its code separates framing, request
 encrypted storage, model HTTP/SSE transport, and installation. The installer copies and atomically
 registers the executable; the installed process needs no source checkout or language runtime.
 
-Platform-specific adapters implement secure files, locks, OS key protection, browser launching, and
-Chrome registration. Shared code retains the account state machine, AES-GCM format, refresh
-serialization, OAuth validation, and model transport. Windows uses current-user DPAPI for its AES
-key, protected user/SYSTEM ACLs, `LockFileEx`, and per-user HKCU registration. The other platforms
-retain Keychain/Secret Service and Unix file protections. A store binds its key provider to its data
-directory; test-only injection and isolated Wine prefixes never change production security policy.
+Platform-specific adapters implement secure files, browser launching, and Chrome registration.
+A pinned context-aware go-keyring fork provides macOS Keychain, Linux Secret Service, and Windows
+Credential Manager access. `gofrs/flock` supplies OS locking. Shared code retains the account state
+machine, AES-GCM format, refresh serialization, OAuth validation, and model transport. Windows
+retains protected user/SYSTEM ACLs and per-user HKCU registration; Unix retains owner-only file
+protections. Existing unsafe Windows ACLs fail validation rather than being automatically repaired.
+
+Each account operation receives a lock-scoped `AccountTransaction` containing its account and
+`Save(ctx)`. It loads the encryption key once, creating it lazily for a new account's first save.
+Every save commits independently; a later callback failure cannot roll back a refresh checkpoint.
+The key and save capability expire when the callback returns. No key is cached across operations.
+
+Before locking, BrowseFriend creates/validates the lock file through its private-file helper.
+A fresh library lock object opens the existing file; its held file identity must match the validated
+handle. Acquisition retries every 25 ms for at most 45 seconds, respecting earlier caller cancellation.
+This budget applies to acquiring the lock, not the entire account operation. The lock file stays on
+disk. Independent lock objects serialize both goroutines and separate companion processes.
+
+Key lookups have a 20-second budget. macOS cancels and reaps its command; Linux cancels D-Bus waits
+and attempts prompt dismissal with bounded cleanup. Windows checks cancellation before synchronous,
+non-prompting credential calls; a started native call completes with its actual result. Once key
+creation begins it uses an independent 20-second commit context under the account lock. Cancellation
+is checked before atomic account writes; a started write finishes. Refresh rotation and local logout
+cleanup retain their own recovery contexts. Cancellation cannot undo a write already accepted by an
+OS credential service, and no library can impose a hard deadline on the Windows native call.
 
 `shared/host-contract.json` is the canonical policy/tool/limits/registration definition. Go embeds it
 directly; `go generate ./shared` produces the committed browser module. Verification rejects drift.
@@ -65,6 +84,12 @@ AES-256-GCM. Atomic writes and an interprocess lock protect rotation. Successor 
 checkpointed before identity verification and remain unusable during a signing-key outage.
 Cancellation preserves in-flight refresh persistence. Logout removes tokens and retains registration.
 There is no version-migration framework or legacy account fallback.
+
+Storage alternatives are evaluated in a separate nested Go module, excluded from production builds
+and ordinary root tests. Its experiments preserve the distinction between an exclusive account
+operation and individually committed saves: a verification failure must not roll back a previously
+saved refresh successor. See [Storage evaluation](STORAGE_EVALUATION.md) for results and the proposed,
+unadopted Windows permission simplification. Production retains the encrypted file and adopts the context-aware keyring fork described above; database candidates remain evaluation-only.
 
 See [Native companion](NATIVE_HOST.md) for commands, storage names, and the verification record.
 
@@ -161,7 +186,7 @@ active conversation uses one global
 suspension but not a browser restart or extension reload. New chat presents a cancel-first
 confirmation and, when accepted, clears both transcript and compaction; logout clears them directly.
 The companion stores account data in the platform application-data directory and encrypts
-credentials with a key protected by macOS Keychain, Linux Secret Service, or Windows current-user DPAPI.
+credentials with a key protected by macOS Keychain, Linux Secret Service, or Windows Credential Manager.
 
 ## Trust boundaries
 

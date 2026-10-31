@@ -21,7 +21,7 @@ Give mutable workflow state one owner and model it with small explicit state mac
 
 Prefer the model for semantic judgment, planning, ranking, ambiguity resolution, and deciding which allowed tool to use. Keep deterministic code responsible for trust boundaries, input validation, authorization, confirmations, sensitive-data handling, resource limits, state transitions, and recovery. Do not duplicate model judgment with extension heuristics unless a documented safety or reliability requirement demands it.
 
-Give asynchronous work stable IDs or epochs and ignore stale completion. Normalize errors once, represent recovery as typed intent instead of callbacks, and keep persistent readiness work independent from cancellable user actions. The controller owns Ask/Act authorization, the tool loop, and pending confirmation; the page actor owns DOM validation and execution. Never re-resolve a stale action with page-provided selectors. Add transition tests whenever a state or workflow edge changes.
+Give asynchronous work stable IDs or epochs and ignore stale completion. Normalize errors once, represent recovery as typed intent instead of callbacks, and keep persistent readiness work independent from cancellable user actions. The controller owns Ask/Act authorization, the tool loop, and pending confirmation; the page actor owns DOM validation and execution. Never re-resolve a stale action with page-provided selectors. Add transition tests whenever a state or workflow edge changes. Account saves belong to the active lock-scoped transaction; reuse its key only for that callback and preserve independently durable refresh checkpoints.
 
 ## Roadmap Maintenance
 
@@ -45,6 +45,8 @@ Before submitting:
 - Never make a live model request in authentication-only tests.
 
 Go code must pass `gofmt`, `go vet`, race tests, and the native protocol suite. Run the Linux container checks when changing OS storage or process behavior. Windows changes also require both architecture builds/test compilation and `npm run test:windows:wine` when Wine is available. Keep Wine prefixes disposable and never relax production security checks for compatibility. Report Wine results separately from native Windows and browser verification; Windows ARM64 has no Go race detector. CI runs six native targets with isolated credential stores; see `docs/CI.md`. Validate workflow changes with pinned actionlint, preserve SHA-pinned actions, and package only the production binary and licenses. Keep release signing in the roadmap.
+
+`native-host/storage-evaluation/` is a separate evaluation module, excluded from production and root Go tests. Use its runner when changing those experiments; keep its dependencies isolated and OS-keyring tests synthetic and opt-in. A reproduced capability limitation is not a production adoption pass; see `docs/STORAGE_EVALUATION.md`. Keep the production and evaluation module replacements pinned to the same reviewed keyring-fork commit. Use its context-aware APIs directly; Windows native credential calls finish synchronously after entry.
 
 ## Coding Style & Changes
 

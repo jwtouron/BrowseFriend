@@ -120,7 +120,7 @@ func main() {
 	modules := []string{}
 	for _, platform := range []string{"darwin", "linux", "windows"} {
 		env := []string{"GOOS=" + platform, "GOARCH=amd64", "CGO_ENABLED=0"}
-		modules = append(modules, strings.Split(output(env, "list", "-deps", "-f", "{{if .Module}}{{.Module.Path}}|{{.Module.Version}}|{{.Module.Dir}}{{end}}", "./native-host/cmd/browsefriend-native-host"), "\n")...)
+		modules = append(modules, strings.Split(output(env, "list", "-deps", "-f", "{{with .Module}}{{if .Replace}}{{.Replace.Path}}|{{.Replace.Version}}|{{.Replace.Dir}}{{else}}{{.Path}}|{{.Version}}|{{.Dir}}{{end}}{{end}}", "./native-host/cmd/browsefriend-native-host"), "\n")...)
 	}
 	modules = append(modules, "Go standard library|"+output(nil, "env", "GOVERSION")+"|"+output(nil, "env", "GOROOT"))
 	seen := map[string]bool{}

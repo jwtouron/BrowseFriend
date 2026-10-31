@@ -132,11 +132,17 @@ func TestProcessHelper(t *testing.T) {
 	}
 	store := &Store{Directory: os.Getenv("BROWSEFRIEND_TEST_DIRECTORY"), Key: func(context.Context, bool) ([]byte, error) { return bytes.Repeat([]byte{7}, 32), nil }}
 	if mode == "read-protected" {
-		store = NewStore(store.Directory)
+		service := os.Getenv("BROWSEFRIEND_TEST_KEY_SERVICE")
+		if service == "" {
+			t.Fatal("missing synthetic keyring service")
+		}
+		store.Key = keyringProvider(systemKeyring{}, service)
 	}
 	switch mode {
 	case "read", "read-protected":
-		if err := store.WithLock(context.Background(), func(a *Account) error {
+		if err := store.WithLock(context.Background(), func(tx *AccountTransaction) error {
+			a := tx.Account
+
 			if a.ClientID != "test-client" || a.HostID == "" {
 				t.Fatal("account missing")
 			}
@@ -145,7 +151,7 @@ func TestProcessHelper(t *testing.T) {
 			t.Fatal(err)
 		}
 	case "hold":
-		if err := store.WithLock(context.Background(), func(*Account) error {
+		if err := store.WithLock(context.Background(), func(*AccountTransaction) error {
 			os.Stdout.WriteString("locked\n")
 			var b [1]byte
 			_, err := os.Stdin.Read(b[:])
@@ -207,7 +213,7 @@ func TestPersistenceAndLockAcrossProcesses(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	if err := f.c.Store.WithLock(ctx, func(*Account) error { t.Fatal("process lock bypassed"); return nil }); err != context.DeadlineExceeded {
+	if err := f.c.Store.WithLock(ctx, func(*AccountTransaction) error { t.Fatal("process lock bypassed"); return nil }); err != context.DeadlineExceeded {
 		t.Fatal(err)
 	}
 	input.Write([]byte{1})
@@ -216,16 +222,18 @@ func TestPersistenceAndLockAcrossProcesses(t *testing.T) {
 	if err := cmd.Wait(); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.c.Store.WithLock(context.Background(), func(*Account) error { return nil }); err != nil {
+	if err := f.c.Store.WithLock(context.Background(), func(*AccountTransaction) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 }
 func TestRefreshSerializedAcrossProcesses(t *testing.T) {
 	f := newFixture(t)
 	f.login(t)
-	if err := f.c.Store.WithLock(context.Background(), func(a *Account) error {
+	if err := f.c.Store.WithLock(context.Background(), func(tx *AccountTransaction) error {
+		a := tx.Account
+
 		a.Credentials.ExpiresAt = time.Now().Add(-time.Hour).UnixMilli()
-		return f.c.Store.Save(context.Background(), a)
+		return tx.Save(context.Background())
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -256,33 +264,6 @@ func TestRefreshSerializedAcrossProcesses(t *testing.T) {
 	defer f.mu.Unlock()
 	if f.refreshes != 1 || f.apiCalls != 2 {
 		t.Fatal("refresh grant replayed", f.refreshes, f.apiCalls)
-	}
-}
-func TestOSKeyLinuxSecretService(t *testing.T) {
-	if runtime.GOOS != "linux" || os.Getenv("BROWSEFRIEND_TEST_SECRET_SERVICE") != "1" {
-		t.Skip("requires isolated D-Bus/Secret Service session")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	key := platformKey(t.TempDir())
-	first, err := key(ctx, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := key(ctx, false)
-	if err != nil || !bytes.Equal(first, second) {
-		t.Fatal("key did not persist", err)
-	}
-	third, err := key(ctx, true)
-	if err != nil || !bytes.Equal(first, third) {
-		t.Fatal("key overwritten", err)
-	}
-	cmd := exec.CommandContext(ctx, "/usr/bin/secret-tool", "clear", "application", "browsefriend", "key", "native-host-credentials")
-	if err := cmd.Run(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := key(ctx, false); err == nil {
-		t.Fatal("missing key accepted")
 	}
 }
 func FuzzCompactedContext(f *testing.F) {

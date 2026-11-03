@@ -30,3 +30,5 @@ current tree. The DevKit code license excludes branded visual assets and is not 
 BrowseFriend implements OpenAI's documented public OAuth and Responses protocol directly. Removing
 a runtime dependency does not expand rights to copied assets or change the service's terms.
 Earlier revisions containing DevKit code or patches retain their applicable original terms.
+
+Development-only DOM evaluation uses jsdom (MIT) and its dependency licenses from npm. These packages are development tools, not extension runtime imports or native companion archive inputs.

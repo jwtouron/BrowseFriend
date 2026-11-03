@@ -59,6 +59,7 @@ type Client interface {
 	SignIn(context.Context, bool) (Session, error)
 	SignOut(context.Context) (Session, error)
 	Models(context.Context) ([]object, error)
+	// Stream returns canonical output items in their original order.
 	Stream(context.Context, ModelOptions, func(string)) ([]object, error)
 	Compact(context.Context, ModelOptions) (string, error)
 }

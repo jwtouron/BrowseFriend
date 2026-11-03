@@ -5,6 +5,11 @@ current implementation unless a task explicitly promotes them into scope.
 
 ## Page interaction
 
+- [x] Preserve task-scoped model outputs, observations, and tool results in native memory. Controlled
+  context comparisons passed 9/9 tasks versus 0/9 previously; see [Act evaluations](EVALUATIONS.md).
+- [ ] Expand Act evaluations beyond the initial repository fixtures and investigate remaining
+  unproductive approaches. Keep semantic progress judgments model-owned; broader cycle detection
+  stays deferred until evidence warrants it. Preserve failing traces.
 - [ ] Add a resumable Act clarification and choice flow that can preserve task context while the
   user resolves ambiguous targets, without weakening confirmation or stale-page safeguards.
 - [ ] Add model-prompt file attachments with explicit previews, size/type limits, privacy controls,

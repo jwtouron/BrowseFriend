@@ -156,3 +156,36 @@ test("production Go binary handles fragmented frames and recovers from malformed
   assert.equal(result.error.code, "invalid_request");
   assert.equal(events.some((e) => e.event?.startsWith("test.")), false);
 });
+
+test("native Act context survives framed continuations and never crosses tasks", async (t) => {
+  const driver = goDriver(t);
+  async function step(params) {
+    driver.events.splice(0);
+    driver.send({ id: "task", method: "model.stream", params });
+    const reply = await response(driver, "task");
+    assert.equal(reply.ok, true);
+    return { reply, options: driver.events.find((entry) => entry.event === "test.options").options };
+  }
+  const params = { ...valid, model: "context", mode: "act", pageContext: '{"text":"original-page"}' };
+  let current = await step(params);
+  for (let index = 1; index <= 2; index += 1) {
+    const call = current.reply.result.toolCall;
+    current = await step({ ...params, pageContext: JSON.stringify({ text: "page-" + index }),
+      continuation: { ...call, output: '{"ok":true}' } });
+  }
+  assert.equal(current.reply.result.completed, true);
+  const input = JSON.stringify(current.options.input);
+  assert.match(input, /original-page/);
+  assert.match(input, /page-1/);
+  assert.match(input, /page-2/);
+  assert.match(input, /synthetic-opaque/);
+  assert.equal(current.options.input.filter((item) => item.type === "function_call_output").length, 2);
+  current = await step(params);
+  assert.doesNotMatch(JSON.stringify(current.options.input), /synthetic-opaque|page-1|page-2/);
+  driver.events.splice(0);
+  driver.send({ id: "stop", method: "model.cancel", params: { requestId: "task" } });
+  assert.equal((await response(driver, "stop")).result.cancelled, true);
+  driver.send({ id: "task", method: "model.stream", params: { ...params,
+    continuation: { ...current.reply.result.toolCall, output: '{"ok":true}' } } });
+  assert.equal((await response(driver, "task")).error.code, "act_context_lost");
+});

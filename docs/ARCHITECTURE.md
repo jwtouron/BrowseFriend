@@ -146,9 +146,26 @@ tool call, the task is complete even when that text reports ambiguity or another
 
 The shared Responses API instruction string is `baseInstructions` in
 `shared/host-contract.json`. It defines the untrusted-page boundary; Ask adds a read-only guard,
-while Act adds tool policy. Each request contains eligible transcript pairs, current-page context,
-the original prompt, and any compact current-run action continuation. Earlier page snapshots are not
-copied into transcript history.
+while Act adds tool policy. Ask sends eligible transcript pairs, current-page context, and the
+original prompt. Act initializes those inputs once, then Go retains canonical model output items
+and appends each matching tool result with its fresh page observation in chronological order.
+This includes opaque encrypted reasoning when provided; only validated tool calls and streamed text
+cross back into the extension. The controller remains the owner of tool execution and authorization.
+
+The native handler owns one Act conversation buffer, keyed by submission ID with frozen model,
+effort, and prompt. Continuations must match its pending call ID, name, and arguments. Historical
+captures are untrusted observations; only the latest capture supplies current controls, and the actor
+still validates the current document/revision. Earlier snapshots never become transcript history.
+
+The buffer lives only in Go memory, outside Chrome storage, UI state, logs, and transcript compaction.
+It survives waits within that task, including confirmations, but ends on completion, failure, Stop,
+manual navigation/tab changes, declined or cancelled handoffs, account changes, or companion exit.
+The controller uses one terminal cleanup path and scoped cancellation also clears an idle buffer;
+late callbacks cannot revive cancelled context or clear a newer submission. A fresh task replaces any
+abandoned buffer. Lost context requires a fresh prompt rather than an implicit restart. Its shared
+8-MiB serialized-item budget stops oversized tasks through the existing error flow; there is no
+mid-task truncation or compaction. This byte bound does not guarantee fitting every model's context
+window; API context-limit errors remain possible.
 
 The controller retains completed user/assistant exchanges in the memory-only chat session. When
 reusable context exceeds 256 KiB, it sends only older transcript prose to `/responses/compact`,
@@ -203,3 +220,7 @@ credentials with a key protected by macOS Keychain, Linux Secret Service, or Win
 
 See [Known Limitations](KNOWN_LIMITATIONS.md) for current constraints and the [Roadmap](TODO.md) for
 deferred architecture work.
+
+## Evaluation boundary
+
+The browser-free [Act evaluation harness](EVALUATIONS.md) runs production page extraction, actions, and controller code against trusted HTML in jsdom. An evaluation-only Go executable reuses the handler and model transport with baseline/candidate or blinded grading instructions. Credentials stay in Go; normal account locks and refresh checkpoints apply. No browser registration or runtime endpoint is added to BrowseFriend.

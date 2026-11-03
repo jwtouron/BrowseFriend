@@ -1000,3 +1000,60 @@ test("same-revision repeated actions stop without offering an unsafe retry", asy
   assert.equal(state.issue.retry, null);
   assert.equal(state.messages[1].actions.length, 1);
 });
+
+for (const ending of ["stop", "decline", "file-cancel", "navigation", "error", "complete"]) {
+  test(`Act context cleanup on ${ending} and isolation from the next submission`, async () => {
+    let calls = 0;
+    const harness = createHarness({
+      streamRequest() {
+        calls += 1;
+        if (calls > 1 || ending === "complete") return { result: { completed: true } };
+        return { result: { toolCall: { callId: "private-call", name: "page_click", arguments: '{"ref":"e1"}' } } };
+      },
+      pageActorPrepare() {
+        if (ending === "error") throw { code: "execution_failed", message: "Failed", retryable: false };
+        return { kind: ending === "file-cancel" ? "file" : "submit", target: "Control", requiresConfirmation: ending !== "file-cancel" };
+      },
+      pageActorExecute() { return { kind: "file", waitingForUser: true }; },
+    });
+    await harness.controller.ensureReady();
+    await harness.controller.setMode("act");
+    await harness.controller.submit("first-task", "Do something");
+    await settle();
+    let state = await harness.controller.getState();
+    if (ending === "stop") await harness.controller.stop("first-task");
+    if (ending === "decline") await harness.controller.resolveAction(state.submission.pendingAction.id, false);
+    if (ending === "file-cancel") {
+      const pending = state.submission.pendingAction;
+      harness.fileListeners[0]({ cancelled: true, tabId: pending.context.tabId, documentId: pending.context.documentId, ref: pending.call.args.ref });
+    }
+    if (ending === "navigation") harness.dirtyListeners[0]({ tabId: 4, url: "https://elsewhere.test/" });
+    await settle();
+    state = await harness.controller.getState();
+    assert.equal(state.submission, null);
+    assert.equal(harness.companionCalls.filter((call) => call.method === "model.cancel" && call.params.requestId === "first-task").length, 1);
+    await harness.controller.submit("next-task", "Another question");
+    await settle();
+    const next = harness.companionCalls.find((call) => call.method === "model.stream" && call.explicitId === "next-task");
+    assert.equal(next.params.continuation, undefined);
+    assert.deepEqual(next.params.actionHistory, []);
+  });
+}
+
+for (const code of ["act_context_lost", "act_context_limit"]) {
+  test(`${code} uses the shared error surface and requires a fresh task`, async () => {
+    const harness = createHarness({
+      streamRequest() { throw { code, message: "Start another prompt.", retryable: false }; },
+    });
+    await harness.controller.ensureReady();
+    await harness.controller.setMode("act");
+    await harness.controller.submit("task", "Inspect the page");
+    await settle();
+    const state = await harness.controller.getState();
+    assert.equal(state.submission, null);
+    assert.equal(state.messages.at(-1).error.code, code);
+    assert.equal(state.issue.scope, "generation");
+    assert.equal(state.issue.retry, null);
+    assert.equal(harness.companionCalls.some((call) => call.method === "model.cancel" && call.params.requestId === "task"), true);
+  });
+}

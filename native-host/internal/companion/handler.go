@@ -14,6 +14,7 @@ type Handler struct {
 	mu           sync.Mutex
 	activeID     string
 	modelCancel  context.CancelFunc
+	actTask      *actConversation
 	signInCancel context.CancelFunc
 	signInDone   chan struct{}
 	authEpoch    uint64
@@ -43,6 +44,7 @@ func NewHandler(client Client, send func(any)) *Handler {
 func (h *Handler) Close() {
 	h.cancel()
 	h.mu.Lock()
+	h.actTask = nil
 	if h.modelCancel != nil {
 		h.modelCancel()
 	}
@@ -89,8 +91,13 @@ func (h *Handler) Dispatch(_ context.Context, r Request) {
 		}()
 	case "model.cancel":
 		h.mu.Lock()
-		active := h.modelCancel != nil
-		if active && (text(r.Params["requestId"]) == "" || text(r.Params["requestId"]) == h.activeID) {
+		id := text(r.Params["requestId"])
+		active := h.modelCancel != nil && (id == "" || id == h.activeID)
+		if h.actTask != nil && (id == "" || id == h.actTask.id) {
+			h.actTask = nil
+			active = true
+		}
+		if h.modelCancel != nil && (id == "" || id == h.activeID) {
 			h.modelCancel()
 		}
 		h.mu.Unlock()
@@ -126,6 +133,7 @@ func (h *Handler) auth(r Request) {
 			h.reply(r, nil, context.Canceled)
 			return
 		}
+		h.actTask = nil
 		h.signInCancel = cancel
 		done := make(chan struct{})
 		h.signInDone = done
@@ -145,6 +153,7 @@ func (h *Handler) auth(r Request) {
 		h.mu.Unlock()
 	case "auth.signOut":
 		h.mu.Lock()
+		h.actTask = nil
 		if h.modelCancel != nil {
 			h.modelCancel()
 		}
@@ -314,6 +323,13 @@ func (h *Handler) model(r Request) {
 	}
 	defer release()
 	finish := func(result any, err error) {
+		if err != nil {
+			h.mu.Lock()
+			if h.actTask != nil && h.actTask.id == text(r.ID) {
+				h.actTask = nil
+			}
+			h.mu.Unlock()
+		}
 		// A reply is permission for the caller to start its next operation.
 		release()
 		h.reply(r, result, err)
@@ -341,9 +357,16 @@ func (h *Handler) model(r Request) {
 		finish(object{"compactedContext": s}, e)
 		return
 	}
+	h.mu.Lock()
+	task, taskErr := h.prepareAct(r, &o)
+	h.mu.Unlock()
+	if taskErr != nil {
+		finish(nil, taskErr)
+		return
+	}
 	bytes := 0
 	oversized := false
-	calls, e := h.Client.Stream(ctx, o, func(delta string) {
+	output, e := h.Client.Stream(ctx, o, func(delta string) {
 		bytes += len(delta)
 		if bytes > contract.Limits.ResponseBytes {
 			oversized = true
@@ -363,19 +386,27 @@ func (h *Handler) model(r Request) {
 	if e == nil && ctx.Err() != nil {
 		e = ctx.Err()
 	}
-	if e == nil && len(calls) > 1 {
-		e = failure("multiple_tool_calls", "BrowseFriend received more than one page action at once.", true)
+	calls, outputErr := responseCalls(output)
+	if e == nil {
+		e = outputErr
 	}
 	result := object{"completed": len(calls) == 0}
 	if e == nil && len(calls) == 1 {
-		c := calls[0]
-		_, idOK := c["callId"].(string)
-		_, argsOK := c["arguments"].(string)
-		if !toolAllowed(text(c["name"])) || !idOK || !argsOK {
-			e = failure("invalid_tool_call", "BrowseFriend received an invalid page action.", true)
+		result["toolCall"] = calls[0]
+	}
+	h.mu.Lock()
+	if e == nil && task != nil {
+		if ctx.Err() != nil || h.actTask != task {
+			e = context.Canceled
 		} else {
-			result["toolCall"] = c
+			e = task.append(output...)
+			if len(calls) == 1 {
+				task.pending = calls[0]
+			} else {
+				h.actTask = nil
+			}
 		}
 	}
+	h.mu.Unlock()
 	finish(result, e)
 }

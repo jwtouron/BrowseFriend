@@ -38,15 +38,33 @@ func (f fake) Stream(ctx context.Context, o companion.ModelOptions, delta func(s
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
+	if o.Model == "context" {
+		completed := 0
+		for _, item := range o.Input {
+			if item["type"] == "function_call_output" {
+				completed++
+			}
+		}
+		if completed < 2 {
+			id := "call-one"
+			if completed == 1 {
+				id = "call-two"
+			}
+			return []map[string]any{
+				{"type": "reasoning", "id": "rs_" + id, "encrypted_content": "synthetic-opaque", "summary": []any{}},
+				{"type": "function_call", "call_id": id, "name": "page_click", "arguments": `{"ref":"e1"}`},
+			}, nil
+		}
+	}
 	if o.Model == "tool" {
-		return []map[string]any{{"type": "function_call", "callId": "call-1", "name": "page_click", "arguments": "{\"ref\":\"e1\"}"}}, nil
+		return []map[string]any{{"type": "function_call", "call_id": "call-1", "name": "page_click", "arguments": "{\"ref\":\"e1\"}"}}, nil
 	}
 	if o.Model == "multi" {
-		call := map[string]any{"type": "function_call", "callId": "call-1", "name": "page_click", "arguments": "{}"}
+		call := map[string]any{"type": "function_call", "call_id": "call-1", "name": "page_click", "arguments": "{}"}
 		return []map[string]any{call, call}, nil
 	}
 	if o.Model == "invalid" {
-		return []map[string]any{{"type": "function_call", "callId": "call-1", "name": "execute_script", "arguments": "{}"}}, nil
+		return []map[string]any{{"type": "function_call", "call_id": "call-1", "name": "execute_script", "arguments": "{}"}}, nil
 	}
 	delta("Hello ")
 	delta("world")

@@ -106,3 +106,5 @@ context-aware backends. Secret Service content-type detection and upstream tests
 new tests cover cancellation and attribute validation. After the merge, the
 [upstream checker passed](https://github.com/jwtouron/go-keyring/actions/runs/41152711675)
 without proposing another update.
+
+Native jobs install locked development dependencies with `npm ci --ignore-scripts`. DOM evaluation harness checks use scripted responses in normal verification; real-model A/B evaluations run only through the dedicated local command and never in CI. See [Act evaluations](EVALUATIONS.md).

@@ -1,11 +1,13 @@
 # Native Companion
 
-BrowseFriend's Go companion owns OAuth, protected credentials, model discovery, streaming, and
-compaction. The Chrome extension owns chat state, page extraction, and authorized page actions.
+BrowseFriend's Go companion owns OAuth, protected credentials, model discovery, streaming,
+compaction, and task-scoped Act model context. That context remains in Go memory and is released
+when the task ends; it is never written into account storage. The Chrome extension owns chat state,
+page extraction, and authorized page actions.
 
 ## Build and register
 
-Development requires Go 1.25+. JavaScript tests require Node 22.12+; Go race tests require a C compiler
+Development requires Go 1.25+. JavaScript tests require Node matching `^22.22.2 || ^24.15.0 || >=26.0.0`; Go race tests require a C compiler
 (compatible MinGW-w64 on Windows x64). Go does not support the race detector on Windows ARM64;
 that target runs ordinary tests and reports the distinction.
 The installed binary is built with CGO disabled and requires neither runtime.
@@ -190,3 +192,10 @@ and the expected Chestnut build-failure probe, passed. Generated dependency noti
 new fork revision and retain its MIT/Apache license texts. Fork CI is library-level verification;
 BrowseFriend's complete native Windows companion, ACL/reparse enforcement, and manual Chrome checks
 remain pending.
+
+On 2026-11-01, task-scoped Act context retention passed 127 JavaScript tests, macOS ARM64 Go race
+and vet checks, and Linux ARM64 Docker race/Secret Service and installation/removal checks. Both
+Windows architectures and their test binaries compiled; Windows x64 Wine Go tests, eleven JavaScript
+contracts/configuration checks, and installation/removal passed with a disposable prefix. Native
+Windows security/ARM64 execution and manual Chrome checks remain separate. Real-model comparisons
+used only synthetic pages and are recorded in [Act evaluations](EVALUATIONS.md#task-context-verification-record).

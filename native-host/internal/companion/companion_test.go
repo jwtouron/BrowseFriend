@@ -319,6 +319,10 @@ func TestOAuthAndModelHTTP(t *testing.T) {
 	if f.lastBody["store"] != false || f.lastBody["stream"] != true {
 		t.Fatal(f.lastBody)
 	}
+	include, ok := f.lastBody["include"].([]any)
+	if !ok || len(include) != 1 || include[0] != "reasoning.encrypted_content" {
+		t.Fatal("encrypted reasoning was not requested")
+	}
 	tools := f.lastBody["tools"].([]any)
 	if tools[0].(map[string]any)["type"] != "namespace" {
 		t.Fatal("tools not namespaced")
@@ -489,7 +493,7 @@ func TestSSECompletionAndErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls, err := consumeSSE(context.Background(), strings.NewReader("data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call-1\",\"name\":\"page_click\",\"arguments\":\"{}\"}}\r\n\r\ndata: {\"type\":\"response.completed\"}\r\n\r\n"), func(string) {}, "")
-	if err != nil || len(calls) != 1 || calls[0]["callId"] != "call-1" {
+	if err != nil || len(calls) != 1 || calls[0]["call_id"] != "call-1" {
 		t.Fatal(calls, err)
 	}
 }

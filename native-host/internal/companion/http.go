@@ -211,7 +211,7 @@ func (c *Connection) Stream(ctx context.Context, o ModelOptions, delta func(stri
 	}
 	ctx, cancel := context.WithTimeout(ctx, 180*time.Second)
 	defer cancel()
-	body := object{"model": o.Model, "input": apiInput(o.Input), "instructions": o.Instructions, "store": false, "stream": true}
+	body := object{"model": o.Model, "input": apiInput(o.Input), "instructions": o.Instructions, "store": false, "stream": true, "include": []string{"reasoning.encrypted_content"}}
 	if o.ReasoningEffort != "" {
 		body["reasoning"] = object{"effort": o.ReasoningEffort}
 	}
@@ -240,7 +240,8 @@ func consumeSSE(ctx context.Context, in io.Reader, delta func(string), requestID
 	scanner.Buffer(make([]byte, 4096), 1024*1024)
 	data := []string{}
 	eventBytes := 0
-	calls := []object{}
+	output := []object{}
+	outputBytes := 0
 	process := func() (bool, error) {
 		if len(data) == 0 {
 			return false, nil
@@ -261,9 +262,16 @@ func consumeSSE(ctx context.Context, in io.Reader, delta func(string), requestID
 				delta(s)
 			}
 		case "response.output_item.done":
-			if item, ok := e["item"].(map[string]any); ok && item["type"] == "function_call" {
-				calls = append(calls, object{"type": "function_call", "callId": item["call_id"], "name": item["name"], "arguments": item["arguments"]})
+			item, ok := e["item"].(map[string]any)
+			if !ok || !has([]string{"message", "reasoning", "function_call"}, text(item["type"])) {
+				return false, failure("invalid_stream", "ChatGPT returned an unsupported response item.", false)
 			}
+			encoded, err := json.Marshal(item)
+			outputBytes += len(encoded)
+			if err != nil || outputBytes > contract.Limits.ActContextBytes {
+				return false, actContextLimit()
+			}
+			output = append(output, item)
 		case "response.completed":
 			return true, nil
 		case "response.failed":
@@ -283,7 +291,7 @@ func consumeSSE(ctx context.Context, in io.Reader, delta func(string), requestID
 		if line == "" {
 			done, err := process()
 			if done || err != nil {
-				return calls, err
+				return output, err
 			}
 		} else if strings.HasPrefix(line, "data:") {
 			eventBytes += len(line)

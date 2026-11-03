@@ -392,6 +392,14 @@ export function installAppController({
     chat.authorization = null;
   }
 
+  function finishSubmission(chat, submission) {
+    finishTaskMode(chat, submission);
+    chat.submission = null;
+    if (submission.requestStarted) {
+      void companion.request("model.cancel", { requestId: submission.id }).catch(() => undefined);
+    }
+  }
+
   function assistantFor(chat, submission) {
     return chat.messages.find((message) => message.id === submission.assistantId);
   }
@@ -416,12 +424,11 @@ export function installAppController({
       assistant.status = publicError.code === "cancelled" ? "stopped" : "error";
       assistant.error = publicError.code === "cancelled" ? null : publicError;
     }
-    finishTaskMode(chat, submission);
-    chat.submission = null;
+    finishSubmission(chat, submission);
     if (publicError.code !== "cancelled") {
       const canRetry = !submission.actionExecuted &&
         !["action_limit_reached", "action_loop_detected", "act_authorization_changed",
-          "user_navigated"].includes(publicError.code);
+          "user_navigated", "act_context_lost", "act_context_limit"].includes(publicError.code);
       issue = {
         kind: "error",
         scope: "generation",
@@ -760,8 +767,7 @@ export function installAppController({
       }
       const assistant = chat.messages.find((message) => message.id === submission.assistantId);
       if (assistant) assistant.status = "complete";
-      finishTaskMode(chat, submission);
-      chat.submission = null;
+      finishSubmission(chat, submission);
       issue = null;
       await publish(chat);
     } catch (error) {
@@ -931,8 +937,7 @@ export function installAppController({
       }
       if (action) action.status = "cancelled";
       if (assistant) assistant.status = "stopped";
-      finishTaskMode(chat, submission);
-      chat.submission = null;
+      finishSubmission(chat, submission);
       issue = null;
       await publish(chat);
       return publicState(chat);
@@ -976,13 +981,9 @@ export function installAppController({
       assistant.status = "stopped";
       assistant.error = null;
     }
-    finishTaskMode(chat, submission);
-    chat.submission = null;
+    finishSubmission(chat, submission);
     if (issue?.scope === "generation") issue = null;
     await publish(chat);
-    if (submission.requestStarted) {
-      void companion.request("model.cancel", { requestId: submission.id }).catch(() => undefined);
-    }
     return { state: publicState(chat), draft };
   }
 
@@ -1127,8 +1128,7 @@ export function installAppController({
       if (event.cancelled) {
         if (action) action.status = "cancelled";
         if (assistant) assistant.status = "stopped";
-        finishTaskMode(chat, submission);
-        chat.submission = null;
+        finishSubmission(chat, submission);
         await publish(chat);
         return;
       }
@@ -1179,10 +1179,7 @@ export function installAppController({
             retryable: false,
           };
         }
-        chat.submission = null;
-        if (submission.requestStarted) {
-          void companion.request("model.cancel", { requestId: submission.id }).catch(() => undefined);
-        }
+        finishSubmission(chat, submission);
       } else if (!submission) {
         const resetAct = chat.mode === "act" && authorized &&
           ((event.activated && event.tabId !== authorized.tabId) ||

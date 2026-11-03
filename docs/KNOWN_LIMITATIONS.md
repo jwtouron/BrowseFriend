@@ -81,3 +81,13 @@ random loopback listener only while completing the hosted OAuth callback.
   does not restart an answer automatically.
 
 Revisit these constraints when multimodal transport, a supported pure-extension authentication flow, or packaged installers become available.
+
+Instruction behavior is best-effort. [Act evaluations](EVALUATIONS.md) measure real-model decisions on controlled HTML, with fallible model grading; simulated DOM/layout/navigation coverage does not certify real Chrome UI or arbitrary websites.
+The initial controlled Act evaluation did not demonstrate an improvement from the progress
+instructions: both variants revisited the same source file until the evaluation budget expired.
+Act now retains ordered page observations, canonical model outputs, and tool results for the current
+task in Go memory. It does not carry them into later prompts. Context is capped at 8 MiB without
+mid-task compaction; individual model context windows can impose a smaller effective limit. A
+companion restart loses unfinished task context. Three paired fixture repetitions passed 9/9 tasks
+with retention versus 0/9 previously under identical instructions. See [evaluations](EVALUATIONS.md#task-context-verification-record);
+improved task memory does not guarantee that the model avoids all unproductive approaches.

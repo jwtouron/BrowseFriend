@@ -18,7 +18,7 @@ type Definition struct {
 	Efforts                                            []string
 	BaseInstructions, AskInstructions, ActInstructions string
 	AppName, HostName, ExtensionOrigin                 string
-	Limits                                             struct{ ContextBytes, HistoryBytes, CompactionBytes, PromptBytes, ResponseBytes, DeltaChars int }
+	Limits                                             struct{ ContextBytes, HistoryBytes, CompactionBytes, PromptBytes, ResponseBytes, DeltaChars, ActContextBytes int }
 }
 
 var Contract Definition

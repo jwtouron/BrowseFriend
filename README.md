@@ -12,7 +12,8 @@ Linux Secret Service, or Windows Credential Manager.
 BrowseFriend does not create product accounts, subscriptions, or billing. It does not read ChatGPT cookies, conversations, memory, or private endpoints. The official flow can use eligible ChatGPT plan usage but does not grant access to ChatGPT history or memory.
 
 Model requests use `store: false`; BrowseFriend supplies only its fixed instructions, local transcript,
-current page context, and current prompt. When reusable transcript context exceeds 256 KiB,
+current page context, and current prompt. During one Act task, Go also retains earlier page
+observations, model outputs, and tool results in memory, discarding them when the task ends. When reusable transcript context exceeds 256 KiB,
 BrowseFriend uses OpenAI's stateless compaction endpoint and keeps the latest eight exchanges
 verbatim. Past page-action records are included only for those eight exchanges. The transcript and
 opaque compacted context use one global Chrome session shared by open panels and disappear when
@@ -21,7 +22,7 @@ Chrome restarts or the extension reloads.
 ## Prerequisites
 
 - Google Chrome 141 or newer on macOS, desktop Linux, or Windows 11 (x64/ARM64).
-- Node.js 22.12 or newer for JavaScript tests only.
+- Node.js matching `^22.22.2 || ^24.15.0 || >=26.0.0` for JavaScript tests only.
 - Go 1.25+ to build/test the companion; a C compiler for race tests.
 - Linux only: a running D-Bus session and Secret Service provider (for example GNOME Keyring).
 - A ChatGPT account eligible for Sign in with ChatGPT plan usage.
@@ -90,6 +91,8 @@ With an empty composer, use Up or Ctrl+P to recall earlier prompts; continue wit
 
 If the panel reports that the companion is unavailable, rerun `npm run install:host`, reload the extension, and select **Retry**.
 
+See [Act evaluations](docs/EVALUATIONS.md) for browser-free HTML simulation and real-model instruction and task-context comparisons. `npm run eval:act` always makes real model calls; ordinary verification uses scripted responses. Run `npm ci` before development checks.
+
 ## Development commands
 
 ```sh
@@ -121,6 +124,7 @@ The extension remains plain HTML, CSS, and JavaScript with no browser-side build
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) explains components, data flows, storage, and trust boundaries.
+- [Act evaluations](docs/EVALUATIONS.md) explains when to run real-model tests, add simulated websites, and compare behavior.
 - [Known limitations](docs/KNOWN_LIMITATIONS.md) records current platform and model constraints.
 - [Roadmap](docs/TODO.md) tracks explicitly deferred work and investigations.
 - [CI and artifacts](docs/CI.md) describes native verification and downloadable development builds.

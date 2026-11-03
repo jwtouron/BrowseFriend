@@ -21,7 +21,7 @@ Give mutable workflow state one owner and model it with small explicit state mac
 
 Prefer the model for semantic judgment, planning, ranking, ambiguity resolution, and deciding which allowed tool to use. Keep deterministic code responsible for trust boundaries, input validation, authorization, confirmations, sensitive-data handling, resource limits, state transitions, and recovery. Do not duplicate model judgment with extension heuristics unless a documented safety or reliability requirement demands it.
 
-Give asynchronous work stable IDs or epochs and ignore stale completion. Normalize errors once, represent recovery as typed intent instead of callbacks, and keep persistent readiness work independent from cancellable user actions. The controller owns Ask/Act authorization, the tool loop, and pending confirmation; the page actor owns DOM validation and execution. Never re-resolve a stale action with page-provided selectors. Add transition tests whenever a state or workflow edge changes. Account saves belong to the active lock-scoped transaction; reuse its key only for that callback and preserve independently durable refresh checkpoints.
+Give asynchronous work stable IDs or epochs and ignore stale completion. Normalize errors once, represent recovery as typed intent instead of callbacks, and keep persistent readiness work independent from cancellable user actions. The controller owns Ask/Act authorization, the tool loop, and pending confirmation; the page actor owns DOM validation and execution. Never re-resolve a stale action with page-provided selectors. Add transition tests whenever a state or workflow edge changes. Keep accumulated Act model context in companion memory, separate from saved transcript history and panel state, and release it at every task termination. Account saves belong to the active lock-scoped transaction; reuse its key only for that callback and preserve independently durable refresh checkpoints.
 
 ## Roadmap Maintenance
 
@@ -35,7 +35,7 @@ An explicit request such as **commit it** authorizes staging all changes that be
 
 ## Development and Verification
 
-Development requires Go 1.25+ and Node.js 22.12+ for JavaScript tests; race tests require a C compiler. Build with `go run ./native-host/cmd/build --check`; add `--install` to register the companion on any supported platform. The installed binary requires neither Go nor Node. Load the repository from `chrome://extensions` using **Developer mode → Load unpacked**.
+Development requires Go 1.25+ and Node.js matching `^22.22.2 || ^24.15.0 || >=26.0.0` for JavaScript tests; race tests require a C compiler. Build with `go run ./native-host/cmd/build --check`; add `--install` to register the companion on any supported platform. The installed binary requires neither Go nor Node. Load the repository from `chrome://extensions` using **Developer mode → Load unpacked**.
 
 Before submitting:
 
@@ -43,6 +43,8 @@ Before submitting:
 - Exercise missing-helper, authentication, page-unavailable, stale-page, streaming, cancellation, restored-chat, New chat, and logout states.
 - Check narrow/wide layouts, both color schemes, keyboard focus, and the side-panel console.
 - Never make a live model request in authentication-only tests.
+
+For changes to Act instructions, model context, or tool-loop behavior that can affect model decisions, use the browser-free real-model evaluations in [docs/EVALUATIONS.md](docs/EVALUATIONS.md). `npm run verify` checks the harness with scripted responses; it does not establish model effectiveness. Run `npm run eval:act -- --model <slug> --effort medium --repeat 3` with the saved BrowseFriend connection, holding model, effort, fixtures, and grading fixed across comparisons. Preserve an evaluator before implementation changes when comparing task context; use the guide's `--baseline-host` workflow. Add representative fixtures and outcome checks for new behaviors, inspect traces, and report unavailable authentication or inconclusive runs explicitly. Keep live evaluations separate from CI and authentication-only tests.
 
 Go code must pass `gofmt`, `go vet`, race tests, and the native protocol suite. Run the Linux container checks when changing OS storage or process behavior. Windows changes also require both architecture builds/test compilation and `npm run test:windows:wine` when Wine is available. Keep Wine prefixes disposable and never relax production security checks for compatibility. Report Wine results separately from native Windows and browser verification; Windows ARM64 has no Go race detector. CI runs six native targets with isolated credential stores; see `docs/CI.md`. Validate workflow changes with pinned actionlint, preserve SHA-pinned actions, and package only the production binary and licenses. Keep release signing in the roadmap.
 

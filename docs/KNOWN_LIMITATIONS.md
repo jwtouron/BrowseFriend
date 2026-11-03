@@ -14,6 +14,11 @@ Chrome communicates with the companion through Native Messaging over standard in
 companion is not a permanent localhost service. **Continue with ChatGPT** temporarily opens a
 random loopback listener only while completing the hosted OAuth callback.
 
+A [DNR callback investigation](AUTH_DNR_INVESTIGATION.md) demonstrated listener-free callback
+redirection with synthetic data in headless Brave/Chromium 156. OpenAI documents a loopback
+listener, and support for intercepted delivery remains unverified. DNR also does not provide
+protected credential storage; it does not currently remove the native-companion requirement.
+
 ## Credential storage
 
 - Windows requires protected owner/SYSTEM ACLs. Safe inherited permissions or normal Administrators

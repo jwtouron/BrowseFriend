@@ -72,3 +72,5 @@ current implementation unless a task explicitly promotes them into scope.
   Users must not need to install a language runtime.
 - [ ] Add explicit account-selection support if multiple registrations become necessary.
 - [ ] Re-evaluate the native-companion requirement if OpenAI supports a secure pure-extension flow.
+  The [DNR investigation](AUTH_DNR_INVESTIGATION.md) verified synthetic callback interception in
+  Brave/Chromium 156; OpenAI support and protected credential persistence remain unresolved.

@@ -108,6 +108,31 @@ python3 -m json.tool manifest.json
 
 Go-only builds use `go run ./native-host/cmd/build --check`. Add `--cross` to build macOS/Linux/Windows ARM64/x64 artifacts and compile Windows tests. The build emits `build/THIRD-PARTY-NOTICES.txt`; include it when sharing binaries. Node is used for development tests, not for the installed companion. Native Windows verification is prepared in `tests/windows/verify.ps1`; its execution is pending.
 
+### Optional mise setup
+
+If you use [mise](https://mise.jdx.dev/), the checked-in `mise.toml` selects the same Go and Node
+versions as CI, plus actionlint for workflow checks. npm comes with Node; Go includes `gofmt` and
+`go vet`. You can instead install the prerequisites yourself and use the Go/npm commands above.
+
+```sh
+mise trust
+mise install
+mise run deps       # npm ci --ignore-scripts
+mise run verify     # npm run verify, including npm's pretest hook
+mise tasks          # List available tasks
+```
+
+Every npm script has a task with the same name, including `build:host`, `test:host`, `install:host`,
+`uninstall:host`, `test:windows:wine`, `lint`, and `eval:act`. Tasks delegate to npm and forward
+arguments; for example, `mise run eval:act --model <slug> --effort medium --repeat 3`.
+`mise run lint:workflow` runs the pinned actionlint. Install development dependencies explicitly
+with `mise run deps` or `npm ci`; verification does not reinstall them.
+
+mise is optional for contributors, tests, and CI. A C compiler for race tests and Chrome remain
+platform prerequisites. Linux credential-store services, Docker for container checks, and Wine for
+Windows compatibility checks are installed separately when needed; mise does not provision them.
+Keep version pins aligned with CI when upgrading tools.
+
 ## Continuous integration and downloads
 
 GitHub Actions is configured to build and test all six native OS/architecture targets. Each passing

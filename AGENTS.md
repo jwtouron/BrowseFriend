@@ -37,6 +37,8 @@ An explicit request such as **commit it** authorizes staging all changes that be
 
 Development requires Go 1.25+ and Node.js matching `^22.22.2 || ^24.15.0 || >=26.0.0` for JavaScript tests; race tests require a C compiler. Build with `go run ./native-host/cmd/build --check`; add `--install` to register the companion on any supported platform. The installed binary requires neither Go nor Node. Load the repository from `chrome://extensions` using **Developer mode → Load unpacked**.
 
+Optional mise tooling selects CI-aligned Go/Node versions and actionlint. Contributors and agents may use `mise install`, `mise run deps`, and same-named tasks such as `mise run verify`; direct Go/npm commands remain fully supported. Do not require mise or install it just to run checks. Keep its tool pins aligned with CI. See the optional setup in `README.md`.
+
 Before submitting:
 
 - Run `npm run verify` (syntax, tests, and manifest parsing) and `git diff --check`.

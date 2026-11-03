@@ -10,6 +10,11 @@ Install development dependencies with `npm ci`. Node must satisfy
 `^22.22.2 || ^24.15.0 || >=26.0.0`; Go 1.25+ is required. The command builds its separate
 evaluation helper locally. That helper is not registered or packaged as the production host.
 
+If you use mise, the equivalent command is
+`mise run eval:act --model <account-model-slug> --effort medium --repeat 1`, after optional tool
+setup and `mise run deps`. Arguments go directly after the task name; mise adds npm's separator.
+The existing npm command works without mise. See [optional setup](../README.md#optional-mise-setup).
+
 ## When to use and extend the harness
 
 Use real-model evaluations when changing Act instructions, retained model context, or tool-loop

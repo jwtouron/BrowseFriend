@@ -6,6 +6,25 @@ import { runHost } from "./helpers/host-process.mjs";
 import test from "node:test";
 import { HOST_CONTRACT } from "../shared/host-contract.js";
 
+test("optional mise pins match the CI toolchain without requiring mise", async () => {
+  const [mise, workflow] = await Promise.all([
+    readFile(new URL("../mise.toml", import.meta.url), "utf8"),
+    readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8"),
+  ]);
+  const tools = mise.split("[tools]")[1].split(/\n\[/)[0];
+  function version(source, pattern) {
+    const match = source.match(pattern);
+    assert.ok(match, `Missing tool version matching ${pattern}`);
+    return match[1];
+  }
+  assert.equal(version(tools, /^go\s*=\s*"([^"]+)"/m),
+    version(workflow, /^  GO_VERSION:\s*'([^']+)'/m));
+  assert.equal(version(tools, /^node\s*=\s*"([^"]+)"/m),
+    version(workflow, /^  NODE_VERSION:\s*'([^']+)'/m));
+  assert.equal(version(tools, /^"go:github\.com\/rhysd\/actionlint\/cmd\/actionlint"\s*=\s*"([^"]+)"/m),
+    version(workflow, /actionlint@v([\d.]+)/));
+});
+
 test("project Markdown uses the root exceptions and docs directory", async () => {
   const root = new URL("../", import.meta.url);
   const markdown = (await readdir(root)).filter((p) => p.endsWith(".md")).sort();

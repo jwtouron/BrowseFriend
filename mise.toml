@@ -1,0 +1,55 @@
+# Optional contributor tooling; direct Go and npm commands remain supported.
+# Keep these versions aligned with .github/workflows/ci.yml.
+[tools]
+go = "1.27.3"
+node = "24.22.1"
+"go:github.com/rhysd/actionlint/cmd/actionlint" = "1.7.12"
+# npm ships with Node; gofmt and go vet ship with Go.
+
+[tasks.deps]
+description = "Install locked JavaScript development dependencies"
+run = "npm ci --ignore-scripts"
+
+[tasks."lint:workflow"]
+description = "Validate GitHub Actions workflows"
+run = "actionlint"
+
+[tasks."build:host"]
+description = "Build and check the native companion"
+run = "npm run build:host --"
+
+[tasks."test:host"]
+description = "Run Go race tests, vet, and build checks"
+run = "npm run test:host --"
+
+[tasks."install:host"]
+description = "Build and register the native companion"
+run = "npm run install:host --"
+
+[tasks."uninstall:host"]
+description = "Unregister the native companion"
+run = "npm run uninstall:host --"
+
+[tasks."test:windows:wine"]
+description = "Run Windows compatibility checks in disposable Wine"
+run = "npm run test:windows:wine --"
+
+[tasks."pretest"]
+description = "Build the companion and run Go checks before JavaScript tests"
+run = "npm run pretest --"
+
+[tasks."test"]
+description = "Run Go checks and JavaScript tests through npm lifecycle hooks"
+run = "npm run test --"
+
+[tasks."lint"]
+description = "Check JavaScript syntax"
+run = "npm run lint --"
+
+[tasks."verify"]
+description = "Run syntax, Go, JavaScript, and manifest checks"
+run = "npm run verify --"
+
+[tasks."eval:act"]
+description = "Evaluate Act behavior using the saved ChatGPT connection"
+run = "npm run eval:act --"

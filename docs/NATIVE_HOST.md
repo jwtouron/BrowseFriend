@@ -12,6 +12,11 @@ Development requires Go 1.25+. JavaScript tests require Node matching `^22.22.2 
 that target runs ordinary tests and reports the distinction.
 The installed binary is built with CGO disabled and requires neither runtime.
 
+If you use mise, `mise install` selects the pinned development tools and `mise run build:host`
+wraps `npm run build:host`; installation and test tasks keep the same npm names. Go/npm commands
+work independently of mise. See [optional setup](../README.md#optional-mise-setup) for tasks and
+platform prerequisites.
+
 ```sh
 go run ./native-host/cmd/build --check --install
 go run ./native-host/cmd/build --check --uninstall

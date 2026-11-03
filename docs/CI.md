@@ -15,8 +15,11 @@ first green results remain pending until the initial push.
 | Windows x64 | `windows-2025` | Required with MinGW-w64 |
 | Windows ARM64 | `windows-11-arm` | Unavailable; ordinary tests run |
 
-CI pins Go 1.27.3, Node 24.22.1, and action commit hashes. It asserts the Go and Node architectures
-before testing, validates the workflow with actionlint 1.7.12, and checks Go formatting. Text files
+CI pins Go 1.27.3, Node 24.22.1, and action commit hashes. The optional contributor `mise.toml`
+mirrors these tool versions and actionlint 1.7.12; a configuration test checks parity without
+requiring mise. CI continues to use setup-go/setup-node and the existing npm commands. It asserts
+the Go and Node architectures before testing, validates the workflow with actionlint 1.7.12, and
+checks Go formatting. Text files
 check out with LF endings on every OS, preventing Windows Git conversion from changing source
 formatting or the generated browser contract. Each native
 job runs `npm run verify`: JavaScript syntax/tests, manifest parsing, Go tests/vet, generated-contract

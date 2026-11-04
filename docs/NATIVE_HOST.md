@@ -1,7 +1,9 @@
 # Native Companion
 
 BrowseFriend's Go companion owns OAuth, protected credentials, model discovery, streaming,
-compaction, and task-scoped Act model context. That context remains in Go memory and is released
+compaction, and task-scoped Act model context. Opaque compaction lives in a separate 320-KiB native
+cache scoped to the conversation, model, and authentication generation; Chrome receives only a handle
+and byte count. The Act context remains in Go memory and is released
 when the task ends; it is never written into account storage. The Chrome extension owns chat state,
 page extraction, and authorized page actions.
 
@@ -98,6 +100,17 @@ remain pending until the initial push; writing the workflow does not mark native
 
 Add `--package` to archive the local production binary and its licenses under `build/packages/`,
 with a SHA-256 sidecar. The helper packages only its native target, even when combined with `--cross`.
+
+### Compaction protocol
+
+Each `model.compact` and `model.stream` request names a `conversationId`. Compaction returns
+`{contextHandle, contextBytes}`; later compaction or the initial generation can reference that handle.
+`model.context.clear` accepts a conversation ID and cannot clear a newer conversation's cache.
+The native cache never enters files, extension messages, or Chrome storage. The browser retains
+only metadata and transcript checkpoints; it reserves the reported bytes in its history budget.
+An expired handle returns `model_context_lost` before transport. The controller falls back once to
+bounded available transcript prose for initial requests, without replaying Act actions. Act
+continuations use retained task context and do not resolve the transcript handle again.
 
 ## Windows verification commands
 
@@ -206,3 +219,13 @@ Windows architectures and their test binaries compiled; Windows x64 Wine Go test
 contracts/configuration checks, and installation/removal passed with a disposable prefix. Native
 Windows security/ARM64 execution and manual Chrome checks remain separate. Real-model comparisons
 used only synthetic pages and are recorded in [Act evaluations](EVALUATIONS.md#task-context-verification-record).
+
+On 2026-11-03 (local date), the native compaction cache passed Linux x64 race/vet, Native Messaging
+contracts including actual process restart, and all 140 JavaScript tests. All six target binaries
+built and both Windows test suites compiled. Workflow linting and diff checks passed. Live paired
+runs authenticated with process-local credentials and passed the three existing fixtures on both
+variants, but the requested three-repetition comparison remained inconclusive: a provider error,
+a corrected grader-trace limit, and HTTP 401 `hardened_oauth_rule_missing` on compaction prevented
+completion. See [Act evaluations](EVALUATIONS.md#native-compaction-cache-verification-record).
+Manual Chrome layouts/console/restart, Docker, Wine, and native execution on other platforms remain
+pending, as authorized for this staged handoff.

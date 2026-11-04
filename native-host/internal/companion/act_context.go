@@ -5,10 +5,10 @@ import "encoding/json"
 // actConversation is transport context, never workflow or authorization state.
 // The handler mutex protects it; only one submission can retain a conversation.
 type actConversation struct {
-	id, model, effort, prompt string
-	input                     []object
-	pending                   object
-	bytes                     int
+	id, model, effort, prompt, conversation string
+	input                                   []object
+	pending                                 object
+	bytes                                   int
 }
 
 func actContextLimit() error {
@@ -41,7 +41,7 @@ func (h *Handler) prepareAct(r Request, o *ModelOptions) (*actConversation, erro
 		if t != nil && t.id == text(r.ID) {
 			return invalid()
 		}
-		t = &actConversation{id: text(r.ID), model: o.Model, effort: o.ReasoningEffort, prompt: text(r.Params["prompt"])}
+		t = &actConversation{id: text(r.ID), model: o.Model, effort: o.ReasoningEffort, prompt: text(r.Params["prompt"]), conversation: text(r.Params["conversationId"])}
 		if err := t.append(o.Input...); err != nil {
 			return nil, err
 		}
@@ -49,7 +49,7 @@ func (h *Handler) prepareAct(r Request, o *ModelOptions) (*actConversation, erro
 	} else {
 		c := r.Params["continuation"].(map[string]any) // validated by options
 		if t == nil || t.id != text(r.ID) || t.model != o.Model || t.effort != o.ReasoningEffort ||
-			t.prompt != text(r.Params["prompt"]) || t.pending == nil ||
+			t.prompt != text(r.Params["prompt"]) || t.conversation != text(r.Params["conversationId"]) || t.pending == nil ||
 			c["callId"] != t.pending["callId"] || c["name"] != t.pending["name"] || c["arguments"] != t.pending["arguments"] {
 			return invalid()
 		}

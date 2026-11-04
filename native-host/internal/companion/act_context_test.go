@@ -23,7 +23,7 @@ func contextCall(id string) object {
 	return object{"type": "function_call", "id": "fc_" + id, "call_id": id, "namespace": "browsefriend", "name": "page_click", "arguments": `{"ref":"e1"}`}
 }
 func contextParams() object {
-	return object{"model": "model-1", "history": []any{}, "mode": "act", "prompt": "Read both files", "pageContext": `{"text":"First observation"}`, "reasoningEffort": "medium"}
+	return object{"conversationId": "conversation-1", "model": "model-1", "history": []any{}, "mode": "act", "prompt": "Read both files", "pageContext": `{"text":"First observation"}`, "reasoningEffort": "medium"}
 }
 func continueParams(call string) object {
 	p := contextParams()
@@ -104,7 +104,7 @@ func TestActContextPreservesChronologyAndClearsCompletion(t *testing.T) {
 	}
 }
 func TestActContinuationValidation(t *testing.T) {
-	for _, kind := range []string{"missing", "wrong-id", "wrong-model", "wrong-effort", "wrong-prompt", "wrong-call", "wrong-args", "wrong-name", "invalid-result", "invalid-page", "duplicate"} {
+	for _, kind := range []string{"missing", "wrong-id", "wrong-conversation", "wrong-model", "wrong-effort", "wrong-prompt", "wrong-call", "wrong-args", "wrong-name", "invalid-result", "invalid-page", "duplicate"} {
 		t.Run(kind, func(t *testing.T) {
 			h, run := contextHarness(t, func(context.Context, ModelOptions, func(string)) ([]object, error) {
 				return []object{contextCall("one")}, nil
@@ -119,6 +119,8 @@ func TestActContinuationValidation(t *testing.T) {
 				id = "other"
 			case "wrong-model":
 				p["model"] = "other"
+			case "wrong-conversation":
+				p["conversationId"] = "other"
 			case "wrong-effort":
 				p["reasoningEffort"] = "low"
 			case "wrong-prompt":

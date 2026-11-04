@@ -7,6 +7,13 @@ import { createSite, FILES } from "./site.mjs";
 export async function runCase({ scenario, companion, model, effort = "medium", timeout = 300_000 }) {
   const site = await createSite(scenario);
   const storageData = {};
+  if (scenario === "compaction") {
+    storageData["browsefriend.chat.session"] = { messages: Array.from({ length: 10 }, (_, index) => [
+      { id: `user-${index}`, role: "user", text: index === 0 ? "Remember our project codeword: cobalt." : `Earlier question ${index}.` },
+      { id: `assistant-${index}`, role: "assistant", status: "complete", createdAt: index,
+        text: `Earlier synthetic discussion ${index}. ` + "Routine repository discussion. ".repeat(1100) },
+    ]).flat() };
+  }
   const storage = { async get(key) { return { [key]: structuredClone(storageData[key]) }; }, async set(values) { Object.assign(storageData, structuredClone(values)); } };
   const settings = { "browsefriend.settings.model": model, "browsefriend.settings.reasoningEffort": effort };
   const pageReader = installPageReader(site);
@@ -21,10 +28,18 @@ export async function runCase({ scenario, companion, model, effort = "medium", t
           if (params.model !== model || params.reasoningEffort !== effort) {
             throw { code: "eval_settings_changed", message: "Model or effort was not applied as requested.", retryable: false };
           }
-          site.trace.push({ kind: "modelInput", params: structuredClone(params) });
+          const { history, compactedContext, contextHandle, ...visible } = params;
+          site.trace.push({ kind: "modelInput", params: structuredClone(visible),
+            historyCount: history.length, hasCompactedContext: Boolean(compactedContext || contextHandle) });
           site.advance();
         }
-        const result = await companion.request(method, params, onEvent, id);
+        let result;
+        try { result = await companion.request(method, params, onEvent, id); }
+        catch (error) {
+          if (method === "model.compact") site.trace.push({ kind: "compaction", error: { code: error.code, status: error.status } });
+          throw error;
+        }
+        if (method === "model.compact") site.trace.push({ kind: "compaction", available: Boolean(result.result?.contextHandle || result.result?.compactedContext) });
         if (method === "model.stream") {
           site.trace.push({ kind: "modelResult", result: structuredClone(result) });
           if (result.result?.toolCall && ++calls > 8) {
@@ -39,9 +54,10 @@ export async function runCase({ scenario, companion, model, effort = "medium", t
   try {
     await controller.ensureReady();
     let current = await controller.getState();
-    if (current.connection.phase !== "ready") throw current.issue?.error || new Error("Saved ChatGPT connection is not ready");
+    if (current.connection.phase !== "ready") throw current.issue?.error || new Error("ChatGPT connection is not ready");
     await controller.setMode("act");
-    await controller.submit(randomUUID(), "Find all functions named main in this repository. Report their file paths and function names.");
+    await controller.submit(randomUUID(), "Find all functions named main in this repository. Report their file paths and function names." +
+      (scenario === "compaction" ? " Also repeat the project codeword we agreed on earlier." : ""));
     const end = Date.now() + timeout;
     for (;;) {
       current = await controller.getState();
@@ -65,10 +81,14 @@ export async function runCase({ scenario, companion, model, effort = "medium", t
     const sourceChecked = sourcePaths.every((path) => site.state.visited.includes(path));
     const outcome = scenario === "blocked"
       ? site.state.visited.some((path) => ["/repo/search", "/repo/tree/master"].includes(path))
-      : sourceChecked && FILES.every((file) => answer.text.includes(file));
-    return { scenario, answer: answer.text, status: answer.status, error: answer.error || null,
-      toolCalls: calls, budgetExceeded, haltReason, passedChecks: answer.status === "complete" && !budgetExceeded && !haltReason && outcome,
-      groundTruth: scenario === "blocked" ? "Indexing prevents both search and source browsing; no function findings are justified." : { files: FILES, sourceChecked },
+      : sourceChecked && FILES.every((file) => answer.text.includes(file)) &&
+        (scenario !== "compaction" || /\bcobalt\b/i.test(answer.text));
+    const compactionUsed = site.trace.some((entry) => entry.kind === "modelInput" && entry.hasCompactedContext);
+    return { scenario, compactionUsed, answer: answer.text, status: answer.status, error: answer.error || null,
+      toolCalls: calls, budgetExceeded, haltReason, passedChecks: answer.status === "complete" && !budgetExceeded && !haltReason && outcome &&
+        (scenario !== "compaction" || compactionUsed),
+      groundTruth: scenario === "blocked" ? "Indexing prevents both search and source browsing; no function findings are justified." :
+        { files: FILES, sourceChecked, ...(scenario === "compaction" ? { projectCodeword: "cobalt" } : {}) },
       transitions: [...site.state.transitions], trace: structuredClone(site.trace) };
   } finally { site.close(); }
 }

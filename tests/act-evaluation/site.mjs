@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 import { JSDOM } from "jsdom";
 
-export const SCENARIOS = ["blocked", "alternative", "changed"];
+export const SCENARIOS = ["blocked", "alternative", "changed", "compaction"];
 export const FILES = ["cmd/client/main.go", "cmd/server/main.go"];
 const event = () => {
   const listeners = [];
@@ -27,10 +27,10 @@ export async function createSite(scenario) {
     const source = FILES.find((file) => path === `/repo/blob/master/${file}`);
     if (source && scenario !== "blocked") return `<h1>${source}</h1><pre>package main\nfunc main() { println("synthetic fixture") }</pre><a href="/repo/tree/master">Files</a>`;
     if (path === "/repo") return `<h1>Maple repository</h1><p>Default branch: master</p><a href="/repo/search?q=main">Search code for main functions</a><a href="/repo/tree/master">Browse files</a>`;
-    if (path === "/repo/tree/master" && scenario === "alternative" || state.ready && ["/repo/tree/master", "/repo/search"].includes(path)) {
+    if (path === "/repo/tree/master" && ["alternative", "compaction"].includes(scenario) || state.ready && ["/repo/tree/master", "/repo/search"].includes(path)) {
       return `<h1>Repository files</h1>${FILES.map((file) => `<a href="/repo/blob/master/${file}">${file}</a>`).join(" ")}<p>README contains the word main, but is not source code.</p>`;
     }
-    if (["/repo/search", "/repo/tree/master"].includes(path)) return `<h1>Repository indexing</h1><p id="status">${scenario === "changed" ? "Indexing has started and will finish shortly. This page updates automatically." : scenario === "alternative" ? "Code search is unavailable while indexing is incomplete. File browsing remains available through Browse files." : "Repository indexing is incomplete. Code search and file browsing are unavailable. No results can be retrieved yet."}</p><a href="/repo">Repository home</a><a href="/repo/search?q=main">Search</a><a href="/repo/tree/master">Browse files</a>`;
+    if (["/repo/search", "/repo/tree/master"].includes(path)) return `<h1>Repository indexing</h1><p id="status">${scenario === "changed" ? "Indexing has started and will finish shortly. This page updates automatically." : ["alternative", "compaction"].includes(scenario) ? "Code search is unavailable while indexing is incomplete. File browsing remains available through Browse files." : "Repository indexing is incomplete. Code search and file browsing are unavailable. No results can be retrieved yet."}</p><a href="/repo">Repository home</a><a href="/repo/search?q=main">Search</a><a href="/repo/tree/master">Browse files</a>`;
     return "<h1>Unavailable destination</h1><p>This destination does not exist in the repository.</p><a href='/repo'>Repository home</a>";
   }
   async function navigate(destination) {

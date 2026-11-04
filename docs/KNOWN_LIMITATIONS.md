@@ -20,7 +20,9 @@ implementation retains Go and loopback OAuth, replacing durable login with proce
 Credentials now remain only in the native process. Browser restart, companion exit, or a bridge
 disconnect requires authentication again; only non-secret registration identifiers survive.
 Old encrypted files and keyring entries are ignored, without migration or cleanup tooling.
-Stage 2 will move opaque compaction payloads into Go after Stage 1 is verified.
+Stage 2 keeps opaque compaction payloads in a separate 320-KiB Go cache. Chrome retains handles,
+byte counts, and checkpoints. Losing the companion also loses this context; recovery can use only
+the bounded transcript prose still available in Chrome, and never replays Act actions.
 
 Bundled OS scripts still need Native Messaging registration or independent server startup. A shared
 interpreter can simplify explicit file cleanup, but does not make extension removal uninstall the
@@ -82,8 +84,13 @@ access; per-user native registration already supports that requirement.
   extension update, or disable.
 - Transcript compaction is triggered by serialized byte size rather than the selected model's exact
   token count. BrowseFriend preserves the latest eight exchanges verbatim and excludes older action
-  records; if the endpoint is unavailable or rejects its canonical output, it safely falls back to
+  records. Opaque payloads live only in Go memory; stale handles fall back once to available prose
+  before a new provider request. If the endpoint is unavailable or rejects its canonical output, it safely falls back to
   bounded raw history and may forget more of the oldest prose.
+- A live compaction request on the tested ChatGPT connection returned HTTP 401
+  `hardened_oauth_rule_missing`, while streaming worked. The app retains bounded raw-history
+  fallback; the native-cache real-model comparison remains inconclusive until supported compaction
+  access is available. See [the evaluation record](EVALUATIONS.md#native-compaction-cache-verification-record).
 - The current transcript is global across open BrowseFriend panels and Chrome windows. Switching
   tabs or windows does not select a separate chat; use **New chat** to clear the shared context.
 - Responses are based on a captured page revision. BrowseFriend reports when the page changes but

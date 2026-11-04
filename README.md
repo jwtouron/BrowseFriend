@@ -16,9 +16,14 @@ Model requests use `store: false`; BrowseFriend supplies only its fixed instruct
 current page context, and current prompt. During one Act task, Go also retains earlier page
 observations, model outputs, and tool results in memory, discarding them when the task ends. When reusable transcript context exceeds 256 KiB,
 BrowseFriend uses OpenAI's stateless compaction endpoint and keeps the latest eight exchanges
-verbatim. Past page-action records are included only for those eight exchanges. The transcript and
-opaque compacted context use one global Chrome session shared by open panels and disappear when
-Chrome restarts or the extension reloads.
+verbatim. Past page-action records are included only for those eight exchanges. The visible transcript
+uses one global Chrome session shared by open panels. Opaque compacted
+context stays in a separate Go memory cache capped at 320 KiB; Chrome stores only its handle, byte
+count, and transcript checkpoint. New chat, effective model changes, and authentication changes
+invalidate this context. Companion exit loses it; an expired handle falls back once to bounded
+available transcript prose before any new model request. Act continuations use their existing
+8-MiB task buffer and never restart actions to recover context. Chrome restart or extension reload
+also clears the visible session.
 
 ## Prerequisites
 

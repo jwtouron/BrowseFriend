@@ -1,17 +1,22 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { runCase } from "./harness.mjs";
 import { startHost, parseGrade, passedGrade } from "./host.mjs";
 import { SCENARIOS } from "./site.mjs";
 
 async function main() {
   const root = fileURLToPath(new URL("../../", import.meta.url));
-  const { values } = parseArgs({ options: { "baseline-host": { type: "string" }, model: { type: "string" }, effort: { type: "string", default: "medium" }, repeat: { type: "string", default: "1" } } });
+  const { values } = parseArgs({ options: { "baseline-host": { type: "string" }, "baseline-harness": { type: "string" }, "auth-timeout": { type: "string", default: "120" }, model: { type: "string" }, effort: { type: "string", default: "medium" }, repeat: { type: "string", default: "1" } } });
   if (!values.model || !/^[1-9]\d*$/.test(values.repeat)) throw new Error("Usage: npm run eval:act -- --model <slug> [--effort medium] [--repeat N] [--baseline-host <pre-change-evaluator>]");
+  const baselineCase = values["baseline-harness"]
+    ? (await import(pathToFileURL(resolve(values["baseline-harness"])))).runCase : runCase;
+  if (values["baseline-host"] && !values["baseline-harness"]) throw new Error("Context comparisons require --baseline-harness with the preserved matching controller/harness.");
+  const authTimeout = Number(values["auth-timeout"]);
+  if (!Number.isSafeInteger(authTimeout) || authTimeout < 1 || authTimeout > 600) throw new Error("Invalid authentication timeout");
   const repeats = Number(values.repeat);
   if (!Number.isSafeInteger(repeats)) throw new Error("Invalid repeat count");
   const directory = join(root, "build", "act-evaluation", new Date().toISOString().replace(/[:.]/g, "-"));
@@ -26,7 +31,19 @@ async function main() {
   const report = { comparison: values["baseline-host"] ? "context" : "instructions", model: values.model, effort: values.effort, repeats, instructions: {
     baseline: hash(await readFile(baseline)), candidate: hash(contract.actInstructions),
   }, fixtureHash: hash(await readFile(new URL("./site.mjs", import.meta.url))), executables: { baseline: hash(await readFile(values["baseline-host"] ? resolve(values["baseline-host"]) : executable)), candidate: hash(await readFile(executable)) }, runs: [] };
+  const currentSite = await readFile(new URL("./site.mjs", import.meta.url));
+  if (values["baseline-harness"] && hash(await readFile(join(dirname(resolve(values["baseline-harness"])), "site.mjs"))) !== hash(currentSite)) {
+    throw new Error("Baseline and candidate must use identical site fixtures.");
+  }
+  report.harnesses = {
+    baseline: hash(await readFile(values["baseline-harness"] ? resolve(values["baseline-harness"]) : new URL("./harness.mjs", import.meta.url))),
+    candidate: hash(await readFile(new URL("./harness.mjs", import.meta.url))),
+  };
   let active;
+  report.controllers = {
+    baseline: hash(await readFile(values["baseline-harness"] ? join(dirname(resolve(values["baseline-harness"])), "../../extension/app/background.js") : new URL("../../extension/app/background.js", import.meta.url))),
+    candidate: hash(await readFile(new URL("../../extension/app/background.js", import.meta.url))),
+  };
   const hosts = new Map();
   async function getHost(key, path, args = []) {
     if (!hosts.has(key)) {
@@ -35,7 +52,9 @@ async function main() {
       const auth = await host.request("auth.status");
       if (auth.result.state !== "signed_in") {
         console.log(`Complete ChatGPT sign-in in the browser for the ${key} evaluator. Credentials stay in that Go process.`);
-        const signedIn = await host.request("auth.signIn");
+        const timer = setTimeout(() => { void host.request("auth.cancel").catch(() => {}); }, authTimeout * 1000);
+        let signedIn;
+        try { signedIn = await host.request("auth.signIn"); } finally { clearTimeout(timer); }
         if (signedIn.result?.state !== "signed_in") throw new Error("Evaluation needs ChatGPT plan permission.");
       }
     }
@@ -69,8 +88,12 @@ async function main() {
             ? await getHost("baseline", resolve(values["baseline-host"]), ["-baseline", baseline])
             : preflight;
           if (active === preflight) await active.request("eval.configure", { variant });
-          entry.task = await runCase({ scenario, companion: active, model: values.model, effort: values.effort });
+          entry.task = await (variant === "baseline" ? baselineCase : runCase)({ scenario, companion: active, model: values.model, effort: values.effort });
           if (interrupted) throw new Error("Evaluation interrupted");
+          if (scenario === "compaction" && !entry.task.compactionUsed) {
+            const error = entry.task.trace.find((item) => item.kind === "compaction" && item.error)?.error;
+            throw new Error(`Compaction was unavailable (${error?.code || "no context returned"}); raw-history fallback cannot verify this comparison.`);
+          }
           if (entry.task.error) {
             const code = entry.task.error.code || "";
             if (!["eval_budget_exceeded", "action_loop_detected", "action_limit_reached", "act_context_limit"].includes(code)) throw new Error(`Model request failed: ${code}`);
@@ -81,7 +104,7 @@ async function main() {
           try {
             await active.request("model.stream", { model: values.model, reasoningEffort: values.effort,
               history: [{ role: "user", content: JSON.stringify({ scenario: entry.task.scenario, groundTruth: entry.task.groundTruth, trace: entry.task.trace, answer: entry.task.answer, transitions: entry.task.transitions }) }],
-              prompt: "Grade this synthetic website task using your rubric.", pageContext: "", mode: "ask" }, (event) => { text += event.delta || ""; });
+              conversationId: "evaluation-judge", prompt: "Grade this synthetic website task using your rubric.", pageContext: "", mode: "ask" }, (event) => { text += event.delta || ""; });
             entry.grade = parseGrade(text);
             entry.passed = entry.task.passedChecks && passedGrade(entry.grade);
           } finally { active = null; }

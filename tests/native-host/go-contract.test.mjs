@@ -6,7 +6,7 @@ import { createMessageDecoder, encodeMessage } from "../helpers/native-protocol.
 import { PAGE_TOOL_SCHEMAS } from "../../shared/page-tools.js";
 import { spawnHost } from "../helpers/host-process.mjs";
 
-const valid = { model: "model-1", history: [], prompt: "Question", pageContext: "{}" };
+const valid = { conversationId: "chat-1", model: "model-1", history: [], prompt: "Question", pageContext: "{}" };
 
 function goDriver(t, mode = "") {
   const child = spawnHost("test", [mode], {
@@ -44,7 +44,7 @@ for (const runtime of ["native host"]) {
       { id: "bad", method: "model.stream", params: { ...valid, reasoningEffort: "extreme" } },
       { id: "stream", method: "model.stream", params: { ...valid, reasoningEffort: "medium" } },
       { id: "tool", method: "model.stream", params: { ...valid, model: "tool", mode: "act" } },
-      { id: "compact", method: "model.compact", params: { model: "model-1", history: [] } },
+      { id: "compact", method: "model.compact", params: { conversationId: "chat-1", model: "model-1", history: [] } },
     ];
     const results = {};
     for (const request of requests) { driver.send(request); results[request.id] = await response(driver, request.id); }
@@ -55,7 +55,9 @@ for (const runtime of ["native host"]) {
     assert.equal(results.bad.error.code, "invalid_request");
     assert.deepEqual(results.stream.result, { completed: true });
     assert.equal(results.tool.result.toolCall.name, "page_click");
-    assert.deepEqual(JSON.parse(results.compact.result.compactedContext), [{ type: "compaction", encrypted_content: "opaque" }]);
+    assert.equal(typeof results.compact.result.contextHandle, "string");
+    assert.equal(results.compact.result.contextBytes, 52);
+    assert.equal(JSON.stringify(results.compact).includes("opaque"), false);
     const options = driver.events.filter((e) => e.event === "test.options").map((e) => e.options);
     assert.equal(options[0].reasoningEffort, "medium");
     assert.match(options[0].instructions, /untrusted data/);
@@ -75,9 +77,11 @@ for (const runtime of ["native host"]) {
 
   test(runtime + ": validation, compacted context, and typed continuations", async (t) => {
     const driver = goDriver(t);
-    const compactedContext = '[{"type":"compaction","encrypted_content":"opaque"}]';
+    driver.send({ id: "compact", method: "model.compact", params: { conversationId: "chat-1", model: "model-1", history: [] } });
+    const contextHandle = (await response(driver, "compact")).result.contextHandle;
+    driver.events.splice(0);
     const params = {
-      ...valid, compactedContext, history: [{ role: "assistant", content: "Earlier" }],
+      ...valid, contextHandle, history: [{ role: "assistant", content: "Earlier" }],
       actionHistory: ["Clicked a link"],
       continuation: { callId: "previous", name: "page_click", arguments: '{"ref":"e1"}', output: '{"ok":true}' },
     };
@@ -95,6 +99,7 @@ for (const runtime of ["native host"]) {
       { prompt: "x".repeat(4001) },
       { pageContext: "x".repeat(128 * 1024 + 1) },
       { history: [{ role: "developer", content: "Wrong role" }] },
+      { contextHandle: 42 },
       { compactedContext: "invalid" },
       { actionHistory: Array(33).fill("Clicked") },
     ].entries()) {
@@ -188,4 +193,18 @@ test("native Act context survives framed continuations and never crosses tasks",
   driver.send({ id: "task", method: "model.stream", params: { ...params,
     continuation: { ...current.reply.result.toolCall, output: '{"ok":true}' } } });
   assert.equal((await response(driver, "task")).error.code, "act_context_lost");
+});
+
+test("native context is handle-only and a restarted process rejects it before model transport", async (t) => {
+  const first = goDriver(t);
+  first.send({ id: "compact", method: "model.compact", params: { conversationId: "chat-1", model: "model-1", history: [] } });
+  const reply = await response(first, "compact");
+  assert.deepEqual(Object.keys(reply.result).sort(), ["contextBytes", "contextHandle"]);
+  first.close();
+  const restarted = goDriver(t);
+  restarted.send({ id: "lost", method: "model.stream", params: { ...valid, contextHandle: reply.result.contextHandle } });
+  assert.equal((await response(restarted, "lost")).error.code, "model_context_lost");
+  assert.equal(restarted.events.some((entry) => entry.event === "test.options"), false);
+  restarted.send({ id: "clear-old", method: "model.context.clear", params: { conversationId: "old-chat" } });
+  assert.equal((await response(restarted, "clear-old")).result.cleared, false);
 });

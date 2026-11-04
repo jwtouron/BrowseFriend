@@ -121,16 +121,8 @@ function createHarness({
         if (compactRequest) return compactRequest({ params, explicitId });
         return {
           result: {
-            compactedContext: JSON.stringify([
-              {
-                id: "message-1",
-                type: "message",
-                status: "completed",
-                role: "user",
-                content: [{ type: "input_text", text: "Earlier conversation" }],
-              },
-              { id: "compaction-1", type: "compaction", encrypted_content: "opaque" },
-            ]),
+            contextHandle: "native-context-1",
+            contextBytes: 240,
           },
         };
       }
@@ -407,7 +399,8 @@ test("large transcripts compact older prose and keep actions only on the latest 
   assert.match(compact.params.history[3].content, /Answer 2/);
   assert.doesNotMatch(JSON.stringify(compact.params.history), /Control [12]/);
 
-  assert.equal(typeof stream.params.compactedContext, "string");
+  assert.equal(stream.params.contextHandle, "native-context-1");
+  assert.equal(Object.hasOwn(stream.params, "compactedContext"), false);
   assert.equal(stream.params.history.length, 16);
   const recent = JSON.stringify(stream.params.history);
   assert.doesNotMatch(recent, /Control [12](?:\D|$)/);
@@ -1057,3 +1050,174 @@ for (const code of ["act_context_lost", "act_context_limit"]) {
     assert.equal(harness.companionCalls.some((call) => call.method === "model.cancel" && call.params.requestId === "task"), true);
   });
 }
+
+function compactedStoredSession() {
+  const saved = largeStoredSession();
+  saved.conversationId = "restored-conversation";
+  saved.compaction = { model: "model-1", handle: "retained-handle", bytes: 64,
+    throughAssistantId: "assistant-2", throughCreatedAt: 5 };
+  return saved;
+}
+
+test("restored native context uses a handle and recovers an expired handle once from bounded prose", async () => {
+  for (const repeatFailure of [false, true]) {
+    let attempts = 0;
+    const harness = createHarness({ storedSession: compactedStoredSession(),
+      streamRequest({ params, onEvent }) {
+        attempts += 1;
+        if (attempts === 1 || repeatFailure) throw { code: "model_context_lost", message: "Expired", retryable: true };
+        assert.equal(Object.hasOwn(params, "contextHandle"), false);
+        assert.match(params.history[0].content, /Question 1/);
+        onEvent({ delta: "Recovered" });
+        return { result: { completed: true } };
+      },
+    });
+    await harness.controller.ensureReady();
+    await harness.controller.submit("task", "Next question");
+    await settle();
+    const streams = harness.companionCalls.filter((call) => call.method === "model.stream");
+    assert.equal(streams.length, 2);
+    assert.equal(streams[0].params.contextHandle, "retained-handle");
+    assert.equal(streams[0].params.conversationId, "restored-conversation");
+    const saved = (await harness.storage.get("browsefriend.chat.session"))["browsefriend.chat.session"];
+    assert.equal(saved.compaction, null);
+    assert.equal(saved.messages.at(-1).status, repeatFailure ? "error" : "complete");
+  }
+});
+
+test("compaction failure retains the previous valid handle and byte accounting", async () => {
+  const storedSession = compactedStoredSession();
+  storedSession.compaction.throughAssistantId = "assistant-1";
+  storedSession.compaction.throughCreatedAt = 3;
+  const harness = createHarness({ storedSession,
+    compactRequest() { throw { code: "unsupported_method", status: 404 }; },
+  });
+  await harness.controller.ensureReady();
+  await harness.controller.submit("task", "Next");
+  await settle();
+  const compact = harness.companionCalls.find((call) => call.method === "model.compact");
+  assert.equal(compact.params.contextHandle, "retained-handle");
+  const stream = harness.companionCalls.find((call) => call.method === "model.stream");
+  assert.equal(stream.params.contextHandle, "retained-handle");
+  const saved = (await harness.storage.get("browsefriend.chat.session"))["browsefriend.chat.session"];
+  assert.equal(saved.compaction.handle, "retained-handle");
+  assert.equal(saved.compaction.bytes, 64);
+  assert.equal(Object.hasOwn(saved.compaction, "context"), false);
+});
+
+test("native context bytes reserve history capacity without a browser payload", async () => {
+  const storedSession = compactedStoredSession();
+  storedSession.compaction.bytes = 320 * 1024;
+  const harness = createHarness({ storedSession });
+  await harness.controller.ensureReady();
+  await harness.controller.submit("task", "Next");
+  await settle();
+  const stream = harness.companionCalls.find((call) => call.method === "model.stream");
+  assert.ok(stream.params.history.length < 16);
+  const total = stream.params.history.reduce((bytes, message) => bytes + new TextEncoder().encode(message.content).length, storedSession.compaction.bytes);
+  assert.ok(total <= 480 * 1024);
+  assert.doesNotMatch(JSON.stringify(stream.params), /compactedContext|encrypted_content/);
+});
+
+test("New chat clears only its previous native conversation and ignores late compaction", async () => {
+  const compact = deferred();
+  const harness = createHarness({ storedSession: largeStoredSession(), compactRequest: () => compact.promise });
+  await harness.controller.ensureReady();
+  await harness.controller.submit("old-task", "Old question");
+  await settle();
+  const oldId = harness.companionCalls.find((call) => call.method === "model.compact").params.conversationId;
+  await harness.controller.clear();
+  await harness.controller.submit("new-task", "New question");
+  await settle();
+  compact.resolve({ result: { contextHandle: "late-handle", contextBytes: 100 } });
+  await settle();
+  const saved = (await harness.storage.get("browsefriend.chat.session"))["browsefriend.chat.session"];
+  assert.notEqual(saved.conversationId, oldId);
+  assert.equal(saved.compaction, null);
+  assert.equal(saved.messages[0].text, "New question");
+  assert.ok(harness.companionCalls.some((call) => call.method === "model.context.clear" && call.params.conversationId === oldId));
+});
+
+test("effective model changes release native compaction without clearing the visible transcript", async () => {
+  const harness = createHarness({ storedSession: compactedStoredSession(), models: [{ slug: "model-1" }, { slug: "model-2" }],
+    compactRequest() { throw { code: "unsupported_method" }; },
+  });
+  await harness.controller.ensureReady();
+  harness.settingsStored["browsefriend.settings.model"] = "model-2";
+  await harness.controller.submit("task", "Next");
+  await settle();
+  const stream = harness.companionCalls.find((call) => call.method === "model.stream");
+  assert.equal(stream.params.model, "model-2");
+  assert.equal(Object.hasOwn(stream.params, "contextHandle"), false);
+  assert.match(stream.params.history[0].content, /Question 1/);
+  assert.ok(harness.companionCalls.some((call) => call.method === "model.context.clear" && call.params.conversationId === "restored-conversation"));
+  assert.equal((await harness.controller.getState()).messages.length, 22);
+});
+
+test("authentication and companion loss discard browser context metadata", async () => {
+  for (const event of [{ type: "auth.changed", state: { state: "signed_out" } },
+    { type: "disconnected", error: { code: "companion_unavailable", message: "Gone" } }]) {
+    const harness = createHarness({ storedSession: compactedStoredSession() });
+    await harness.controller.ensureReady();
+    harness.companionListeners.forEach((listener) => listener(event));
+    await settle();
+    const saved = (await harness.storage.get("browsefriend.chat.session"))["browsefriend.chat.session"];
+    assert.equal(saved.compaction, null);
+    assert.equal(saved.messages.length, 20);
+  }
+});
+
+test("Act continuations send no transcript handle and never retry executed actions on context loss", async () => {
+  let calls = 0;
+  let executions = 0;
+  const harness = createHarness({ storedSession: compactedStoredSession(),
+    streamRequest({ params }) {
+      calls += 1;
+      if (calls === 1) {
+        assert.equal(params.contextHandle, "retained-handle");
+        return { result: { toolCall: { callId: "call-1", name: "page_click", arguments: '{"ref":"e1"}' } } };
+      }
+      assert.deepEqual(params.history, []);
+      assert.equal(Object.hasOwn(params, "contextHandle"), false);
+      throw { code: "model_context_lost", message: "Expired", retryable: true };
+    },
+    pageActorExecute() { executions += 1; return { kind: "click", target: "Control", executed: true }; },
+  });
+  await harness.controller.ensureReady();
+  await harness.controller.setMode("act");
+  await harness.controller.submit("task", "Click");
+  await settle();
+  await settle();
+  assert.equal(calls, 2);
+  assert.equal(executions, 1);
+  assert.equal((await harness.controller.getState()).messages.at(-1).status, "error");
+});
+
+test("Stop during model preparation prevents a late compaction request", async () => {
+  const gate = deferred();
+  const harness = createHarness({ storedSession: largeStoredSession(), modelPreferenceGate: gate });
+  await harness.controller.ensureReady();
+  await harness.controller.submit("task", "Next");
+  await settle();
+  await harness.controller.stop("task");
+  gate.resolve({});
+  await settle();
+  assert.equal(harness.companionCalls.some((call) => ["model.compact", "model.stream"].includes(call.method)), false);
+});
+
+test("an expired handle during incremental compaction falls back before the first stream", async () => {
+  const storedSession = compactedStoredSession();
+  storedSession.compaction.throughAssistantId = "assistant-1";
+  storedSession.compaction.throughCreatedAt = 3;
+  const harness = createHarness({ storedSession,
+    compactRequest() { throw { code: "model_context_lost", message: "Expired" }; },
+  });
+  await harness.controller.ensureReady();
+  await harness.controller.submit("task", "Next");
+  await settle();
+  const streams = harness.companionCalls.filter((call) => call.method === "model.stream");
+  assert.equal(streams.length, 1);
+  assert.equal(Object.hasOwn(streams[0].params, "contextHandle"), false);
+  assert.match(streams[0].params.history[0].content, /Question 1/);
+  assert.equal((await harness.storage.get("browsefriend.chat.session"))["browsefriend.chat.session"].compaction, null);
+});

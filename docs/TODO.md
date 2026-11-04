@@ -44,6 +44,9 @@ current implementation unless a task explicitly promotes them into scope.
 - [ ] Make the header connection indicator open **Settings → Account** and focus the account
   controls while preserving its non-color accessible status.
 - [ ] Add model-directed context expansion through the typed tool channel.
+- [ ] Confirm supported compaction access for ChatGPT OAuth and rerun the preserved native-cache
+  comparison with fixed fixtures/model/effort and three repetitions. The tested connection returned
+  HTTP 401 `hardened_oauth_rule_missing`; streaming and bounded raw-history fallback worked.
 
 ## Distribution and authentication
 
@@ -79,9 +82,10 @@ prerequisite must support a user-owned installation rather than requiring a syst
   recovery only in process memory. Persist only non-secret registration identifiers. Keep npm/mise
   installation commands; remove credential encryption/keyring machinery without migration tooling.
   Automated verification passed; manual browser and unavailable platform checks remain pending.
-- [ ] Stage 2, only after Stage 1 verification: move opaque compacted conversation context into a
+- [x] Stage 2, after Stage 1 automated verification: move opaque compacted conversation context into a
   bounded native-memory cache. Keep only scoped handles, byte counts, and transcript checkpoints in
-  Chrome; verify invalidation, restart recovery, and fixed-fixture real-model comparisons.
+  Chrome; verify invalidation and restart recovery, and preserve a matching fixed-fixture real-model
+  comparison. Automated results and any inconclusive live runs are recorded in [Act evaluations](EVALUATIONS.md).
 - [ ] Publish versioned native companion GitHub releases with platform/architecture binaries,
   checksums, and required licenses. Existing workflow artifacts are not versioned releases.
 - [ ] Once those releases exist, improve missing-helper detection and guide users to acquire and

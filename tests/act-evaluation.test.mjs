@@ -18,6 +18,10 @@ function scripted(steps) {
         if (typeof step === "string") { delta({ delta: step }); return { result: { completed: true } }; }
         return { result: { toolCall: { callId: `call-${index}`, name: "page_navigate", arguments: JSON.stringify({ url: step.url }) } } };
       }
+      if (method === "model.compact") return { result: {
+        compactedContext: '[{"type":"compaction","encrypted_content":"fixture-opaque"}]',
+        contextHandle: "fixture-handle", contextBytes: 69,
+      } };
       return { result: {} };
     },
   };
@@ -110,4 +114,42 @@ test("recoverable search failure accurately advertises the alternative route", a
     const page = await installPageReader(site).capture();
     assert.match(JSON.stringify(page.snapshot), /File browsing remains available/);
   } finally { site.close(); }
+});
+
+test("compaction fixture preserves an older requirement while Act inspects both files", async () => {
+  let compactInput;
+  const companion = scripted((index, params) => {
+    if (!params.continuation) assert.ok(params.contextHandle || params.compactedContext);
+    assert.doesNotMatch(JSON.stringify(params.history), /cobalt/);
+    return index < 2 ? { url: `https://fixture.test/repo/blob/master/${FILES[index]}` } :
+      `Found main in ${FILES.join(" and ")}. Project codeword: cobalt.`;
+  });
+  const request = companion.request;
+  companion.request = (method, params, ...args) => {
+    if (method === "model.compact") compactInput = structuredClone(params);
+    return request(method, params, ...args);
+  };
+  const result = await runCase({ scenario: "compaction", companion, model: "fixture-model" });
+  assert.equal(result.passedChecks, true);
+  assert.equal(result.compactionUsed, true);
+  assert.ok(JSON.stringify(result.trace).length < 100_000);
+  assert.doesNotMatch(JSON.stringify(result.trace), /encrypted_content|fixture-opaque/);
+  assert.match(JSON.stringify(compactInput.history), /cobalt/);
+  assert.equal(compactInput.history.length, 4);
+});
+
+test("unavailable compaction cannot pass the context comparison through raw-history fallback", async () => {
+  const companion = scripted((index) => index < 2 ? { url: `https://fixture.test/repo/blob/master/${FILES[index]}` } :
+    `Found main in ${FILES.join(" and ")}. Codeword: cobalt.`);
+  const request = companion.request;
+  companion.request = (method, ...args) => {
+    if (method === "model.compact") throw { code: "hardened_oauth_rule_missing", status: 401 };
+    return request(method, ...args);
+  };
+  const result = await runCase({ scenario: "compaction", companion, model: "fixture-model" });
+  assert.equal(result.compactionUsed, false);
+  assert.equal(result.passedChecks, false);
+  assert.deepEqual(result.trace.find((entry) => entry.kind === "compaction").error,
+    { code: "hardened_oauth_rule_missing", status: 401 });
+  assert.ok(JSON.stringify(result.trace).length < 100_000);
 });

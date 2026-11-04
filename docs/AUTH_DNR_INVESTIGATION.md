@@ -70,7 +70,8 @@ does not finish sign-in. Browser-side token exchange and refresh have not been t
 OpenAI's [credential-security guidance](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions#credential-security)
 says to keep access, refresh, and retained ID tokens in protected runtime storage and out of
 browser storage. DNR provides no credential store. Encrypting tokens in browser storage does
-not establish compliance with that guidance or our OS-backed-key requirement.
+not establish credential isolation. The investigation originally assumed an OS-backed encryption key;
+the selected implementation instead keeps credentials only in native process memory.
 
 BrowseFriend currently keeps OAuth, PKCE state, verification, token exchange, refresh, and
 credentials in the native companion. Extension messages carry sanitized account
@@ -90,7 +91,7 @@ Stage 1 replaces encrypted credential persistence with process-local memory, wit
 migration or cleanup utility. Install and uninstall remain npm/mise commands without administrator
 access. Improved acquisition/setup guidance is deferred until versioned GitHub releases exist.
 
-After Stage 1 passes verification, Stage 2 moves the opaque compacted-conversation payload into
+After Stage 1 automated verification, Stage 2 moves the opaque compacted-conversation payload into
 bounded Go memory. Chrome retains a handle and transcript checkpoint. Visible chat, page previews,
 settings, authorization, and confirmations remain browser-owned. Historical snapshots and shared
 Node/Python/PowerShell/JVM helpers are outside this change.

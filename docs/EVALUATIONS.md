@@ -57,34 +57,44 @@ are simulated; this does not verify Chrome rendering, side-panel UI, or native m
 Fixture resources and destinations are resolved locally, never fetched from real websites.
 
 Each case starts with fresh in-memory chat and settings. Scenarios cover an indexing
-blocker, working file browsing despite unavailable search, and indexing completing through
-a DOM change without navigation. The model chooses its own actions; paths and pages are
+blocker, working file browsing despite unavailable search, indexing completing through
+a DOM change without navigation, and a large transcript requiring compaction before Act. The last
+scenario seeds ten synthetic exchanges and requires both source inspection and recalling the older
+project codeword; ordinary CI checks only that the fixture and protocol behave correctly.
+The model chooses its own actions; paths and pages are
 not a prerecorded sequence.
 
 The baseline is the original Act instruction text; the candidate is the current shared
 contract. Model and effort remain fixed across both. The runner requires an explicit model,
 checks catalog choices, and never substitutes a different model or effort. One repetition
-runs six tasks and six grader requests; `--repeat N` alternates variant order between repetitions.
+runs eight tasks and eight grader requests; `--repeat N` alternates variant order between repetitions.
 Each task allows eight tool calls and five minutes. Exceeding these bounds is failure,
 not successful blocker recognition. There are no automatic task retries.
 
 ## Compare task context separately
 
-Before modifying the implementation, preserve its evaluator under ignored build output:
+Before modifying the implementation, add the comparison fixture to both sides, then preserve the
+evaluator and its matching browser controller/harness under ignored build output. The nested
+`go.mod` keeps copied shared Go files out of ordinary verification:
 
 ```sh
+mkdir -p build/act-context-baseline/source
+cp -R extension shared tests package.json go.mod go.sum build/act-context-baseline/source/
 go build -o build/act-context-baseline/eval-act ./native-host/cmd/eval-act
 ```
 
 After implementing context retention, run:
 
 ```sh
-npm run eval:act -- --model <slug> --effort medium --repeat 3 --baseline-host build/act-context-baseline/eval-act
+npm run eval:act -- --model <slug> --effort medium --repeat 3 --baseline-host build/act-context-baseline/eval-act \
+  --baseline-harness build/act-context-baseline/source/tests/act-evaluation/harness.mjs
 ```
 
 This uses identical current instructions for both executables, isolating task-context behavior from
 instruction changes. Without `--baseline-host`, the original instruction comparison remains available.
-Reports identify comparison type and executable hashes. Keep the preserved binary when reproducing
+Reports identify comparison type, executable hashes, and harness/controller hashes. Site fixtures
+must match. `--baseline-harness` is required with `--baseline-host` so protocol changes do not
+accidentally run the candidate controller against an older helper. Keep the preserved binary when reproducing
 results; it is a local evaluation control, not a production compatibility mode. Graders see observable
 page/action traces and final answers, never the native buffer or opaque reasoning.
 
@@ -101,7 +111,9 @@ Candidate runs must pass both deterministic checks and the rubric. Baseline fail
 reported separately. Exit 0 means candidate success, 1 means behavioral failure, and 2
 means interrupted/inconclusive execution. Authentication, usage, or transport failures
 stop the remaining run. One paired trial is smoke evidence rather than a consistency claim.
-Cancellation uses normal model cancellation and waits for Go cleanup/refresh persistence.
+Cancellation closes retained helpers and waits for Go cleanup. Authentication waits up to 120 seconds
+per process by default; use `--auth-timeout <seconds>` (1–600) to change that bound. Each retained
+helper authenticates separately and loses credentials on exit.
 
 ## Deterministic checks
 
@@ -158,3 +170,30 @@ Windows x64/ARM64 companion builds and test compilation passed. Windows x64 Go t
 JavaScript host/configuration checks, and installation/removal passed under Wine 11.20 Staging in a
 disposable prefix. Wine has no race coverage here and does not verify native Windows security,
 Windows ARM64 execution, or Chrome behavior. Manual browser checks were not run.
+
+## Native compaction cache verification record
+
+On 2026-11-03 (local date), Stage 1's evaluator and matching controller were preserved before the
+Stage 2 protocol change. The same four fixtures, instructions, rubric, `gpt-5.6-sol`, and medium
+effort were used with three repetitions requested. Both helpers authenticated independently and
+kept their credentials only in Go memory.
+
+The first run (`2026-11-04T02-29-52-549Z`) stopped on a provider `server_error` after the blocked
+pair passed. The next (`2026-11-04T02-32-53-873Z`) passed both variants of blocked, alternative,
+and changed, then stopped while grading the baseline compaction case: repeated raw transcript
+copies made its grader request exceed Native Messaging's 1-MiB frame limit. That case had fallen
+back to raw history, so it did not establish compaction behavior. Both incomplete reports remain
+under ignored build output; neither is a completed three-repetition comparison.
+
+A separate live capability check returned HTTP 401 `hardened_oauth_rule_missing` for
+`/responses/compact` with the tested ChatGPT connection. This is an observed restriction for that
+connection, not proof about all accounts. Streaming worked. Live compaction comparison remains
+**inconclusive**, pending supported compaction access. No alternate/private endpoint was introduced.
+
+The corrected harness omits repeated transcript bodies and opaque compaction from grader traces,
+records compaction availability, and rejects raw-history fallback as evidence for the compaction
+fixture. Both preserved and candidate harnesses received that identical correction. Scripted
+checks cover successful compaction and this unavailable-route case. Native/browser transition tests
+verify bounded handle-only storage, scoped invalidation, refresh/auth changes, restart fallback,
+cancellation before worker startup, and continuations without action replay. These establish
+implementation behavior; they do not substitute for the unavailable live compaction comparison.

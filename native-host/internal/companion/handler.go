@@ -9,19 +9,23 @@ import (
 )
 
 type Handler struct {
-	Client       Client
-	Send         func(any)
-	mu           sync.Mutex
-	activeID     string
-	modelCancel  context.CancelFunc
-	actTask      *actConversation
-	signInCancel context.CancelFunc
-	signInDone   chan struct{}
-	authEpoch    uint64
-	authQueue    chan Request
-	wg           sync.WaitGroup
-	ctx          context.Context
-	cancel       context.CancelFunc
+	Client             Client
+	Send               func(any)
+	mu                 sync.Mutex
+	activeID           string
+	activeConversation string
+	modelCancel        context.CancelFunc
+	actTask            *actConversation
+	transcript         *transcriptContext
+	contextScope       contextScope
+	contextEpoch       uint64
+	signInCancel       context.CancelFunc
+	signInDone         chan struct{}
+	authEpoch          uint64
+	authQueue          chan Request
+	wg                 sync.WaitGroup
+	ctx                context.Context
+	cancel             context.CancelFunc
 }
 
 func NewHandler(client Client, send func(any)) *Handler {
@@ -45,6 +49,7 @@ func (h *Handler) Close() {
 	h.cancel()
 	h.mu.Lock()
 	h.actTask = nil
+	h.invalidateContext()
 	if h.modelCancel != nil {
 		h.modelCancel()
 	}
@@ -89,6 +94,22 @@ func (h *Handler) Dispatch(_ context.Context, r Request) {
 			s, e := h.Client.Status(h.ctx)
 			h.reply(r, s, e)
 		}()
+	case "model.context.clear":
+		conversation, ok := r.Params["conversationId"].(string)
+		if !ok || conversation == "" || len(conversation) > 200 {
+			h.reply(r, nil, failure("invalid_request", "Invalid conversation identifier.", false))
+			return
+		}
+		h.mu.Lock()
+		cleared := h.contextScope.conversation == conversation
+		if cleared {
+			h.invalidateContext()
+		}
+		if h.activeConversation == conversation && h.modelCancel != nil {
+			h.modelCancel()
+		}
+		h.mu.Unlock()
+		h.reply(r, object{"cleared": cleared}, nil)
 	case "model.cancel":
 		h.mu.Lock()
 		id := text(r.Params["requestId"])
@@ -112,8 +133,11 @@ func (h *Handler) Dispatch(_ context.Context, r Request) {
 			h.reply(r, nil, failure("connection_busy", "A connection change is already in progress.", true))
 		}
 	case "model.list", "model.stream", "model.compact":
-		h.wg.Add(1)
-		go func() { defer h.wg.Done(); h.model(r) }()
+		// Claim the request before reading another frame, so early cancellation cannot be lost.
+		if work := h.modelWork(r); work != nil {
+			h.wg.Add(1)
+			go func() { defer h.wg.Done(); work() }()
+		}
 	default:
 		h.reply(r, nil, failure("invalid_request", "Unsupported native request.", false))
 	}
@@ -134,6 +158,7 @@ func (h *Handler) auth(r Request) {
 			return
 		}
 		h.actTask = nil
+		h.invalidateContext()
 		h.signInCancel = cancel
 		done := make(chan struct{})
 		h.signInDone = done
@@ -154,6 +179,7 @@ func (h *Handler) auth(r Request) {
 	case "auth.signOut":
 		h.mu.Lock()
 		h.actTask = nil
+		h.invalidateContext()
 		if h.modelCancel != nil {
 			h.modelCancel()
 		}
@@ -205,16 +231,21 @@ func options(p object, compact bool) (ModelOptions, bool) {
 	if strings.TrimSpace(o.Model) == "" {
 		return o, false
 	}
-	prior, ok := compacted(p["compactedContext"])
-	if !ok {
+	conversation, ok := p["conversationId"].(string)
+	if !ok || conversation == "" || len(conversation) > 200 || p["compactedContext"] != nil {
 		return o, false
 	}
-	o.Input = append(o.Input, prior...)
+	if v := p["contextHandle"]; v != nil {
+		handle, ok := v.(string)
+		if !ok || handle == "" || len(handle) > 200 {
+			return o, false
+		}
+	}
 	history, ok := p["history"].([]any)
 	if !ok || len(history) > 200 {
 		return o, false
 	}
-	bytes := len(text(p["compactedContext"]))
+	bytes := 0
 	for _, m := range history {
 		item, ok := m.(map[string]any)
 		if !ok || !has([]string{"user", "assistant"}, text(item["role"])) {
@@ -296,117 +327,146 @@ func options(p object, compact bool) (ModelOptions, bool) {
 	return o, true
 }
 func (h *Handler) model(r Request) {
+	if work := h.modelWork(r); work != nil {
+		work()
+	}
+}
+func (h *Handler) modelWork(r Request) func() {
 	if r.Method == "model.list" {
-		m, e := h.Client.Models(h.ctx)
-		h.reply(r, object{"models": m}, e)
-		return
+		return func() {
+			m, e := h.Client.Models(h.ctx)
+			h.reply(r, object{"models": m}, e)
+		}
 	}
 	h.mu.Lock()
 	if h.modelCancel != nil {
 		h.mu.Unlock()
 		h.reply(r, nil, failure("model_busy", "Another BrowseFriend response is already running.", true))
-		return
+		return nil
 	}
 	ctx, cancel := context.WithCancel(h.ctx)
 	h.modelCancel = cancel
 	h.activeID = text(r.ID)
+	h.activeConversation = text(r.Params["conversationId"])
 	h.mu.Unlock()
-	var released sync.Once
-	release := func() {
-		released.Do(func() {
-			cancel()
-			h.mu.Lock()
-			h.modelCancel = nil
-			h.activeID = ""
-			h.mu.Unlock()
-		})
-	}
-	defer release()
-	finish := func(result any, err error) {
-		if err != nil {
-			h.mu.Lock()
-			if h.actTask != nil && h.actTask.id == text(r.ID) {
-				h.actTask = nil
-			}
-			h.mu.Unlock()
+	return func() {
+		var released sync.Once
+		release := func() {
+			released.Do(func() {
+				cancel()
+				h.mu.Lock()
+				h.modelCancel = nil
+				h.activeID = ""
+				h.activeConversation = ""
+				h.mu.Unlock()
+			})
 		}
-		// A reply is permission for the caller to start its next operation.
-		release()
-		h.reply(r, result, err)
-	}
-	compact := r.Method == "model.compact"
-	o, valid := options(r.Params, compact)
-	if !valid {
-		message := "Invalid model input."
+		defer release()
+		finish := func(result any, err error) {
+			if err != nil {
+				h.mu.Lock()
+				if h.actTask != nil && h.actTask.id == text(r.ID) {
+					h.actTask = nil
+				}
+				h.mu.Unlock()
+			}
+			// A reply is permission for the caller to start its next operation.
+			release()
+			h.reply(r, result, err)
+		}
+		compact := r.Method == "model.compact"
+		o, valid := options(r.Params, compact)
+		if !valid {
+			message := "Invalid model input."
+			if compact {
+				message = "Invalid compaction input."
+			}
+			finish(nil, failure("invalid_request", message, false))
+			return
+		}
+		if err := ctx.Err(); err != nil {
+			finish(nil, err)
+			return
+		}
+		h.mu.Lock()
+		epoch, contextErr := h.prepareContext(r, &o)
+		h.mu.Unlock()
+		if contextErr != nil {
+			finish(nil, contextErr)
+			return
+		}
 		if compact {
-			message = "Invalid compaction input."
-		}
-		finish(nil, failure("invalid_request", message, false))
-		return
-	}
-	if compact {
-		s, e := h.Client.Compact(ctx, o)
-		if e == nil {
-			if _, ok := compacted(s); !ok || s == "" {
-				e = failure("invalid_compaction", "ChatGPT returned invalid compacted context.", false)
+			s, e := h.Client.Compact(ctx, o)
+			if e == nil {
+				if _, ok := compacted(s); !ok || s == "" {
+					e = failure("invalid_compaction", "ChatGPT returned invalid compacted context.", false)
+				}
 			}
+			var result object
+			h.mu.Lock()
+			if e == nil && (ctx.Err() != nil || epoch != h.contextEpoch) {
+				e = context.Canceled
+			}
+			if e == nil {
+				cache := &transcriptContext{scope: h.contextScope, handle: randomValue(), content: s}
+				h.transcript = cache
+				result = object{"contextHandle": cache.handle, "contextBytes": len(s)}
+			}
+			h.mu.Unlock()
+			finish(result, e)
+			return
+		}
+		h.mu.Lock()
+		task, taskErr := h.prepareAct(r, &o)
+		h.mu.Unlock()
+		if taskErr != nil {
+			finish(nil, taskErr)
+			return
+		}
+		bytes := 0
+		oversized := false
+		output, e := h.Client.Stream(ctx, o, func(delta string) {
+			bytes += len(delta)
+			if bytes > contract.Limits.ResponseBytes {
+				oversized = true
+				cancel()
+				return
+			}
+			runes := []rune(delta)
+			for len(runes) > 0 {
+				n := min(len(runes), contract.Limits.DeltaChars)
+				h.Send(object{"event": "model.delta", "requestId": r.ID, "delta": string(runes[:n])})
+				runes = runes[n:]
+			}
+		})
+		if oversized {
+			e = failure("response_too_large", "The response was too large. Start a new chat or ask for a shorter answer.", false)
 		}
 		if e == nil && ctx.Err() != nil {
 			e = ctx.Err()
 		}
-		finish(object{"compactedContext": s}, e)
-		return
-	}
-	h.mu.Lock()
-	task, taskErr := h.prepareAct(r, &o)
-	h.mu.Unlock()
-	if taskErr != nil {
-		finish(nil, taskErr)
-		return
-	}
-	bytes := 0
-	oversized := false
-	output, e := h.Client.Stream(ctx, o, func(delta string) {
-		bytes += len(delta)
-		if bytes > contract.Limits.ResponseBytes {
-			oversized = true
-			cancel()
-			return
+		calls, outputErr := responseCalls(output)
+		if e == nil {
+			e = outputErr
 		}
-		runes := []rune(delta)
-		for len(runes) > 0 {
-			n := min(len(runes), contract.Limits.DeltaChars)
-			h.Send(object{"event": "model.delta", "requestId": r.ID, "delta": string(runes[:n])})
-			runes = runes[n:]
+		result := object{"completed": len(calls) == 0}
+		if e == nil && len(calls) == 1 {
+			result["toolCall"] = calls[0]
 		}
-	})
-	if oversized {
-		e = failure("response_too_large", "The response was too large. Start a new chat or ask for a shorter answer.", false)
-	}
-	if e == nil && ctx.Err() != nil {
-		e = ctx.Err()
-	}
-	calls, outputErr := responseCalls(output)
-	if e == nil {
-		e = outputErr
-	}
-	result := object{"completed": len(calls) == 0}
-	if e == nil && len(calls) == 1 {
-		result["toolCall"] = calls[0]
-	}
-	h.mu.Lock()
-	if e == nil && task != nil {
-		if ctx.Err() != nil || h.actTask != task {
-			e = context.Canceled
-		} else {
-			e = task.append(output...)
-			if len(calls) == 1 {
-				task.pending = calls[0]
+		h.mu.Lock()
+		if e == nil && task != nil {
+			if ctx.Err() != nil || h.actTask != task {
+				e = context.Canceled
 			} else {
-				h.actTask = nil
+				e = task.append(output...)
+				if len(calls) == 1 {
+					task.pending = calls[0]
+				} else {
+					h.actTask = nil
+				}
 			}
 		}
+		h.mu.Unlock()
+		finish(result, e)
 	}
-	h.mu.Unlock()
-	finish(result, e)
 }

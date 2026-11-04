@@ -35,9 +35,10 @@ const CONNECTION_ERROR_CODES = new Set([
   "sign_in_required",
 ]);
 
-function emptyChat(model = null) {
+function emptyChat(model, conversationId) {
   return {
     messages: [],
+    conversationId,
     model,
     compaction: null,
     historyTruncated: false,
@@ -90,9 +91,9 @@ function exchangeMessages(exchange, includeActions = false) {
   ];
 }
 
-function boundedHistory(exchanges, compactedContext = "") {
+function boundedHistory(exchanges, contextBytes = 0) {
   const history = [];
-  let bytes = byteLength(compactedContext);
+  let bytes = contextBytes;
   const recentStart = Math.max(0, exchanges.length - RECENT_EXCHANGE_LIMIT);
   for (let index = exchanges.length - 1; index >= 0; index -= 1) {
     const pair = exchangeMessages(exchanges[index], index >= recentStart);
@@ -151,9 +152,10 @@ export function installAppController({
     if (!chatPromise) {
       chatPromise = storage.get(STORAGE_KEY).then((stored) => {
         const saved = stored?.[STORAGE_KEY];
-        if (!saved || !Array.isArray(saved.messages)) return emptyChat();
+        if (!saved || !Array.isArray(saved.messages)) return emptyChat(null, randomUUID());
         const restored = {
           messages: saved.messages,
+          conversationId: typeof saved.conversationId === "string" && saved.conversationId ? saved.conversationId : randomUUID(),
           model: saved.model || null,
           compaction: saved.compaction || null,
           historyTruncated: saved.historyTruncated === true,
@@ -282,6 +284,8 @@ export function installAppController({
     const preference = await resolveModelPreference(catalog);
     models = catalog;
     modelPreference = preference;
+    const chat = await loadChat();
+    if (chat.compaction && chat.compaction.model !== selectedModel()?.slug) await clearModelContext(chat);
     return { models, preference };
   }
 
@@ -299,6 +303,7 @@ export function installAppController({
     }
     connection = { phase, auth, error: null };
     models = [];
+    chat.compaction = null;
     chat.mode = "ask";
     chat.authorization = null;
     issue = connectionIssue(auth);
@@ -491,10 +496,15 @@ export function installAppController({
     return exchangesBefore(chat.messages, userIndex < 0 ? chat.messages.length : userIndex);
   }
 
+  async function clearModelContext(chat) {
+    chat.compaction = null;
+    await companion.request("model.context.clear", { conversationId: chat.conversationId }).catch(() => undefined);
+  }
+
   function compactionFor(chat, modelSlug) {
     const value = chat.compaction;
-    if (!value || value.model !== modelSlug || typeof value.context !== "string" ||
-        byteLength(value.context) > MAX_COMPACTION_BYTES ||
+    if (!value || value.model !== modelSlug || typeof value.handle !== "string" || !value.handle || value.handle.length > 200 ||
+        !Number.isSafeInteger(value.bytes) || value.bytes <= 0 || value.bytes > MAX_COMPACTION_BYTES ||
         typeof value.throughAssistantId !== "string" || !Number.isFinite(value.throughCreatedAt)) {
       chat.compaction = null;
       return null;
@@ -517,15 +527,15 @@ export function installAppController({
     return exchanges;
   }
 
-  function reusableContextBytes(exchanges, compactedContext) {
+  function reusableContextBytes(exchanges, contextBytes = 0) {
     const recentStart = Math.max(0, exchanges.length - RECENT_EXCHANGE_LIMIT);
-  let total = byteLength(compactedContext);
-  for (const [index, exchange] of exchanges.entries()) {
-    for (const message of exchangeMessages(exchange, index >= recentStart)) {
-      total += byteLength(message.content);
+    let total = contextBytes;
+    for (const [index, exchange] of exchanges.entries()) {
+      for (const message of exchangeMessages(exchange, index >= recentStart)) {
+        total += byteLength(message.content);
+      }
     }
-  }
-  return total;
+    return total;
   }
 
   function compactionUnsupported(error) {
@@ -540,27 +550,29 @@ export function installAppController({
 
     if (!submission.compactionChecked && !compactionUnavailableModels.has(model.slug) &&
         remaining.length > RECENT_EXCHANGE_LIMIT &&
-        reusableContextBytes(remaining, compaction?.context || "") > COMPACTION_TRIGGER_BYTES) {
+        reusableContextBytes(remaining, compaction?.bytes || 0) > COMPACTION_TRIGGER_BYTES) {
       const compactable = remaining.slice(0, -RECENT_EXCHANGE_LIMIT);
       const history = compactable.flatMap((exchange) => exchangeMessages(exchange, false));
-      if (history.length || compaction?.context) {
+      if (history.length || compaction?.handle) {
         submission.requestStarted = true;
         try {
           const response = await companion.request("model.compact", {
             model: model.slug,
-            ...(compaction?.context ? { compactedContext: compaction.context } : {}),
+            conversationId: chat.conversationId,
+            ...(compaction?.handle ? { contextHandle: compaction.handle } : {}),
             history,
           }, undefined, submission.id);
           if (chat.submission?.id !== submission.id) return null;
-          const context = response.result?.compactedContext;
-          if (typeof context !== "string" || !context ||
-              byteLength(context) > MAX_COMPACTION_BYTES) {
+          const { contextHandle: handle, contextBytes: bytes } = response.result || {};
+          if (typeof handle !== "string" || !handle || handle.length > 200 ||
+              !Number.isSafeInteger(bytes) || bytes <= 0 || bytes > MAX_COMPACTION_BYTES) {
             throw { code: "invalid_compaction", message: "ChatGPT returned invalid compacted context." };
           }
           const checkpoint = compactable.at(-1).assistant;
           chat.compaction = {
             model: model.slug,
-            context,
+            handle,
+            bytes,
             throughAssistantId: checkpoint.id,
             throughCreatedAt: checkpoint.createdAt,
           };
@@ -568,7 +580,15 @@ export function installAppController({
           remaining = remaining.slice(-RECENT_EXCHANGE_LIMIT);
           await save(chat);
         } catch (error) {
-          if (chat.submission?.id !== submission.id || error?.code === "cancelled") return null;
+          if (chat.submission?.id !== submission.id) return null;
+          if (error?.code === "cancelled") throw error;
+          if (error?.code === "model_context_lost") {
+            chat.compaction = null;
+            compaction = null;
+            remaining = exchanges;
+            submission.contextFallbackUsed = true;
+            await save(chat);
+          }
           if (compactionUnsupported(error) || error?.code === "invalid_compaction") {
             compactionUnavailableModels.add(model.slug);
           }
@@ -578,8 +598,8 @@ export function installAppController({
 
     submission.compactionChecked = true;
     return {
-      compactedContext: compaction?.context || "",
-      history: boundedHistory(remaining, compaction?.context || ""),
+      contextHandle: compaction?.handle || "",
+      history: boundedHistory(remaining, compaction?.bytes || 0),
     };
   }
 
@@ -733,7 +753,11 @@ export function installAppController({
         submission.modelSlug = model.slug;
         submission.reasoningEffort = selectReasoningEffort(model, reasoningPreference) || null;
       }
-      const preparedHistory = await prepareModelHistory(chat, submission, model);
+      if (chat.compaction && chat.compaction.model !== model.slug) await clearModelContext(chat);
+      if (chat.submission?.id !== submission.id) return;
+      const preparedHistory = submission.continuation
+        ? { history: [], contextHandle: "" }
+        : await prepareModelHistory(chat, submission, model);
       if (!preparedHistory || chat.submission?.id !== submission.id) return;
       chat.model = model;
       await save(chat);
@@ -741,9 +765,10 @@ export function installAppController({
       submission.requestStarted = true;
       const response = await companion.request("model.stream", {
         model: model.slug,
+        conversationId: chat.conversationId,
         ...(submission.reasoningEffort ? { reasoningEffort: submission.reasoningEffort } : {}),
-        ...(preparedHistory.compactedContext
-          ? { compactedContext: preparedHistory.compactedContext }
+        ...(preparedHistory.contextHandle
+          ? { contextHandle: preparedHistory.contextHandle }
           : {}),
         history: preparedHistory.history,
         prompt: submission.text,
@@ -771,6 +796,15 @@ export function installAppController({
       issue = null;
       await publish(chat);
     } catch (error) {
+      if (error?.code === "model_context_lost" && !submission.continuation &&
+          !submission.contextFallbackUsed && chat.submission?.id === submission.id) {
+        chat.compaction = null;
+        submission.contextFallbackUsed = true;
+        submission.compactionChecked = true;
+        await save(chat);
+        if (chat.submission?.id === submission.id) void streamSubmission(chat, submission);
+        return;
+      }
       await failSubmission(chat, submission.id, error);
     }
   }
@@ -1032,6 +1066,7 @@ export function installAppController({
     const request = (async () => {
       const chat = await loadChat();
       const epoch = ++connectionEpoch;
+      chat.compaction = null;
       connection = {
         phase: "checking",
         auth: { ...connection.auth, state: "signing_in", error: null },
@@ -1096,7 +1131,7 @@ export function installAppController({
     const activeId = chat.submission?.id;
     if (activeId) await stop(activeId);
     const response = await companion.request("auth.signOut");
-    Object.assign(chat, emptyChat());
+    Object.assign(chat, emptyChat(null, randomUUID()));
     models = [];
     modelCatalogPromise = null;
     const auth = response.result || { state: "signed_out", profile: null };
@@ -1108,8 +1143,9 @@ export function installAppController({
     const chat = await loadChat();
     const activeId = chat.submission?.id;
     if (activeId) await stop(activeId);
-    const cleared = emptyChat(chat.model);
+    const cleared = emptyChat(chat.model, randomUUID());
     chatPromise = Promise.resolve(cleared);
+    await clearModelContext(chat);
     issue = issue?.scope === "generation" ? null : issue;
     await publish(cleared);
     return publicState(cleared);
@@ -1208,11 +1244,15 @@ export function installAppController({
 
   companion.subscribe?.((event) => {
     if (event.type === "disconnected") {
-      void loadChat().then((chat) => failConnection(chat, event.error));
+      void loadChat().then((chat) => {
+        chat.compaction = null;
+        return failConnection(chat, event.error);
+      });
       return;
     }
     if (event.type !== "auth.changed" || readinessPromise || signInPromise) return;
     const auth = event.state;
+    void loadChat().then((chat) => { chat.compaction = null; });
     if (auth.state === "signed_in") {
       connection = { phase: "checking", auth, error: null };
       void ensureReady({ force: true });

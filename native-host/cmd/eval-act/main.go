@@ -95,7 +95,8 @@ func run() error {
 		return err
 	}
 	writer := &companion.Writer{Out: os.Stdout}
-	client := &evaluator{Client: companion.NewConnection(companion.NewStore(dir), nil), instructions: instructions, baseline: instructions, judge: *judge}
+	connection := companion.NewConnection(companion.NewStore(dir), nil)
+	client := &evaluator{Client: connection, instructions: instructions, baseline: instructions, judge: *judge}
 	handler := &evaluationHandler{evaluator: client, pending: map[string]bool{}}
 	handler.Handler = companion.NewHandler(client, func(v any) {
 		if reply, ok := v.(map[string]any); ok {
@@ -109,6 +110,7 @@ func run() error {
 			os.Exit(1)
 		}
 	})
+	connection.Changed = handler.Handler.AuthChanged
 	return companion.Run(context.Background(), os.Stdin, handler)
 }
 func main() {

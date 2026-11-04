@@ -43,7 +43,7 @@ The companion implements the documented OAuth, discovery, token renewal, Respons
 
 ### Native companion
 
-The standalone Go executable implements the same eight auth/model messages and events as the
+The standalone Go executable implements the allowlisted auth/model messages and events that the
 extension's Native Messaging bridge expects. Its code separates framing, request state, OAuth,
 registration metadata, model HTTP/SSE transport, and installation. The installer copies and
 atomically registers the executable; the installed process needs no language runtime.
@@ -151,7 +151,7 @@ window; API context-limit errors remain possible.
 
 The controller retains completed user/assistant exchanges in the memory-only chat session. When
 reusable context exceeds 256 KiB, it sends only older transcript prose to `/responses/compact`,
-caches the returned opaque canonical items with a model slug and assistant-message checkpoint, and
+retains the returned opaque canonical items in a separate Go cache capped at 320 KiB, and
 keeps the latest eight exchanges verbatim. Only those recent exchanges include visible Act action
 records; older action labels and values are neither compacted nor resent. Page snapshots, system
 instructions, and current-run tool payloads never enter transcript compaction. Compacted data is
@@ -159,6 +159,22 @@ model-specific because it is opaque model-generated state; BrowseFriend cannot s
 different model can interpret it with the same semantics. A model change therefore invalidates
 incompatible compacted context, New chat clears it, and unsupported or malformed compaction falls
 back to the existing bounded raw-history path.
+
+The chat has a stable `conversationId` until New chat or logout. `model.compact` accepts this ID,
+model, bounded older prose, and an optional prior `contextHandle`; it returns only a new opaque
+handle and the actual UTF-8 byte count. Chrome saves `{model, handle, bytes, throughAssistantId,
+throughCreatedAt}` and uses the byte count for history budgeting. `model.stream` resolves that
+handle in Go only for Ask or the initial Act input. Act continuations send no transcript history or
+handle, using the separate retained task buffer instead.
+
+The handler owns one compaction cache scoped by conversation, model, and authentication generation.
+`model.context.clear` clears only the named conversation. Model/auth changes and process exit also
+invalidate the cache; cancellation and epochs prevent late completions from repopulating cleared
+state. Cancelled, unsupported, malformed, or oversized replacement preserves an existing valid
+cache. Native validation enforces actual sizes independently of browser metadata. An expired handle
+fails with `model_context_lost` before provider access; the controller discards its checkpoint and
+uses bounded available prose once for a fresh request. It never restarts an Act continuation or
+replays executed page actions. Visible transcript, snapshots, settings, and safety state stay in Chrome.
 
 The model owns semantic planning: interpreting the request, choosing and sequencing allowed tools,
 ranking plausible targets, and stopping when ambiguity prevents a confident choice. Extension code
@@ -183,7 +199,8 @@ expected for the next request. It omits the effort summary when the catalog prov
 active conversation uses one global
 `chrome.storage.session` record shared across panels and windows. It survives service-worker
 suspension but not a browser restart or extension reload. New chat presents a cancel-first
-confirmation and, when accepted, clears both transcript and compaction; logout clears them directly.
+confirmation and, when accepted, rotates the conversation ID and clears transcript and native
+compaction; logout clears them directly. Chrome retains compaction metadata, never its payload.
 The companion stores only non-secret registration identifiers in the platform application-data
 directory. Restarting Chrome or the companion loses authentication and requires a fresh sign-in.
 

@@ -47,6 +47,9 @@ current implementation unless a task explicitly promotes them into scope.
 
 ## Distribution and authentication
 
+End-user setup, updates, and removal must work without administrator access. Any future runtime
+prerequisite must support a user-owned installation rather than requiring a system-wide installer.
+
 - [x] Evaluate OS-keyring libraries, encrypted stores, and a simpler Windows permission policy;
   record reproducible results in [Storage evaluation](STORAGE_EVALUATION.md).
 - [x] Replace custom OS-key adapters with context-aware keyring APIs, lock-scoped account/key
@@ -71,6 +74,17 @@ current implementation unless a task explicitly promotes them into scope.
 - [ ] Add signed/notarized macOS and Linux installers, Windows signing/installers, and verify credential-store access after upgrades.
   Users must not need to install a language runtime.
 - [ ] Add explicit account-selection support if multiple registrations become necessary.
-- [ ] Re-evaluate the native-companion requirement if OpenAI supports a secure pure-extension flow.
-  The [DNR investigation](AUTH_DNR_INVESTIGATION.md) verified synthetic callback interception in
-  Brave/Chromium 156; OpenAI support and protected credential persistence remain unresolved.
+- [ ] Stage 1: retain Go Native Messaging and loopback OAuth, but hold credentials and refresh
+  recovery only in process memory. Persist only non-secret registration identifiers. Keep npm/mise
+  installation commands; remove credential encryption/keyring machinery without migration tooling.
+- [ ] Stage 2, only after Stage 1 verification: move opaque compacted conversation context into a
+  bounded native-memory cache. Keep only scoped handles, byte counts, and transcript checkpoints in
+  Chrome; verify invalidation, restart recovery, and fixed-fixture real-model comparisons.
+- [ ] Publish versioned native companion GitHub releases with platform/architecture binaries,
+  checksums, and required licenses. Existing workflow artifacts are not versioned releases.
+- [ ] Once those releases exist, improve missing-helper detection and guide users to acquire and
+  register the appropriate binary without administrator access. Guided installation is deferred;
+  retain basic connection errors and npm/mise instructions for now.
+
+The [DNR investigation](AUTH_DNR_INVESTIGATION.md) remains historical evidence. Extension-only auth,
+shared-runtime native helpers, and moving captured-page archives out of Chrome are not selected.

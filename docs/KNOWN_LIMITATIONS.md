@@ -14,10 +14,16 @@ Chrome communicates with the companion through Native Messaging over standard in
 companion is not a permanent localhost service. **Continue with ChatGPT** temporarily opens a
 random loopback listener only while completing the hosted OAuth callback.
 
-A [DNR callback investigation](AUTH_DNR_INVESTIGATION.md) demonstrated listener-free callback
-redirection with synthetic data in headless Brave/Chromium 156. OpenAI documents a loopback
-listener, and support for intercepted delivery remains unverified. DNR also does not provide
-protected credential storage; it does not currently remove the native-companion requirement.
+A [DNR callback investigation](AUTH_DNR_INVESTIGATION.md) demonstrated synthetic redirection in
+Brave/Chromium 156, but OpenAI support and browser-side token handling remain unverified. The selected
+implementation retains Go and loopback OAuth, replacing durable login with process-local credentials.
+That replacement is planned; the current runtime still uses encrypted credentials until Stage 1 lands.
+Stage 2 will move opaque compaction payloads into Go after Stage 1 is verified.
+
+Bundled OS scripts still need Native Messaging registration or independent server startup. A shared
+interpreter can simplify explicit file cleanup, but does not make extension removal uninstall the
+helper. Those alternatives are deferred. Setup, updates, and removal must work without administrator
+access; per-user native registration already supports that requirement.
 
 ## Credential storage
 

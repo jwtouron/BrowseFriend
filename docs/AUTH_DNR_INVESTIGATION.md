@@ -3,8 +3,9 @@
 Investigated on 2026-11-03. Chrome's declarativeNetRequest (DNR) can redirect a loopback
 OAuth callback to an extension page without a listener at the callback address. A synthetic
 browser probe demonstrated this mechanism. It does not establish OpenAI support for this
-callback delivery method or remove BrowseFriend's need for protected credential storage.
-Keep the existing native OAuth flow for production.
+callback delivery method or for browser-side token handling. The extension-only proposal was
+superseded: retain Go Native Messaging and the documented loopback callback, with authentication
+held only in companion memory. This investigation remains a record of the alternative considered.
 
 ## Browser feasibility
 
@@ -79,6 +80,25 @@ installation while replacing its short-lived listener with additional browser co
 The host also currently launches the system default browser; DNR only operates in the browser
 profile containing the extension, so sign-in would need to start through that extension.
 No production component boundaries or permissions were changed by this investigation.
+
+## Selected direction
+
+Retain the Go companion for OAuth, model transport, and Act context. Remove authenticated-session
+persistence across process/browser restarts. Retain only non-secret host/client/account registration
+identifiers in an owner-protected native file; no encryption or OS keyring is needed for those IDs.
+The current encrypted credential implementation will be replaced in Stage 1, with no legacy-data
+migration or cleanup utility. Install and uninstall remain npm/mise commands without administrator
+access. Improved acquisition/setup guidance is deferred until versioned GitHub releases exist.
+
+After Stage 1 passes verification, Stage 2 moves the opaque compacted-conversation payload into
+bounded Go memory. Chrome retains a handle and transcript checkpoint. Visible chat, page previews,
+settings, authorization, and confirmations remain browser-owned. Historical snapshots and shared
+Node/Python/PowerShell/JVM helpers are outside this change.
+
+Chrome's session-storage quota is shared and counts estimated allocated memory, not just UTF-8
+payload bytes. It does not constrain the native Act buffer. The extension-only alternative would
+have needed a combined quota budget and a solution to worker suspension; those implementation
+changes are no longer planned. Browser-side token handling also remains undocumented by OpenAI.
 
 ## Verification record
 

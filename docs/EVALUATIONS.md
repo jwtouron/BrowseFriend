@@ -69,7 +69,11 @@ contract. Model and effort remain fixed across both. The runner requires an expl
 checks catalog choices, and never substitutes a different model or effort. One repetition
 runs eight tasks and eight grader requests; `--repeat N` alternates variant order between repetitions.
 Each task allows eight tool calls and five minutes. Exceeding these bounds is failure,
-not successful blocker recognition. There are no automatic task retries.
+not successful blocker recognition. There are no automatic task retries. Add `--scenario compaction`
+to focus on the large-transcript fixture; the report records the selected scenarios. A preserved
+baseline that lacks compaction may continue through raw-history fallback, but fails the unchanged
+compaction-availability check and records `compactionUnavailable`. A candidate without a real
+checkpoint remains inconclusive; a correct answer through fallback cannot pass this fixture.
 
 ## Compare task context separately
 
@@ -188,7 +192,8 @@ under ignored build output; neither is a completed three-repetition comparison.
 A separate live capability check returned HTTP 401 `hardened_oauth_rule_missing` for
 `/responses/compact` with the tested ChatGPT connection. This is an observed restriction for that
 connection, not proof about all accounts. Streaming worked. Live compaction comparison remains
-**inconclusive**, pending supported compaction access. No alternate/private endpoint was introduced.
+**inconclusive** for that dedicated-endpoint implementation. The in-band follow-up below resolves
+access on the tested connection. No private endpoint was introduced.
 
 The corrected harness omits repeated transcript bodies and opaque compaction from grader traces,
 records compaction availability, and rejects raw-history fallback as evidence for the compaction
@@ -196,4 +201,45 @@ fixture. Both preserved and candidate harnesses received that identical correcti
 checks cover successful compaction and this unavailable-route case. Native/browser transition tests
 verify bounded handle-only storage, scoped invalidation, refresh/auth changes, restart fallback,
 cancellation before worker startup, and continuations without action replay. These establish
-implementation behavior; they do not substitute for the unavailable live compaction comparison.
+implementation behavior; they did not substitute for a live compaction comparison at that point.
+
+## ChatGPT OAuth in-band compaction
+
+Follow-up testing on 2026-11-03 (local date) found a working public route with the existing
+OAuth scopes. OpenAI documents [`context_management` on Responses create](https://developers.openai.com/api/docs/guides/compaction#server-side-compaction).
+The dedicated `/responses/compact` request returned HTTP 401 `hardened_oauth_rule_missing`, while
+`POST /responses` with `store: false`, `stream: true`, and
+`context_management: [{type: "compaction", compact_threshold: 1000}]` returned a canonical compaction
+item. Reusing that item alone in a fresh stateless request recovered both an older synthetic
+codeword and the most recent synthetic milestone. Credentials remained entirely in Go memory.
+No additional OAuth scope, browser permission, or private endpoint was used.
+
+The production checkpoint request now uses this streaming route with ordinary base instructions
+and no tools. It retains only the latest canonical compaction item; incidental generated text and
+reasoning are discarded. A small prefix that produces no checkpoint preserves its prior handle
+and remains eligible on later prompts. Ordinary Ask/Act requests do not enable server compaction.
+
+The first paired run (`2026-11-04T02-56-39-446Z`) exposed a semantic error: checkpoint-only developer
+instructions were encoded into the opaque state, and all three candidate tasks subsequently replied
+“Checkpoint complete” instead of performing the new task. That failed report is retained. The fix
+uses the ordinary base policy, with a regression test enforcing the actual request body; it adds no
+checkpoint-only instruction that could govern future prompts. Fixtures, model, effort, task budgets,
+and rubric stayed fixed for the rerun.
+
+The corrected rerun (`2026-11-04T03-00-17-144Z`) used `gpt-5.6-sol`, medium effort, the same compaction
+fixture, unchanged Act instructions and rubric, and three paired repetitions. The preserved
+`fc4e88b` evaluator/controller called the dedicated endpoint; the candidate used in-band compaction.
+All three candidate tasks used actual opaque checkpoints, inspected both source files, and recalled
+the older codeword. Deterministic checks and blinded grading passed **3/3**. The control received
+HTTP 401 on compaction in **3/3**, so it failed the checkpoint-availability check while still answering
+accurately through raw-history fallback. This demonstrates working compaction on the tested
+connection/model, not superior answer quality over that fallback or universal model support.
+The comparison exited successfully; its reports and preserved control are ignored local artifacts.
+
+Reproduce the focused comparison after preserving a matching control:
+
+```sh
+npm run eval:act -- --model gpt-5.6-sol --effort medium --repeat 3 --scenario compaction \
+  --baseline-host build/oauth-compaction-baseline/eval-act \
+  --baseline-harness build/oauth-compaction-baseline/source/tests/act-evaluation/harness.mjs
+```

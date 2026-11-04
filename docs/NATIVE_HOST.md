@@ -108,6 +108,11 @@ Each `model.compact` and `model.stream` request names a `conversationId`. Compac
 `model.context.clear` accepts a conversation ID and cannot clear a newer conversation's cache.
 The native cache never enters files, extension messages, or Chrome storage. The browser retains
 only metadata and transcript checkpoints; it reserves the reported bytes in its history budget.
+`model.compact` uses a tool-free streaming `/responses` request with documented in-band
+`context_management`; it no longer calls the OAuth-rejected `/responses/compact` route. The shared
+contract owns its base instructions and 1,000-token provider threshold. Only the latest
+canonical compaction item is retained; incidental answer text is discarded. A prefix below the
+threshold preserves existing context without disabling later attempts.
 An expired handle returns `model_context_lost` before transport. The controller falls back once to
 bounded available transcript prose for initial requests, without replaying Act actions. Act
 continuations use retained task context and do not resolve the transcript handle again.
@@ -229,3 +234,17 @@ a corrected grader-trace limit, and HTTP 401 `hardened_oauth_rule_missing` on co
 completion. See [Act evaluations](EVALUATIONS.md#native-compaction-cache-verification-record).
 Manual Chrome layouts/console/restart, Docker, Wine, and native execution on other platforms remain
 pending, as authorized for this staged handoff.
+
+A subsequent OAuth capability probe resolved the compaction restriction through documented in-band
+compaction on `/responses` with the same scopes. Reusable checkpoints retained older and newer
+synthetic facts in a fresh stateless request. The companion now uses that route, preserving the
+existing handle-only bridge and Go cache. HTTP/SSE regression coverage checks base-policy retention,
+no tools, `store: false`, `stream: true`, checkpoint selection, size bounds, missing checkpoints,
+and incomplete/failed streams. See [the follow-up evaluation](EVALUATIONS.md#chatgpt-oauth-in-band-compaction).
+
+The corrected in-band implementation passed all 141 JavaScript tests, Go race tests/vet, all six
+binary builds, and both Windows test compilations. Three paired real-model compaction trials passed
+3/3 for the candidate, with actual checkpoints, retained older facts, and completed Act tasks.
+The preserved dedicated-endpoint control was denied compaction in 3/3 and used raw-history fallback;
+its answers were still accurate. An earlier failed checkpoint-policy experiment is retained in the
+evaluation record. Manual Chrome and other-platform runtime checks remain separate and pending.

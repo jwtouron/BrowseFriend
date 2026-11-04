@@ -178,33 +178,39 @@ func (c *Connection) Models(ctx context.Context) ([]object, error) {
 	}
 	return result, nil
 }
+
 func (c *Connection) Compact(ctx context.Context, o ModelOptions) (string, error) {
-	token, err := c.credentials(ctx)
+	// ChatGPT OAuth permits in-band compaction on /responses, while /responses/compact can be denied.
+	// Only the canonical checkpoint is reused; this request's incidental answer is discarded.
+	// Preserve the ordinary base policy. Checkpoint-only developer instructions can become part
+	// of the opaque state and incorrectly govern subsequent user requests.
+	o.Instructions, o.Tools = contract.BaseInstructions, nil
+	output, err := c.response(ctx, o, func(string) {}, true)
 	if err != nil {
 		return "", err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 180*time.Second)
-	defer cancel()
-	data, _ := json.Marshal(object{"model": o.Model, "input": apiInput(o.Input)})
-	res, err := request(ctx, c.HTTP, "POST", c.api+"/responses/compact", "application/json", token, bytes.NewReader(data))
-	if err != nil {
-		return "", err
+	for i := len(output) - 1; i >= 0; i-- {
+		if output[i]["type"] != "compaction" {
+			continue
+		}
+		data, err := json.Marshal([]object{output[i]})
+		if err != nil {
+			return "", err
+		}
+		value := string(data)
+		if _, ok := compacted(value); !ok {
+			return "", failure("invalid_compaction", "ChatGPT returned invalid compacted context.", false)
+		}
+		return value, nil
 	}
-	body, err := decodeJSON(res)
-	if err != nil {
-		return "", err
-	}
-	out, err := json.Marshal(body["output"])
-	if err != nil {
-		return "", err
-	}
-	s := string(out)
-	if _, ok := compacted(s); !ok {
-		return "", failure("invalid_compaction", "ChatGPT returned invalid compacted context.", false)
-	}
-	return s, nil
+	// A small eligible prefix may not cross the provider's token threshold yet. Keep the prior
+	// checkpoint and raw prose, allowing a later, larger prefix to compact instead.
+	return "", failure("compaction_not_needed", "The conversation did not produce a new context checkpoint.", false)
 }
 func (c *Connection) Stream(ctx context.Context, o ModelOptions, delta func(string)) ([]object, error) {
+	return c.response(ctx, o, delta, false)
+}
+func (c *Connection) response(ctx context.Context, o ModelOptions, delta func(string), checkpoint bool) ([]object, error) {
 	token, err := c.credentials(ctx)
 	if err != nil {
 		return nil, err
@@ -212,6 +218,10 @@ func (c *Connection) Stream(ctx context.Context, o ModelOptions, delta func(stri
 	ctx, cancel := context.WithTimeout(ctx, 180*time.Second)
 	defer cancel()
 	body := object{"model": o.Model, "input": apiInput(o.Input), "instructions": o.Instructions, "store": false, "stream": true, "include": []string{"reasoning.encrypted_content"}}
+	if checkpoint {
+		delete(body, "include")
+		body["context_management"] = []object{{"type": "compaction", "compact_threshold": contract.Limits.CompactionThresholdTokens}}
+	}
 	if o.ReasoningEffort != "" {
 		body["reasoning"] = object{"effort": o.ReasoningEffort}
 	}
@@ -233,9 +243,12 @@ func (c *Connection) Stream(ctx context.Context, o ModelOptions, delta func(stri
 	if ct != "" && ct != "text/event-stream" {
 		return nil, failure("invalid_stream", "ChatGPT did not return the expected response stream.", true)
 	}
-	return consumeSSE(ctx, res.Body, delta, res.Header.Get("x-request-id"))
+	return consumeResponseSSE(ctx, res.Body, delta, res.Header.Get("x-request-id"), checkpoint)
 }
 func consumeSSE(ctx context.Context, in io.Reader, delta func(string), requestID string) ([]object, error) {
+	return consumeResponseSSE(ctx, in, delta, requestID, false)
+}
+func consumeResponseSSE(ctx context.Context, in io.Reader, delta func(string), requestID string, checkpoint bool) ([]object, error) {
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 4096), 1024*1024)
 	data := []string{}
@@ -263,7 +276,11 @@ func consumeSSE(ctx context.Context, in io.Reader, delta func(string), requestID
 			}
 		case "response.output_item.done":
 			item, ok := e["item"].(map[string]any)
-			if !ok || !has([]string{"message", "reasoning", "function_call"}, text(item["type"])) {
+			allowed := has([]string{"message", "reasoning", "function_call"}, text(item["type"]))
+			if checkpoint {
+				allowed = has([]string{"message", "reasoning", "compaction"}, text(item["type"]))
+			}
+			if !ok || !allowed {
 				return false, failure("invalid_stream", "ChatGPT returned an unsupported response item.", false)
 			}
 			encoded, err := json.Marshal(item)

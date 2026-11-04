@@ -219,7 +219,8 @@ export const HOST_CONTRACT = Object.freeze({
     "promptBytes": 16384,
     "responseBytes": 524288,
     "deltaChars": 16384,
-    "actContextBytes": 8388608
+    "actContextBytes": 8388608,
+    "compactionThresholdTokens": 1000
   },
   "appName": "BrowseFriend",
   "hostName": "com.browsefriend.native_host",

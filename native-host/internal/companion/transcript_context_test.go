@@ -175,7 +175,7 @@ func TestTranscriptInvalidatesOnModelConversationAuthAndExit(t *testing.T) {
 	}
 }
 func TestTranscriptFailedAndCancelledReplacementPreservesPrior(t *testing.T) {
-	for _, kind := range []string{"unsupported", "malformed", "oversized", "cancelled", "clear", "auth"} {
+	for _, kind := range []string{"unsupported", "not-needed", "malformed", "oversized", "cancelled", "clear", "auth"} {
 		t.Run(kind, func(t *testing.T) {
 			h, c, call := transcriptHarness(t)
 			handle := cacheHandle(t, call("first", "model.compact", transcriptParams()))
@@ -185,6 +185,8 @@ func TestTranscriptFailedAndCancelledReplacementPreservesPrior(t *testing.T) {
 				switch kind {
 				case "unsupported":
 					return "", failure("unsupported_method", "unsupported", false)
+				case "not-needed":
+					return "", failure("compaction_not_needed", "Prefix below threshold", false)
 				case "malformed":
 					return `[{"type":"message"}]`, nil
 				case "oversized":

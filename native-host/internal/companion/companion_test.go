@@ -139,10 +139,10 @@ func newFixture(t *testing.T) *fixture {
 			f.apiCalls++
 			json.NewDecoder(r.Body).Decode(&f.lastBody)
 			w.Header().Set("Content-Type", "text/event-stream")
+			if f.lastBody["context_management"] != nil {
+				io.WriteString(w, "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"compaction\",\"encrypted_content\":\"opaque\"}}\n\n")
+			}
 			io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\ndata: {\"type\":\"response.completed\"}\n\n")
-		case "/v1/responses/compact":
-			json.NewDecoder(r.Body).Decode(&f.lastBody)
-			json.NewEncoder(w).Encode(object{"output": []object{{"type": "compaction", "encrypted_content": "opaque"}}})
 		default:
 			http.NotFound(w, r)
 		}

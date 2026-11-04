@@ -150,7 +150,8 @@ mid-task truncation or compaction. This byte bound does not guarantee fitting ev
 window; API context-limit errors remain possible.
 
 The controller retains completed user/assistant exchanges in the memory-only chat session. When
-reusable context exceeds 256 KiB, it sends only older transcript prose to `/responses/compact`,
+reusable context exceeds 256 KiB, it sends only older transcript prose in a separate tool-free
+`/responses` request with `context_management: [{type: "compaction", compact_threshold: 1000}]`,
 retains the returned opaque canonical items in a separate Go cache capped at 320 KiB, and
 keeps the latest eight exchanges verbatim. Only those recent exchanges include visible Act action
 records; older action labels and values are neither compacted nor resent. Page snapshots, system
@@ -159,6 +160,21 @@ model-specific because it is opaque model-generated state; BrowseFriend cannot s
 different model can interpret it with the same semantics. A model change therefore invalidates
 incompatible compacted context, New chat clears it, and unsupported or malformed compaction falls
 back to the existing bounded raw-history path.
+
+The checkpoint request uses `store: false`, `stream: true`, and the ordinary base instructions
+from the shared contract. No checkpoint-only developer policy is introduced, since it can be
+encoded in opaque state and interfere with later user requests. The provider emits canonical
+compaction items in its stream; Go retains
+only the latest one and discards incidental generated text/reasoning. No page tools are supplied
+or accepted for this request. This adds one inference request when compacting; ordinary Ask/Act
+generations are unchanged. The 1,000-token provider threshold is separate from the browser's
+256-KiB eligibility trigger. If the eligible prefix produces no checkpoint yet, keep its raw prose
+and any previous handle and try again when it grows. Errors, cancellation, and invalid output never
+replace a valid cached checkpoint.
+
+The dedicated `/responses/compact` route returned HTTP 401 `hardened_oauth_rule_missing` with the
+tested ChatGPT OAuth connection. In-band compaction through the documented `/responses` route
+worked with the existing documented scopes; no extra permission or private endpoint was needed.
 
 The chat has a stable `conversationId` until New chat or logout. `model.compact` accepts this ID,
 model, bounded older prose, and an optional prior `contextHandle`; it returns only a new opaque

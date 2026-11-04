@@ -44,9 +44,11 @@ current implementation unless a task explicitly promotes them into scope.
 - [ ] Make the header connection indicator open **Settings → Account** and focus the account
   controls while preserving its non-color accessible status.
 - [ ] Add model-directed context expansion through the typed tool channel.
-- [ ] Confirm supported compaction access for ChatGPT OAuth and rerun the preserved native-cache
-  comparison with fixed fixtures/model/effort and three repetitions. The tested connection returned
-  HTTP 401 `hardened_oauth_rule_missing`; streaming and bounded raw-history fallback worked.
+- [x] Verify the in-band OAuth compaction fix against the preserved dedicated-endpoint control
+  with fixed fixtures/model/effort and three repetitions. The dedicated route returned HTTP 401
+  `hardened_oauth_rule_missing`; documented `context_management` on `/responses` produced reusable
+  checkpoints with the existing scopes. The candidate passed 3/3 fixed-fixture live trials.
+  See [evaluations](EVALUATIONS.md#chatgpt-oauth-in-band-compaction).
 
 ## Distribution and authentication
 

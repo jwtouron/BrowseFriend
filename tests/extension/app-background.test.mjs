@@ -1221,3 +1221,24 @@ test("an expired handle during incremental compaction falls back before the firs
   assert.match(streams[0].params.history[0].content, /Question 1/);
   assert.equal((await harness.storage.get("browsefriend.chat.session"))["browsefriend.chat.session"].compaction, null);
 });
+
+test("a prefix below the provider compaction threshold preserves its handle and remains eligible later", async () => {
+  const storedSession = compactedStoredSession();
+  storedSession.compaction.throughAssistantId = "assistant-1";
+  storedSession.compaction.throughCreatedAt = 3;
+  const harness = createHarness({ storedSession,
+    compactRequest() { throw { code: "compaction_not_needed", message: "No new checkpoint" }; },
+  });
+  await harness.controller.ensureReady();
+  for (const id of ["task-1", "task-2"]) {
+    await harness.controller.submit(id, "Next");
+    await settle();
+  }
+  assert.equal(harness.companionCalls.filter((call) => call.method === "model.compact").length, 2);
+  const streams = harness.companionCalls.filter((call) => call.method === "model.stream");
+  assert.equal(streams.length, 2);
+  assert.ok(streams.every((call) => call.params.contextHandle === "retained-handle"));
+  const saved = (await harness.storage.get("browsefriend.chat.session"))["browsefriend.chat.session"];
+  assert.equal(saved.compaction.handle, "retained-handle");
+  assert.equal(saved.messages.at(-1).status, "complete");
+});

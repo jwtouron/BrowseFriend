@@ -15,7 +15,7 @@ BrowseFriend does not create product accounts, subscriptions, or billing. It doe
 Model requests use `store: false`; BrowseFriend supplies only its fixed instructions, local transcript,
 current page context, and current prompt. During one Act task, Go also retains earlier page
 observations, model outputs, and tool results in memory, discarding them when the task ends. When reusable transcript context exceeds 256 KiB,
-BrowseFriend uses OpenAI's stateless compaction endpoint and keeps the latest eight exchanges
+BrowseFriend requests an opaque checkpoint through OpenAI's streaming Responses API and keeps the latest eight exchanges
 verbatim. Past page-action records are included only for those eight exchanges. The visible transcript
 uses one global Chrome session shared by open panels. Opaque compacted
 context stays in a separate Go memory cache capped at 320 KiB; Chrome stores only its handle, byte

@@ -10,8 +10,10 @@ import { SCENARIOS } from "./site.mjs";
 
 async function main() {
   const root = fileURLToPath(new URL("../../", import.meta.url));
-  const { values } = parseArgs({ options: { "baseline-host": { type: "string" }, "baseline-harness": { type: "string" }, "auth-timeout": { type: "string", default: "120" }, model: { type: "string" }, effort: { type: "string", default: "medium" }, repeat: { type: "string", default: "1" } } });
+  const { values } = parseArgs({ options: { "baseline-host": { type: "string" }, "baseline-harness": { type: "string" }, "auth-timeout": { type: "string", default: "120" }, scenario: { type: "string" }, model: { type: "string" }, effort: { type: "string", default: "medium" }, repeat: { type: "string", default: "1" } } });
   if (!values.model || !/^[1-9]\d*$/.test(values.repeat)) throw new Error("Usage: npm run eval:act -- --model <slug> [--effort medium] [--repeat N] [--baseline-host <pre-change-evaluator>]");
+  const scenarios = values.scenario ? [values.scenario] : SCENARIOS;
+  if (scenarios.some((scenario) => !SCENARIOS.includes(scenario))) throw new Error("Unknown scenario");
   const baselineCase = values["baseline-harness"]
     ? (await import(pathToFileURL(resolve(values["baseline-harness"])))).runCase : runCase;
   if (values["baseline-host"] && !values["baseline-harness"]) throw new Error("Context comparisons require --baseline-harness with the preserved matching controller/harness.");
@@ -28,9 +30,9 @@ async function main() {
   if (values["baseline-host"]) await writeFile(baseline, contract.actInstructions);
   if (!contract.efforts.includes(values.effort)) throw new Error("Unsupported effort");
   const hash = (value) => createHash("sha256").update(value).digest("hex");
-  const report = { comparison: values["baseline-host"] ? "context" : "instructions", model: values.model, effort: values.effort, repeats, instructions: {
+  const report = { comparison: values["baseline-host"] ? "context" : "instructions", model: values.model, effort: values.effort, repeats, scenarios, instructions: {
     baseline: hash(await readFile(baseline)), candidate: hash(contract.actInstructions),
-  }, fixtureHash: hash(await readFile(new URL("./site.mjs", import.meta.url))), executables: { baseline: hash(await readFile(values["baseline-host"] ? resolve(values["baseline-host"]) : executable)), candidate: hash(await readFile(executable)) }, runs: [] };
+  }, compactionInstructionsHash: hash(contract.baseInstructions), compactionThresholdTokens: contract.limits.compactionThresholdTokens, fixtureHash: hash(await readFile(new URL("./site.mjs", import.meta.url))), executables: { baseline: hash(await readFile(values["baseline-host"] ? resolve(values["baseline-host"]) : executable)), candidate: hash(await readFile(executable)) }, runs: [] };
   const currentSite = await readFile(new URL("./site.mjs", import.meta.url));
   if (values["baseline-harness"] && hash(await readFile(join(dirname(resolve(values["baseline-harness"])), "site.mjs"))) !== hash(currentSite)) {
     throw new Error("Baseline and candidate must use identical site fixtures.");
@@ -67,7 +69,7 @@ async function main() {
   });
   async function save() {
     await writeFile(join(directory, "results.json"), JSON.stringify(report, null, 2));
-    await writeFile(join(directory, "report.txt"), [`Model: ${report.model}; effort: ${report.effort}`, ...(report.error ? [report.error.message] : []), ...report.runs.map((run) => `${run.repeat} ${run.scenario} ${run.variant}: ${run.error ? "INCONCLUSIVE" : run.passed ? "PASS" : "FAIL"}\nChecks: ${run.task?.passedChecks ?? "incomplete"}; requested tools: ${run.task?.toolCalls ?? 0}\n${run.grade?.rationale || run.error?.message || ""}\nAnswer: ${run.task?.answer || "(none)"}`)].join("\n"));
+    await writeFile(join(directory, "report.txt"), [`Model: ${report.model}; effort: ${report.effort}`, ...(report.error ? [report.error.message] : []), ...report.runs.map((run) => `${run.repeat} ${run.scenario} ${run.variant}: ${run.error ? "INCONCLUSIVE" : run.passed ? "PASS" : "FAIL"}\nChecks: ${run.task?.passedChecks ?? "incomplete"}; requested tools: ${run.task?.toolCalls ?? 0}\n${run.compactionUnavailable ? `Compaction unavailable: ${run.compactionUnavailable.code}; raw-history fallback used.\n` : ""}${run.grade?.rationale || run.error?.message || ""}\nAnswer: ${run.task?.answer || "(none)"}`)].join("\n"));
   }
   try {
     const preflight = await getHost("candidate", executable, ["-baseline", baseline]);
@@ -78,7 +80,7 @@ async function main() {
       if (model.supportedReasoningEfforts?.length && !model.supportedReasoningEfforts.includes(values.effort)) throw new Error("Requested effort unsupported by selected model");
     }
     for (let repeat = 0; repeat < repeats; repeat += 1) {
-      for (const scenario of SCENARIOS) {
+      for (const scenario of scenarios) {
         for (const variant of repeat % 2 ? ["candidate", "baseline"] : ["baseline", "candidate"]) {
           if (interrupted) throw new Error("Evaluation interrupted");
           console.log(`${repeat + 1}/${repeats}: ${scenario}, ${variant}`);
@@ -92,7 +94,8 @@ async function main() {
           if (interrupted) throw new Error("Evaluation interrupted");
           if (scenario === "compaction" && !entry.task.compactionUsed) {
             const error = entry.task.trace.find((item) => item.kind === "compaction" && item.error)?.error;
-            throw new Error(`Compaction was unavailable (${error?.code || "no context returned"}); raw-history fallback cannot verify this comparison.`);
+            entry.compactionUnavailable = error || { code: "no_context_returned" };
+            if (variant === "candidate") throw new Error(`Compaction was unavailable (${error?.code || "no context returned"}); raw-history fallback cannot verify this comparison.`);
           }
           if (entry.task.error) {
             const code = entry.task.error.code || "";

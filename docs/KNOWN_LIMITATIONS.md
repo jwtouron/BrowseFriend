@@ -87,10 +87,12 @@ access; per-user native registration already supports that requirement.
   records. Opaque payloads live only in Go memory; stale handles fall back once to available prose
   before a new provider request. If the endpoint is unavailable or rejects its canonical output, it safely falls back to
   bounded raw history and may forget more of the oldest prose.
-- A live compaction request on the tested ChatGPT connection returned HTTP 401
-  `hardened_oauth_rule_missing`, while streaming worked. The app retains bounded raw-history
-  fallback; the native-cache real-model comparison remains inconclusive until supported compaction
-  access is available. See [the evaluation record](EVALUATIONS.md#native-compaction-cache-verification-record).
+- The dedicated `/responses/compact` route returned HTTP 401 `hardened_oauth_rule_missing` with
+  the tested ChatGPT connection. BrowseFriend now uses documented in-band compaction on `/responses`,
+  which returned reusable opaque checkpoints with the same OAuth scopes. Checkpointing requires an
+  additional tool-free inference request; availability can still depend on the model. Missing,
+  unsupported, cancelled, or malformed checkpoints retain existing context and bounded raw-history
+  fallback. See [the evaluation record](EVALUATIONS.md#chatgpt-oauth-in-band-compaction).
 - The current transcript is global across open BrowseFriend panels and Chrome windows. Switching
   tabs or windows does not select a separate chat; use **New chat** to clear the shared context.
 - Responses are based on a captured page revision. BrowseFriend reports when the page changes but

@@ -17,7 +17,9 @@ random loopback listener only while completing the hosted OAuth callback.
 A [DNR callback investigation](AUTH_DNR_INVESTIGATION.md) demonstrated synthetic redirection in
 Brave/Chromium 156, but OpenAI support and browser-side token handling remain unverified. The selected
 implementation retains Go and loopback OAuth, replacing durable login with process-local credentials.
-That replacement is planned; the current runtime still uses encrypted credentials until Stage 1 lands.
+Credentials now remain only in the native process. Browser restart, companion exit, or a bridge
+disconnect requires authentication again; only non-secret registration identifiers survive.
+Old encrypted files and keyring entries are ignored, without migration or cleanup tooling.
 Stage 2 will move opaque compaction payloads into Go after Stage 1 is verified.
 
 Bundled OS scripts still need Native Messaging registration or independent server startup. A shared
@@ -30,14 +32,10 @@ access; per-user native registration already supports that requirement.
 - Windows requires protected owner/SYSTEM ACLs. Safe inherited permissions or normal Administrators
   entries can cause a storage error. The companion no longer repairs existing ACLs automatically;
   the simpler policy remains deferred until native Windows validation.
-- The context-aware go-keyring fork cancels macOS commands and Linux waits, but cancellation cannot
-  undo an OS-accepted write. Windows Credential Manager calls do not prompt and normally finish
-  synchronously; they cannot be interrupted or given a guaranteed hard deadline. Linux uses a
-  `plain` Secret Service session on local D-Bus; this concerns transport, not plaintext disk storage.
-- The [storage evaluation](STORAGE_EVALUATION.md) found no clear database replacement for the single
-  encrypted account record. Keeper's fixed open timeout delays cancellation, and Chestnut needs a
-  dependency replacement to compile. Those databases remain evaluation-only. The runtime now uses
-  the context-aware keyring fork and `gofrs/flock`; their source pins and licenses are tracked.
+- There is no cross-process credential sharing or durable refresh recovery. A signing-key outage or
+  cancellation preserves a refresh successor only while its owning process remains alive.
+- The [storage evaluation](STORAGE_EVALUATION.md) archives retired persistence experiments. The
+  current runtime has no keyring or database dependency; protected files store registration only.
 
 ## Page understanding
 

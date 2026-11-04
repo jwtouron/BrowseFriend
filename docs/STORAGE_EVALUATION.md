@@ -1,11 +1,13 @@
 # Credential Storage Evaluation
 
-The original comparison ran on 2026-10-30 with Go 1.27.3 and Node 24.22.1. The separate module in
-`native-host/storage-evaluation/` contains the experiments. Measurements below describe that baseline;
+The original comparison ran on 2026-10-30 with Go 1.27.3 and Node 24.22.1.
+The experiments formerly lived in `native-host/storage-evaluation/`. That module, its dependencies,
+and CI hooks were removed when authentication became process-local; retrieve an earlier Git
+revision to reproduce these historical results. Measurements below describe that baseline;
 subsequent production adoption is recorded separately. The account format and real credentials
 were not changed by the evaluation or integration tests.
 
-## Recommendation
+## Historical recommendation
 
 Keep one AES-GCM account file with an OS-protected encryption key. Pursue a simpler Windows
 permission policy that accepts safe inheritance and normal Administrators entries. For this one
@@ -13,8 +15,8 @@ account record, the databases tested do not remove enough application code to ju
 
 Upstream Zalando v0.2.8 passed actual OS-store tests on this Mac, Linux Secret Service, and
 Windows Credential Manager under Wine. Its original API cannot cancel a blocked OS lookup;
-the legacy evaluation adapter still reproduces that limitation. Production now uses the small
-context-aware fork described below rather than that adapter.
+the legacy evaluation adapter reproduced that limitation. The former production implementation
+adopted the small context-aware fork described below rather than that adapter.
 
 Priority is less custom security/recovery code, followed by maintenance, operational simplicity,
 then resource cost. No candidate changes the need for Windows testing or Chrome's registry entry.
@@ -123,33 +125,13 @@ the production code create its own fresh private directory, as the production te
 - The existing production Wine suite also passed, including installation/removal and all ten
   Windows host-contract/configuration checks.
 
-From the repository root:
+The former runner and its commands are available in Git history before the process-local
+authentication change. They are not supported commands in this checkout. Their synthetic keyring
+entries and databases were evaluation-only; they never formed a migration framework.
 
-```sh
-node native-host/storage-evaluation/run.mjs check
-BF_STORAGE_EVALUATION_KEYRING=1 node native-host/storage-evaluation/run.mjs check
-node native-host/storage-evaluation/run.mjs measure
-node native-host/storage-evaluation/run.mjs cross
-BROWSEFRIEND_WINE="/Applications/Wine Staging.app/Contents/Resources/wine/bin/wine" node native-host/storage-evaluation/run.mjs wine
-docker build -f native-host/storage-evaluation/Dockerfile -t browsefriend-storage-evaluation .
-docker run --rm browsefriend-storage-evaluation
-```
+## Former production integration
 
-Go must be on PATH; race tests need the normal platform toolchain. `check` includes the known
-Chestnut build-failure probe. OS-keyring testing is opt-in, uses unique synthetic entries, and
-deletes only those entries. macOS uses the current default keychain without changing its settings;
-Linux uses an isolated D-Bus session; Wine uses a disposable prefix. Locked/denied errors are
-injected at the adapter boundary rather than locking or denying access to the user's real store.
-
-The runner writes logs and measurement JSON under ignored `build/storage-evaluation/`; Docker prints
-its results. Tests use fresh temporary
-directories; helpers require an evaluation marker. The normal root Go tests exclude this nested
-module. For native CI, manually dispatch **CI** with **storage_evaluation** enabled: it runs the
-separate suite on all six existing runners and uploads logs only. First hosted results remain pending.
-
-## Production integration
-
-BrowseFriend now uses the context-support fork in `jwtouron/go-keyring`, retaining upstream import
+The former implementation used the context-support fork in `jwtouron/go-keyring`, retaining upstream import
 paths through matching pinned module replacements. Existing account encoding and macOS identifiers
 are preserved. Windows uses Credential Manager; Linux no longer needs `secret-tool`. The legacy
 keyring adapter above remains an explicit baseline experiment rather than production code.
@@ -172,3 +154,11 @@ Production Linux and final source-pin verification are recorded in [Native compa
 Broader Windows ACL acceptance remains unadopted pending native tests; the existing strict policy
 stays and automatic repair is removed. Handle any future credential transfer as one-time maintenance,
 without a migration framework.
+
+## Retirement
+
+Authentication now remains exclusively in Go process memory. Only three non-secret registration
+identifiers persist, using the existing protected-file helpers and `gofrs/flock`. Credential
+encryption, keyring dependencies, and this evaluation module are retired without migration or
+cleanup tooling. The broader Windows permission-policy proposal remains deferred pending native
+validation. Historical results above do not establish verification of the replacement.

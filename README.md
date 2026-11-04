@@ -6,8 +6,9 @@ BrowseFriend is a local-first Chrome side-panel companion. It provides a support
 
 The extension never receives OAuth credentials. Its service worker talks to a native-messaging host
 written in Go that runs OpenAI's loopback sign-in flow and returns only
-display-safe account state. Tokens are encrypted with a random key protected by macOS Keychain,
-Linux Secret Service, or Windows Credential Manager.
+display-safe account state. Tokens, profile details, and pending refresh successors stay only in
+that Go process. Restarting Chrome or losing the companion requires sign-in again. A small protected
+file retains only the non-secret host, client, and account-subject identifiers.
 
 BrowseFriend does not create product accounts, subscriptions, or billing. It does not read ChatGPT cookies, conversations, memory, or private endpoints. The official flow can use eligible ChatGPT plan usage but does not grant access to ChatGPT history or memory.
 
@@ -24,7 +25,6 @@ Chrome restarts or the extension reloads.
 - Google Chrome 141 or newer on macOS, desktop Linux, or Windows 11 (x64/ARM64).
 - Node.js matching `^22.22.2 || ^24.15.0 || >=26.0.0` for JavaScript tests only.
 - Go 1.25+ to build/test the companion; a C compiler for race tests.
-- Linux only: a running D-Bus session and Secret Service provider (for example GNOME Keyring).
 - A ChatGPT account eligible for Sign in with ChatGPT plan usage.
 
 BrowseFriend is a personal, local-first project. Its original code is [MIT licensed](LICENSE).
@@ -38,7 +38,7 @@ go run ./native-host/cmd/build --check --install
 
 Then open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select this repository. The checked-in manifest key gives development builds the stable ID expected by the native host. Reload the extension after code changes.
 
-The installer copies the standalone binary into the application-data directory and registers it with Chrome. Moving the repository does not affect the installed copy. Unregister it with `go run ./native-host/cmd/build --check --uninstall`; account data is preserved.
+The installer copies the standalone binary into the application-data directory and registers it with Chrome. Moving the repository does not affect the installed copy. Unregister it with `go run ./native-host/cmd/build --check --uninstall`; non-secret registration data is preserved.
 
 On Windows, installation uses the current user's registry and needs no administrator access. Close
 BrowseFriend before replacing or removing a running companion. A downloaded Windows executable can
@@ -53,7 +53,7 @@ remain pending; see the [verification record](docs/NATIVE_HOST.md#verification-r
 
 See [Native companion](docs/NATIVE_HOST.md) for standalone commands, storage locations, tests, and platform verification.
 
-Open BrowseFriend from Chrome's toolbar. The chat is usable immediately while the header indicator quietly checks the local companion, saved account, and available models. Yellow means connecting, green means ready, and red means an action or retry is required.
+Open BrowseFriend from Chrome's toolbar. The chat is usable immediately while the header indicator quietly checks the local companion, current authentication, and available models. Yellow means connecting, green means ready, and red means an action or retry is required.
 
 Signed-out users see **Continue with ChatGPT** inside the chat. OpenAI handles account and workspace selection in the browser, then returns to the local companion. A prompt submitted while setup is still running waits and sends automatically once ready. **Settings → Account** shows the selected identity, plan-access state, usage link, and logout action.
 
@@ -129,8 +129,8 @@ arguments; for example, `mise run eval:act --model <slug> --effort medium --repe
 with `mise run deps` or `npm ci`; verification does not reinstall them.
 
 mise is optional for contributors, tests, and CI. A C compiler for race tests and Chrome remain
-platform prerequisites. Linux credential-store services, Docker for container checks, and Wine for
-Windows compatibility checks are installed separately when needed; mise does not provision them.
+platform prerequisites. Docker for container checks and Wine for Windows compatibility checks are installed separately
+when needed; mise does not provision them.
 Keep version pins aligned with CI when upgrading tools.
 
 ## Continuous integration and downloads
@@ -142,7 +142,7 @@ output is written to `build/packages/`. No OpenAI credentials or live model requ
 
 The first hosted runs remain pending until the initial push. Manual Chrome browser verification
 is separate, and downloadable builds do not yet have release signing/notarization. See
-[CI and artifact instructions](docs/CI.md) for the matrix, isolated credential-store checks, and downloads.
+[CI and artifact instructions](docs/CI.md) for the matrix, synthetic authentication checks, and downloads.
 
 The extension remains plain HTML, CSS, and JavaScript with no browser-side build. Chrome code lives in `extension/`; one application controller owns readiness and prompt workflows while authentication, chat rendering, settings, page reading, and page action execution remain isolated supporting features. The companion keeps authentication and model requests separate under `native-host/`.
 
@@ -153,7 +153,7 @@ The extension remains plain HTML, CSS, and JavaScript with no browser-side build
 - [Known limitations](docs/KNOWN_LIMITATIONS.md) records current platform and model constraints.
 - [Roadmap](docs/TODO.md) tracks explicitly deferred work and investigations.
 - [CI and artifacts](docs/CI.md) describes native verification and downloadable development builds.
-- [Storage evaluation](docs/STORAGE_EVALUATION.md) records the original library comparison and subsequent keyring integration.
+- [Storage evaluation](docs/STORAGE_EVALUATION.md) archives the retired persistent-credential comparison and keyring integration.
 - [Third-party notice](NOTICE.md) summarizes dependency licenses and sign-in asset attribution.
 
 ## Product direction

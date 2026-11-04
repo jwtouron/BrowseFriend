@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sync"
 
 	"browsefriend/native-host/internal/companion"
 	contract "browsefriend/shared"
@@ -17,23 +18,63 @@ type evaluator struct {
 	companion.Client
 	instructions string
 	judge        bool
+	mu           sync.Mutex
+	baseline     string
 }
 
-func (e evaluator) SignIn(context.Context, bool) (companion.Session, error) {
-	return companion.Session{}, fmt.Errorf("evaluation cannot sign in")
+// Evaluation modes are selected only by this development executable, never the production host.
+type evaluationHandler struct {
+	*companion.Handler
+	evaluator *evaluator
+	mu        sync.Mutex
+	pending   map[string]bool
 }
-func (e evaluator) SignOut(context.Context) (companion.Session, error) {
+
+func (h *evaluationHandler) Dispatch(ctx context.Context, r companion.Request) {
+	if r.Method == "eval.configure" {
+		mode, _ := r.Params["variant"].(string)
+		h.mu.Lock()
+		busy := len(h.pending) != 0
+		if !busy && (mode == "baseline" || mode == "candidate" || mode == "judge") {
+			h.evaluator.mu.Lock()
+			h.evaluator.judge = mode == "judge"
+			h.evaluator.instructions = contract.Contract.ActInstructions
+			if mode == "baseline" {
+				h.evaluator.instructions = h.evaluator.baseline
+			}
+			h.evaluator.mu.Unlock()
+			h.mu.Unlock()
+			r.Method, r.Params = "model.cancel", nil
+			h.Handler.Dispatch(ctx, r)
+			return
+		}
+		h.mu.Unlock()
+		h.Handler.Send(map[string]any{"id": r.ID, "ok": false, "error": map[string]any{"code": "invalid_evaluation_mode", "message": "Select an evaluation mode only while idle.", "retryable": false}})
+		return
+	}
+	if id, ok := r.ID.(string); ok {
+		switch r.Method {
+		case "auth.signIn", "model.stream", "model.compact":
+			h.mu.Lock()
+			h.pending[id] = true
+			h.mu.Unlock()
+		}
+	}
+	h.Handler.Dispatch(ctx, r)
+}
+
+func (e *evaluator) SignOut(context.Context) (companion.Session, error) {
 	return companion.Session{}, fmt.Errorf("evaluation cannot log out")
 }
-func (e evaluator) Compact(context.Context, companion.ModelOptions) (string, error) {
-	return "", fmt.Errorf("evaluation does not compact")
-}
-func (e evaluator) Stream(ctx context.Context, o companion.ModelOptions, delta func(string)) ([]map[string]any, error) {
-	if e.judge {
+func (e *evaluator) Stream(ctx context.Context, o companion.ModelOptions, delta func(string)) ([]map[string]any, error) {
+	e.mu.Lock()
+	judge, instructions := e.judge, e.instructions
+	e.mu.Unlock()
+	if judge {
 		o.Instructions = rubric
 		o.Tools = nil
 	} else if len(o.Tools) > 0 {
-		o.Instructions = contract.Contract.BaseInstructions + "\n\n" + e.instructions
+		o.Instructions = contract.Contract.BaseInstructions + "\n\n" + instructions
 	}
 	return e.Client.Stream(ctx, o, delta)
 }
@@ -54,8 +95,16 @@ func run() error {
 		return err
 	}
 	writer := &companion.Writer{Out: os.Stdout}
-	client := evaluator{Client: companion.NewConnection(companion.NewStore(dir), nil), instructions: instructions, judge: *judge}
-	handler := companion.NewHandler(client, func(v any) {
+	client := &evaluator{Client: companion.NewConnection(companion.NewStore(dir), nil), instructions: instructions, baseline: instructions, judge: *judge}
+	handler := &evaluationHandler{evaluator: client, pending: map[string]bool{}}
+	handler.Handler = companion.NewHandler(client, func(v any) {
+		if reply, ok := v.(map[string]any); ok {
+			if id, ok := reply["id"].(string); ok {
+				handler.mu.Lock()
+				delete(handler.pending, id)
+				handler.mu.Unlock()
+			}
+		}
 		if writer.Send(v) != nil {
 			os.Exit(1)
 		}

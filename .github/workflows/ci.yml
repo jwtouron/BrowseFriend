@@ -3,12 +3,7 @@ name: CI
 on:
   push:
   pull_request:
-  workflow_dispatch:
-    inputs:
-      storage_evaluation:
-        description: Run the isolated storage evaluation on all six native targets
-        type: boolean
-        default: false
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -105,11 +100,6 @@ jobs:
           assert.equal(execFileSync('go', ['env', 'GOARCH'], { encoding: 'utf8' }).trim(), process.env.EXPECTED_GOARCH);
           assert.equal(process.arch, process.env.EXPECTED_NODEARCH);
           JS
-      - name: Install Linux credential-store dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y --no-install-recommends dbus-x11 gnome-keyring
       - name: Configure Windows x64 race compiler
         if: matrix.goos == 'windows' && matrix.goarch == 'amd64'
         shell: pwsh
@@ -124,46 +114,8 @@ jobs:
             throw 'MinGW-w64 synchronization runtime is missing.'
           }
           "CC=$compiler" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Verify Linux in an isolated Secret Service session
-        if: runner.os == 'Linux'
-        env:
-          BROWSEFRIEND_TEST_SECRET_SERVICE: '1'
-        run: |
-          dbus-run-session -- bash -euo pipefail -c '
-            printf "%s" "browsefriend-synthetic-fixture" | gnome-keyring-daemon --unlock --components=secrets
-            npm run verify
-          '
-      - name: Verify macOS with synthetic Keychain entries
-        if: runner.os == 'macOS'
-        env:
-          BROWSEFRIEND_TEST_MAC_KEYCHAIN: '1'
+      - name: Verify native companion and extension
         run: npm run verify
-      - name: Verify native Windows
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: ./tests/windows/verify.ps1
-      - name: Evaluate storage with synthetic OS-keyring entries
-        if: github.event_name == 'workflow_dispatch' && inputs.storage_evaluation
-        shell: bash
-        env:
-          BF_STORAGE_EVALUATION_KEYRING: '1'
-        run: |
-          if [[ "$RUNNER_OS" == 'Linux' ]]; then
-            dbus-run-session -- bash -euo pipefail -c '
-              printf "%s" "browsefriend-synthetic-evaluation" | gnome-keyring-daemon --unlock --components=secrets
-              node native-host/storage-evaluation/run.mjs check
-            '
-          else
-            node native-host/storage-evaluation/run.mjs check
-          fi
-      - name: Upload storage evaluation logs
-        if: always() && github.event_name == 'workflow_dispatch' && inputs.storage_evaluation
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: storage-evaluation-${{ matrix.goos }}-${{ matrix.goarch }}-${{ github.sha }}
-          path: build/storage-evaluation/*.log
-          retention-days: 7
-          if-no-files-found: error
       - name: Package tested production binary
         shell: bash
         run: |

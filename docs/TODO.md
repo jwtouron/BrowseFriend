@@ -51,32 +51,34 @@ End-user setup, updates, and removal must work without administrator access. Any
 prerequisite must support a user-owned installation rather than requiring a system-wide installer.
 
 - [x] Evaluate OS-keyring libraries, encrypted stores, and a simpler Windows permission policy;
-  record reproducible results in [Storage evaluation](STORAGE_EVALUATION.md).
+  archive the historical results in [Storage evaluation](STORAGE_EVALUATION.md).
 - [x] Replace custom OS-key adapters with context-aware keyring APIs, lock-scoped account/key
   ownership, and validated `gofrs/flock` locking; preserve refresh checkpoints and cancellation boundaries.
-- [x] Publish the reviewed `jwtouron/go-keyring` fork, pin its remote revision in both modules, and
+- [x] Publish the reviewed `jwtouron/go-keyring` fork, previously pin its remote revision in both modules, and
   enable native CI and weekly/manual upstream-update PRs. All six fork native targets passed; see [CI](CI.md).
 - [x] Merge unreleased Zalando changes through `66b55cc` (`ListUsers` and Secret Service content-type
   detection), retain context cancellation and the fork's CI, and update both BrowseFriend pins to
-  `1a3d07a` after all six native targets pass. The upstream checker now reports the fork as current.
+  `1a3d07a` after all six native targets pass. These completed keyring milestones are historical; Stage 1 retires the production dependency and
+  experiment module.
 - [ ] Validate safe inherited Windows ACLs natively before simplifying production acceptance checks.
   Existing unsafe ACLs are rejected rather than automatically repaired.
 - [x] Replace the Node/SDK native runtime with the standalone Go companion and public OAuth/Responses flow.
 - [x] Configure GitHub CI for **macOS ARM64, macOS x64, Linux ARM64, Linux x64, Windows x64,
-  and Windows ARM64**, with simulated providers, isolated OS credential-store integration, production
+  and Windows ARM64**, with simulated providers, temporary registration stores, production
   binary/installation checks, race tests where supported, and licensed development artifacts.
 - [ ] After the initial push, confirm all six native CI jobs pass and record their actual platform
   results. Windows ARM64 has no Go race detector. Cross-compilation and Wine do not substitute for
   successful native execution.
 - [ ] Run `tests/windows/verify.ps1` on native Windows for both architectures, including ACL/reparse
-  enforcement and protected-key persistence; manually verify Chrome sign-in, Ask/Act, cancellation,
+  enforcement and process-local authentication loss on restart; manually verify Chrome sign-in, Ask/Act, cancellation,
   restart, and logout. Wine compatibility coverage does not complete these checks.
-- [ ] Add signed/notarized macOS and Linux installers, Windows signing/installers, and verify credential-store access after upgrades.
+- [ ] Add signed/notarized macOS and Linux installers, Windows signing/installers, and verify registration and sign-in after upgrades.
   Users must not need to install a language runtime.
 - [ ] Add explicit account-selection support if multiple registrations become necessary.
-- [ ] Stage 1: retain Go Native Messaging and loopback OAuth, but hold credentials and refresh
+- [x] Stage 1: retain Go Native Messaging and loopback OAuth, but hold credentials and refresh
   recovery only in process memory. Persist only non-secret registration identifiers. Keep npm/mise
   installation commands; remove credential encryption/keyring machinery without migration tooling.
+  Automated verification passed; manual browser and unavailable platform checks remain pending.
 - [ ] Stage 2, only after Stage 1 verification: move opaque compacted conversation context into a
   bounded native-memory cache. Keep only scoped handles, byte counts, and transcript checkpoints in
   Chrome; verify invalidation, restart recovery, and fixed-fixture real-model comparisons.

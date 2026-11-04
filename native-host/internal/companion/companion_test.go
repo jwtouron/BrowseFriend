@@ -14,9 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -27,109 +25,7 @@ import (
 
 func testStore(t *testing.T) *Store {
 	t.Helper()
-	return &Store{Directory: filepath.Join(t.TempDir(), "account"), Key: func(context.Context, bool) ([]byte, error) { return bytes.Repeat([]byte{7}, 32), nil }}
-}
-func TestEncryptedStorage(t *testing.T) {
-	s := testStore(t)
-	ctx := context.Background()
-	err := s.WithLock(ctx, func(tx *AccountTransaction) error {
-		a := tx.Account
-
-		a.ClientID = "client-test"
-		a.Credentials = &Credentials{Access: "synthetic-secret", Refresh: "synthetic-renewal", ExpiresAt: time.Now().Add(time.Hour).UnixMilli()}
-		return tx.Save(ctx)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(s.Directory, "account.enc")
-	first, _ := os.ReadFile(path)
-	if bytes.Contains(first, []byte("synthetic")) {
-		t.Fatal("plaintext credentials")
-	}
-	info, _ := os.Stat(path)
-	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
-		t.Fatal("permissions")
-	}
-	err = s.WithLock(ctx, func(tx *AccountTransaction) error {
-		a := tx.Account
-
-		if a.Credentials.Access != "synthetic-secret" {
-			t.Fatal("lost credentials")
-		}
-		return tx.Save(ctx)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, _ := os.ReadFile(path)
-	if bytes.Equal(first, second) {
-		t.Fatal("nonce reused")
-	}
-	second[len(second)-1] ^= 1
-	os.WriteFile(path, second, 0600)
-	err = s.WithLock(ctx, func(tx *AccountTransaction) error {
-		t.Fatal("damaged ciphertext accepted")
-		return nil
-	})
-	if publicError(err).Code != "storage_decryption_failed" {
-		t.Fatal(err)
-	}
-	after, _ := os.ReadFile(path)
-	if !bytes.Equal(after, second) {
-		t.Fatal("damaged file overwritten")
-	}
-}
-func TestUnsafeStorageAndCancellation(t *testing.T) {
-	s := testStore(t)
-	ctx := context.Background()
-	if err := s.WithLock(ctx, func(tx *AccountTransaction) error { return tx.Save(ctx) }); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(s.Directory, "account.enc")
-	if runtime.GOOS != "windows" {
-		os.Chmod(path, 0644)
-		if err := s.WithLock(ctx, func(*AccountTransaction) error { return nil }); publicError(err).Code != "storage_unsafe" {
-			t.Fatal(err)
-		}
-		os.Chmod(path, 0600)
-	}
-	entered, release := make(chan struct{}), make(chan struct{})
-	done := make(chan error, 1)
-	go func() {
-		done <- s.WithLock(ctx, func(*AccountTransaction) error { close(entered); <-release; return nil })
-	}()
-	<-entered
-	cancelCtx, cancel := context.WithCancel(ctx)
-	cancel()
-	if err := s.WithLock(cancelCtx, func(*AccountTransaction) error { return nil }); err != context.Canceled {
-		t.Fatal(err)
-	}
-	close(release)
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
-	if runtime.GOOS == "windows" {
-		return
-	} // Windows reparse-point checks have native-only tests.
-	other := filepath.Join(t.TempDir(), "symlink")
-	os.Symlink(s.Directory, other)
-	if err := (&Store{Directory: other, Key: s.Key}).WithLock(ctx, func(*AccountTransaction) error { return nil }); publicError(err).Code != "storage_unsafe" {
-		t.Fatal(err)
-	}
-}
-func TestCipherRejectsUnknownFormatAndKey(t *testing.T) {
-	key := bytes.Repeat([]byte{1}, 32)
-	value, err := encrypt(key, []byte("synthetic"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := decrypt(bytes.Repeat([]byte{2}, 32), value); err == nil {
-		t.Fatal("incorrect key accepted")
-	}
-	if _, err := decrypt(key, []byte{9}); err == nil {
-		t.Fatal("incorrect format accepted")
-	}
+	return NewStore(filepath.Join(t.TempDir(), "account"))
 }
 
 type fixture struct {
@@ -336,9 +232,7 @@ func TestOAuthAndModelHTTP(t *testing.T) {
 	if err != nil || s.State != "signed_out" {
 		t.Fatal(s, err)
 	}
-	if err := f.c.Store.WithLock(ctx, func(tx *AccountTransaction) error {
-		a := tx.Account
-
+	if err := f.c.Store.WithLock(ctx, func(a *Account) error {
 		if a.Credentials != nil || a.IDToken != "" || a.Pending != nil {
 			t.Fatal("logout retained tokens")
 		}
@@ -356,9 +250,7 @@ func TestOAuthRejectsInvalidIdentity(t *testing.T) {
 	if _, err := f.c.SignIn(context.Background(), false); publicError(err).Code != "invalid_id_token" {
 		t.Fatal(err)
 	}
-	if err := f.c.Store.WithLock(context.Background(), func(tx *AccountTransaction) error {
-		a := tx.Account
-
+	if err := f.c.Store.WithLock(context.Background(), func(a *Account) error {
 		if a.Credentials != nil {
 			t.Fatal("invalid identity activated")
 		}
@@ -370,15 +262,13 @@ func TestOAuthRejectsInvalidIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-func TestRefreshRecoveryAcrossRestart(t *testing.T) {
+func TestRefreshRecoveryWithinProcess(t *testing.T) {
 	f := newFixture(t)
 	f.login(t)
 	ctx := context.Background()
-	if err := f.c.Store.WithLock(ctx, func(tx *AccountTransaction) error {
-		a := tx.Account
-
+	if err := f.c.Store.WithLock(ctx, func(a *Account) error {
 		a.Credentials.ExpiresAt = time.Now().Add(-time.Hour).UnixMilli()
-		return tx.Save(ctx)
+		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -388,9 +278,7 @@ func TestRefreshRecoveryAcrossRestart(t *testing.T) {
 	if _, err := f.c.Models(ctx); publicError(err).Code != "identity_verification_unavailable" {
 		t.Fatal(err)
 	}
-	if err := f.c.Store.WithLock(ctx, func(tx *AccountTransaction) error {
-		a := tx.Account
-
+	if err := f.c.Store.WithLock(ctx, func(a *Account) error {
 		if a.Pending == nil {
 			t.Fatal("rotation checkpoint missing")
 		}
@@ -398,14 +286,10 @@ func TestRefreshRecoveryAcrossRestart(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	restarted := NewConnection(f.c.Store, nil)
-	restarted.issuer = f.c.issuer
-	restarted.api = f.c.api
-	restarted.HTTP = f.c.HTTP
 	f.mu.Lock()
 	f.jwksDown = false
 	f.mu.Unlock()
-	if _, err := restarted.Models(ctx); err != nil {
+	if _, err := f.c.Models(ctx); err != nil {
 		t.Fatal(err)
 	}
 	f.mu.Lock()

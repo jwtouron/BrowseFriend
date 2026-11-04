@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { access, readFile, readdir } from "node:fs/promises";
 import { runHost } from "./helpers/host-process.mjs";
 import test from "node:test";
@@ -62,9 +61,7 @@ test("native companion notices include linked dependencies and license texts", a
   assert.match(notices, /golang\.org\/x\/oauth2 v0\.36\.0/);
   assert.match(notices, /golang\.org\/x\/sys v0\.47\.0/);
   assert.match(notices, /github\.com\/gofrs\/flock v0\.13\.1/);
-  const keyring = JSON.parse(execFileSync("go", ["list", "-m", "-json", "github.com/zalando/go-keyring"], { encoding: "utf8" }));
-  const source = keyring.Replace ?? keyring;
-  assert.ok(notices.includes(`\n${source.Path} ${source.Version ?? ""}\n`), "notices identify the actual keyring source and revision");
+  assert.doesNotMatch(notices, /go-keyring|godbus|wincred/);
   assert.match(notices, /Apache License/);
   assert.match(notices, /Redistribution and use in source and binary forms/);
 });

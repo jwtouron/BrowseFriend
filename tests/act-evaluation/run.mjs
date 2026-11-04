@@ -27,22 +27,37 @@ async function main() {
     baseline: hash(await readFile(baseline)), candidate: hash(contract.actInstructions),
   }, fixtureHash: hash(await readFile(new URL("./site.mjs", import.meta.url))), executables: { baseline: hash(await readFile(values["baseline-host"] ? resolve(values["baseline-host"]) : executable)), candidate: hash(await readFile(executable)) }, runs: [] };
   let active;
+  const hosts = new Map();
+  async function getHost(key, path, args = []) {
+    if (!hosts.has(key)) {
+      const host = startHost(path, args);
+      hosts.set(key, host);
+      const auth = await host.request("auth.status");
+      if (auth.result.state !== "signed_in") {
+        console.log(`Complete ChatGPT sign-in in the browser for the ${key} evaluator. Credentials stay in that Go process.`);
+        const signedIn = await host.request("auth.signIn");
+        if (signedIn.result?.state !== "signed_in") throw new Error("Evaluation needs ChatGPT plan permission.");
+      }
+    }
+    return hosts.get(key);
+  }
   let interrupted = false;
-  for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => { interrupted = true; void active?.request("model.cancel", {}).catch(() => {}); });
+  for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => {
+    interrupted = true;
+    for (const host of hosts.values()) void host.close().catch(() => {});
+  });
   async function save() {
     await writeFile(join(directory, "results.json"), JSON.stringify(report, null, 2));
     await writeFile(join(directory, "report.txt"), [`Model: ${report.model}; effort: ${report.effort}`, ...(report.error ? [report.error.message] : []), ...report.runs.map((run) => `${run.repeat} ${run.scenario} ${run.variant}: ${run.error ? "INCONCLUSIVE" : run.passed ? "PASS" : "FAIL"}\nChecks: ${run.task?.passedChecks ?? "incomplete"}; requested tools: ${run.task?.toolCalls ?? 0}\n${run.grade?.rationale || run.error?.message || ""}\nAnswer: ${run.task?.answer || "(none)"}`)].join("\n"));
   }
   try {
-    const preflight = startHost(executable);
-    try {
-      const auth = await preflight.request("auth.status");
-      if (auth.result.state !== "signed_in") throw new Error("Sign in through BrowseFriend before running evaluations.");
+    const preflight = await getHost("candidate", executable, ["-baseline", baseline]);
+    {
       const catalog = (await preflight.request("model.list")).result.models;
       const model = catalog.find((entry) => entry.slug === values.model);
       if (!model) throw new Error(`Requested model unavailable. Available: ${catalog.map((entry) => entry.slug).join(", ")}`);
       if (model.supportedReasoningEfforts?.length && !model.supportedReasoningEfforts.includes(values.effort)) throw new Error("Requested effort unsupported by selected model");
-    } finally { await preflight.close(); }
+    }
     for (let repeat = 0; repeat < repeats; repeat += 1) {
       for (const scenario of SCENARIOS) {
         for (const variant of repeat % 2 ? ["candidate", "baseline"] : ["baseline", "candidate"]) {
@@ -50,15 +65,18 @@ async function main() {
           console.log(`${repeat + 1}/${repeats}: ${scenario}, ${variant}`);
           const entry = { repeat: repeat + 1, scenario, variant };
           report.runs.push(entry);
-          active = startHost(variant === "baseline" && values["baseline-host"] ? resolve(values["baseline-host"]) : executable, variant === "baseline" ? ["-baseline", baseline] : []);
-          try { entry.task = await runCase({ scenario, companion: active, model: values.model, effort: values.effort }); }
-          finally { await active.close(); active = null; }
+          active = variant === "baseline" && values["baseline-host"]
+            ? await getHost("baseline", resolve(values["baseline-host"]), ["-baseline", baseline])
+            : preflight;
+          if (active === preflight) await active.request("eval.configure", { variant });
+          entry.task = await runCase({ scenario, companion: active, model: values.model, effort: values.effort });
           if (interrupted) throw new Error("Evaluation interrupted");
           if (entry.task.error) {
             const code = entry.task.error.code || "";
             if (!["eval_budget_exceeded", "action_loop_detected", "action_limit_reached", "act_context_limit"].includes(code)) throw new Error(`Model request failed: ${code}`);
           }
-          active = startHost(executable, ["-judge"]);
+          active = preflight;
+          await active.request("eval.configure", { variant: "judge" });
           let text = "";
           try {
             await active.request("model.stream", { model: values.model, reasoningEffort: values.effort,
@@ -66,7 +84,7 @@ async function main() {
               prompt: "Grade this synthetic website task using your rubric.", pageContext: "", mode: "ask" }, (event) => { text += event.delta || ""; });
             entry.grade = parseGrade(text);
             entry.passed = entry.task.passedChecks && passedGrade(entry.grade);
-          } finally { await active.close(); active = null; }
+          } finally { active = null; }
           await save();
         }
       }
@@ -76,7 +94,10 @@ async function main() {
     if (last) last.error = { message: error.message || error.code || "Evaluation failed" };
     else report.error = { message: error.message || error.code };
     process.exitCode = 2;
-  } finally { if (active) await active.close(); await save(); }
+  } finally {
+    for (const host of hosts.values()) await host.close();
+    await save();
+  }
   if (!process.exitCode && report.runs.some((run) => run.variant === "candidate" && !run.passed)) process.exitCode = 1;
   console.log(`Results: ${directory}`);
 }

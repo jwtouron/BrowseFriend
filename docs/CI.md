@@ -24,21 +24,16 @@ check out with LF endings on every OS, preventing Windows Git conversion from ch
 formatting or the generated browser contract. Each native
 job runs `npm run verify`: JavaScript syntax/tests, manifest parsing, Go tests/vet, generated-contract
 checks, and execution of the production binary. Installation tests use temporary directories and a
-dedicated Windows registry subtree; the installed copy must preserve binary framing and leave saved
-account data intact when removed.
+dedicated Windows registry subtree; the installed copy must preserve binary framing and leave non-secret
+registration data intact when removed.
 
-## Credential-store isolation
+## Authentication and storage isolation
 
-Linux installs `dbus-x11` and `gnome-keyring`, then runs verification inside an
-isolated D-Bus/Secret Service session with `BROWSEFRIEND_TEST_SECRET_SERVICE=1`.
-
-macOS enables `BROWSEFRIEND_TEST_MAC_KEYCHAIN=1`. The test uses unique synthetic services in the current default
-Keychain, cleans up only those entries, and never changes Keychain settings or reads BrowseFriend's real entry.
-It checks key persistence, encrypted-account recovery, and preservation after key corruption.
-
-Windows runs the full native suite, including Credential Manager persistence, registry ownership, locked files,
-ACLs, and reparse targets. Wine-specific exclusions are not enabled in native CI. No OpenAI account,
-real authentication tokens, live model requests, or repository secrets are needed.
+All native jobs use simulated OAuth/TLS providers and synthetic identities. Credentials remain in
+process memory, and registration/installation tests use temporary directories and a dedicated
+Windows registry subtree. Tests prove that restarting retains registration identifiers and loses
+authentication. No OS-keyring service, OpenAI account, real tokens, or live model requests are needed.
+Windows additionally exercises locked files, ACLs, and reparse targets without Wine exclusions.
 
 ## Downloadable builds
 
@@ -67,8 +62,7 @@ release signing/notarization; CI does not create releases or publish to extensio
 ## Local verification and first push
 
 Run `npm run verify`, `git diff --check`, and
-`go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12`. To exercise the optional macOS integration
-test locally, run `BROWSEFRIEND_TEST_MAC_KEYCHAIN=1 npm run verify`. Linux container and Wine commands
+`go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12`. Linux container and Wine commands
 remain documented in [Native companion](NATIVE_HOST.md).
 
 After pushing `master`, inspect the workflow/formatting job and all six native jobs. Configuration
@@ -76,38 +70,10 @@ alone does not establish a passing platform result. Record actual hosted results
 the remaining native-verification roadmap items. Manual Chrome sign-in, Ask/Act, restart, and logout
 checks remain separate from CI.
 
-## Optional storage evaluation
+## Retired credential-storage evaluation
 
-Manual dispatch exposes **storage_evaluation**, disabled by default. Enabling it runs the separate
-evaluation module on all six native jobs after production verification, using unique synthetic
-OS-keyring entries and the isolated Linux Secret Service session. It applies the normal race-test
-exception for Windows ARM64. Chestnut's pinned build restriction is an expected evaluation result.
-Logs are uploaded separately for seven days; evaluation binaries never enter production archives.
-See [Storage evaluation](STORAGE_EVALUATION.md) for local commands, capability restrictions, and
-the distinction between measured results and pending native verification.
-
-## Keyring fork maintenance
-
-The context-support fork has its own six-target native matrix and weekly/manual upstream check.
-It proposes one `sync/upstream` PR and explicitly dispatches its tests. Merge conflicts stop the
-workflow; merges require review. Actions and workflow-created PRs are enabled in the fork.
-BrowseFriend pins a reviewed fork commit through module replacements in both modules. Its
-packaged dependency notices identify the replacement source and version. Dependency updates and
-upstream synchronization are separate from building or publishing BrowseFriend artifacts.
-
-The fork's [native run for `1a3d07a`](https://github.com/jwtouron/go-keyring/actions/runs/41152685749)
-passed all six targets on 2026-10-30 (local date), including native Windows x64 race tests and
-Windows ARM64 ordinary tests. This verifies the keyring library, not BrowseFriend's full Windows
-companion, ACL/reparse tests, or browser behavior. BrowseFriend's first hosted matrix remains
-pending its initial push. Both modules pin that reviewed revision; text checkout is LF
-on Windows as verified with `core.autocrlf=true`.
-
-The [initial upstream-check run](https://github.com/jwtouron/go-keyring/actions/runs/41151110557)
-exercised the conflict guard and left the maintained branch unchanged. Upstream through `66b55cc`
-was then merged manually, retaining the fork's CI and extending its new `ListUsers` API with
-context-aware backends. Secret Service content-type detection and upstream tests are included;
-new tests cover cancellation and attribute validation. After the merge, the
-[upstream checker passed](https://github.com/jwtouron/go-keyring/actions/runs/41152711675)
-without proposing another update.
+The optional storage-evaluation dispatch and OS-keyring integrations were removed with persistent
+login. [Storage evaluation](STORAGE_EVALUATION.md) preserves the historical results and fork links;
+the current companion no longer depends on that fork or the experiment module.
 
 Native jobs install locked development dependencies with `npm ci --ignore-scripts`. DOM evaluation harness checks use scripted responses in normal verification; real-model A/B evaluations run only through the dedicated local command and never in CI. See [Act evaluations](EVALUATIONS.md).

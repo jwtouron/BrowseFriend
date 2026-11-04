@@ -3,6 +3,7 @@ package companion
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,44 +12,104 @@ import (
 	"time"
 )
 
-func TestAccountOperationReusesKeyAndKeepsCommittedCheckpoint(t *testing.T) {
-	s := testStore(t)
-	ctx := context.Background()
-	if err := s.WithLock(ctx, func(tx *AccountTransaction) error { return tx.Save(ctx) }); err != nil {
+func TestOnlyRegistrationPersists(t *testing.T) {
+	f := newFixture(t)
+	f.login(t)
+	path := filepath.Join(f.c.Store.Directory, "registration.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	key := s.Key
-	lookups := 0
-	s.Key = func(ctx context.Context, create bool) ([]byte, error) {
-		lookups++
-		if create {
-			t.Error("existing account requested key creation")
-		}
-		return key(ctx, create)
+	var saved map[string]string
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
 	}
-	later := errors.New("synthetic later verification failure")
-	var finished *AccountTransaction
-	err := s.WithLock(ctx, func(tx *AccountTransaction) error {
-		finished = tx
-		tx.Account.HostID = "first-checkpoint"
-		if err := tx.Save(ctx); err != nil {
-			return err
-		}
-		tx.Account.HostID = "successor-checkpoint"
-		if err := tx.Save(ctx); err != nil {
-			return err
-		}
-		return later
-	})
-	if err != later || lookups != 1 {
-		t.Fatal(err, lookups)
+	if len(saved) != 3 || saved["clientId"] != "test-client" || saved["hostId"] == "" || saved["subject"] == "" {
+		t.Fatal("incomplete registration")
 	}
-	if err := finished.Save(ctx); err == nil {
-		t.Fatal("save escaped its account lock")
+	for _, forbidden := range []string{"synthetic-access", "synthetic-refresh", "test@example.invalid", "id_token", "Credentials", "Pending"} {
+		if bytes.Contains(data, []byte(forbidden)) {
+			t.Fatal("session information persisted")
+		}
 	}
-	if err := s.WithLock(ctx, func(tx *AccountTransaction) error {
-		if tx.Account.HostID != "successor-checkpoint" {
-			t.Fatal("committed checkpoint rolled back")
+	if runtime.GOOS != "windows" {
+		info, _ := os.Stat(path)
+		if info.Mode().Perm() != 0600 {
+			t.Fatal("registration is not private")
+		}
+	}
+	// Legacy files must be ignored, without importing, deleting, or interpreting their contents.
+	legacy := filepath.Join(f.c.Store.Directory, "account.enc")
+	marker := []byte("synthetic legacy credentials must never be loaded")
+	if err := os.WriteFile(legacy, marker, 0600); err != nil {
+		t.Fatal(err)
+	}
+	fresh := NewConnection(NewStore(f.c.Store.Directory), nil)
+	status, err := fresh.Status(context.Background())
+	if err != nil || status.State != "signed_out" || status.Profile != nil {
+		t.Fatal(status, err)
+	}
+	if _, err := fresh.Models(context.Background()); publicError(err).Code != "sign_in_required" {
+		t.Fatal(err)
+	}
+	if err := fresh.Store.WithLock(context.Background(), func(a *Account) error {
+		if a.ClientID != saved["clientId"] || a.HostID != saved["hostId"] || a.Subject != saved["subject"] || a.Credentials != nil || a.Identity != nil || a.Pending != nil || a.IDToken != "" || len(a.Scopes) != 0 {
+			t.Fatal("session crossed store lifetime")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(legacy)
+	if err != nil || !bytes.Equal(after, marker) {
+		t.Fatal("legacy data was changed", err)
+	}
+	// A returning sign-in must reuse registration, not restore previous authentication.
+	opener := f.c.OpenBrowser
+	fresh.issuer, fresh.api, fresh.HTTP, fresh.OpenBrowser = f.c.issuer, f.c.api, f.c.HTTP, opener
+	f.c = fresh
+	f.login(t)
+	again, _ := os.ReadFile(path)
+	if !bytes.Equal(data, again) {
+		t.Fatal("returning sign-in changed registration")
+	}
+}
+
+func TestAccountMemorySerializesAndCancellationReleasesWaiters(t *testing.T) {
+	s := testStore(t)
+	started, release := make(chan struct{}), make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- s.WithLock(context.Background(), func(a *Account) error {
+			a.IDToken = "synthetic-in-memory"
+			close(started)
+			<-release
+			return errors.New("synthetic later error")
+		})
+	}()
+	<-started
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Millisecond)
+	defer cancel()
+	if err := s.WithLock(ctx, func(*Account) error { t.Error("overlapping account operations"); return nil }); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal(err)
+	}
+	// Independent processes/stores share registration, not login or refresh locks.
+	other := NewStore(s.Directory)
+	if err := other.WithLock(context.Background(), func(a *Account) error {
+		if a.IDToken != "" {
+			t.Fatal("memory shared across stores")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	if err := <-done; err == nil {
+		t.Fatal("callback error lost")
+	}
+	if err := s.WithLock(context.Background(), func(a *Account) error {
+		if a.IDToken != "synthetic-in-memory" {
+			t.Fatal("memory checkpoint rolled back")
 		}
 		return nil
 	}); err != nil {
@@ -56,61 +117,60 @@ func TestAccountOperationReusesKeyAndKeepsCommittedCheckpoint(t *testing.T) {
 	}
 }
 
-func TestAccountOperationsExcludeOtherGoroutinesAndStores(t *testing.T) {
-	for _, separate := range []bool{false, true} {
-		t.Run(map[bool]string{false: "shared Store", true: "separate Store"}[separate], func(t *testing.T) {
+func TestRegistrationValidationAndCancelledWrite(t *testing.T) {
+	for _, invalid := range []string{`{"hostId":"h","clientId":"dynamic_agent_client","subject":""}`, `{"hostId":"h","clientId":"client","subject":"","accessToken":"synthetic"}`, `{"hostId":"h"} {}`, "not-json"} {
+		t.Run(invalid, func(t *testing.T) {
 			s := testStore(t)
-			other := s
-			if separate {
-				other = &Store{Directory: s.Directory, Key: s.Key}
-			}
-			entered, release := make(chan struct{}), make(chan struct{})
-			done := make(chan error, 1)
-			go func() {
-				done <- s.WithLock(context.Background(), func(*AccountTransaction) error {
-					close(entered)
-					<-release
-					return errors.New("synthetic callback failure")
-				})
-			}()
-			<-entered
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Millisecond)
-			err := other.WithLock(ctx, func(*AccountTransaction) error { t.Error("account operation overlapped"); return nil })
-			cancel()
-			if !errors.Is(err, context.DeadlineExceeded) {
+			if err := privateDirectory(s.Directory); err != nil {
 				t.Fatal(err)
 			}
-			close(release)
-			if err := <-done; err == nil {
-				t.Fatal("callback error lost")
+			path := filepath.Join(s.Directory, "registration.json")
+			if err := atomicFile(path, bytes.NewBufferString(invalid), 0600); err != nil {
+				t.Fatal(err)
 			}
-			if err := other.WithLock(context.Background(), func(*AccountTransaction) error { return nil }); err != nil {
-				t.Fatal("lock retained after callback failure", err)
+			if err := s.WithLock(context.Background(), func(*Account) error { t.Error("invalid registration accepted"); return nil }); publicError(err).Code != "registration_invalid" {
+				t.Fatal(err)
+			}
+			after, _ := os.ReadFile(path)
+			if string(after) != invalid {
+				t.Fatal("invalid file overwritten")
 			}
 		})
 	}
-}
-
-func TestAccountLockTimeoutClassificationAndIdentity(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "account")
-	if err := privateDirectory(dir); err != nil {
+	s := testStore(t)
+	if err := s.withRegistration(context.Background(), func(r *Registration) error { r.HostID = "before"; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, "account.lock")
-	first, err := acquireAccountLock(context.Background(), path, time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+	err := s.withRegistration(ctx, func(r *Registration) error { r.HostID = "after"; cancel(); return nil })
+	if !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	if err := NewStore(s.Directory).WithLock(context.Background(), func(a *Account) error {
+		if a.HostID != "before" {
+			t.Fatal("cancelled metadata written")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRegistrationLockTimeoutAndIdentity(t *testing.T) {
+	s := testStore(t)
+	if err := privateDirectory(s.Directory); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(s.Directory, "registration.lock")
+	first, err := acquireRegistrationLock(context.Background(), path, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer first.Close()
-	if _, err := acquireAccountLock(context.Background(), path, 5*time.Millisecond); publicError(err).Code != "storage_busy" {
+	if _, err := acquireRegistrationLock(context.Background(), path, 5*time.Millisecond); publicError(err).Code != "storage_busy" {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
-	defer cancel()
-	if _, err := acquireAccountLock(ctx, path, time.Second); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatal(err)
-	}
-	other, err := privateFile(filepath.Join(dir, "different.lock"), os.O_CREATE|os.O_RDWR)
+	other, err := privateFile(filepath.Join(s.Directory, "other.lock"), os.O_CREATE|os.O_RDWR)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,63 +180,36 @@ func TestAccountLockTimeoutClassificationAndIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := validateLockIdentity(info, first); publicError(err).Code != "storage_unsafe" {
-		t.Fatal("different lock accepted", err)
+		t.Fatal(err)
 	}
 }
 
-func TestUnsafeLockFilePreservesTarget(t *testing.T) {
+func TestUnsafeRegistrationPathsPreserveTargets(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("native Windows has ACL/reparse enforcement cases")
+		t.Skip("native Windows ACL/reparse fixtures cover this")
 	}
-	s := testStore(t)
-	if err := privateDirectory(s.Directory); err != nil {
-		t.Fatal(err)
-	}
-	target := filepath.Join(t.TempDir(), "outside")
-	before := []byte("synthetic outside file")
-	if err := os.WriteFile(target, before, 0600); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(s.Directory, "account.lock")
-	if err := os.Symlink(target, path); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.WithLock(context.Background(), func(*AccountTransaction) error { t.Error("symlink lock accepted"); return nil }); err == nil {
-		t.Fatal("unsafe lock accepted")
-	}
-	after, _ := os.ReadFile(target)
-	if !bytes.Equal(before, after) {
-		t.Fatal("outside file changed")
-	}
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, nil, 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.WithLock(context.Background(), func(*AccountTransaction) error { t.Error("shared lock accepted"); return nil }); publicError(err).Code != "storage_unsafe" {
-		t.Fatal(err)
-	}
-}
-
-func TestCancelledSaveKeepsPreviousAccount(t *testing.T) {
-	s := testStore(t)
-	ctx := context.Background()
-	if err := s.WithLock(ctx, func(tx *AccountTransaction) error { tx.Account.HostID = "before"; return tx.Save(ctx) }); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(s.Directory, "account.enc")
-	before, _ := os.ReadFile(path)
-	if err := s.WithLock(ctx, func(tx *AccountTransaction) error {
-		tx.Account.HostID = "after"
-		stopped, cancel := context.WithCancel(ctx)
-		cancel()
-		return tx.Save(stopped)
-	}); !errors.Is(err, context.Canceled) {
-		t.Fatal(err)
-	}
-	after, _ := os.ReadFile(path)
-	if !bytes.Equal(before, after) {
-		t.Fatal("cancelled save changed account")
+	for _, name := range []string{"registration.json", "registration.lock"} {
+		t.Run(name, func(t *testing.T) {
+			s := testStore(t)
+			if err := privateDirectory(s.Directory); err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(t.TempDir(), "outside")
+			before := []byte("synthetic outside data")
+			if err := os.WriteFile(target, before, 0600); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(s.Directory, name)
+			if err := os.Symlink(target, path); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.WithLock(context.Background(), func(*Account) error { t.Error("symlink accepted"); return nil }); err == nil {
+				t.Fatal("unsafe path accepted")
+			}
+			after, _ := os.ReadFile(target)
+			if !bytes.Equal(after, before) {
+				t.Fatal("outside target modified")
+			}
+		})
 	}
 }

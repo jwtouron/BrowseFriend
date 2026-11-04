@@ -24,7 +24,7 @@ go run ./native-host/cmd/build --check --uninstall
 
 Reload the extension from `chrome://extensions` after installing. The install command copies the
 binary and atomically writes the Chrome registration. Uninstall removes its own registration and
-executable but preserves account data. Uninstall preserves and reports a conflicting registration.
+executable but preserves non-secret registration data. Uninstall preserves and reports a conflicting registration.
 npm build/test/install commands are development shortcuts; standalone registration needs no Node.
 
 The built executable also accepts `install`, `uninstall`, and `--dry-run` directly. Windows builds
@@ -37,42 +37,33 @@ reports that the installed executable is in use; the installer does not kill pro
 macOS stores files under `~/Library/Application Support/BrowseFriend/native-host/`.
 Linux uses `$XDG_CONFIG_HOME/browsefriend/native-host/`, defaulting to `~/.config/`.
 Windows uses `%LOCALAPPDATA%\BrowseFriend\native-host\`, discovered through the Windows known-folder API.
-The directory contains the installed `browsefriend-native-host`, `account.enc`, and `account.lock`.
-
-The entire account record is encrypted with AES-256-GCM. The keyring entry uses service
-`com.browsefriend.native-host.credentials`, account `local-encryption-key`, through the pinned
-`jwtouron/go-keyring` context-support fork. This preserves the existing macOS entry and encoding.
-Linux uses Secret Service directly over D-Bus, without `secret-tool`. Windows uses Credential Manager;
-new installations do not create `key.dpapi`. No automatic account-migration framework is shipped.
+The directory contains the installed `browsefriend-native-host`, `registration.json`, and
+`registration.lock`. The JSON file contains only non-secret `hostId`, `clientId`, and `subject`.
+Credentials, ID tokens, profile details, scopes, and pending refresh successors live only in Go
+memory. Chrome restart, extension reload, bridge disconnect, or companion exit requires sign-in
+again. A new process reuses registration identifiers without restoring authentication.
 
 Directories and files receive owner-only Unix modes or protected Windows ACLs for the current user
-and SYSTEM. Owner, permissions, and symlink/reparse targets are validated. Existing unsafe Windows
-ACLs are rejected rather than repaired. `gofrs/flock` locks a separately validated file and verifies
-its identity before entering an account transaction. Key reuse is limited to that transaction;
-each save atomically commits using flushed private temporary files. Unreadable, missing, or corrupt
-keys never cause an existing account to be silently reset.
+and SYSTEM. Ownership, permissions, and symlink/reparse targets are validated. Existing unsafe
+Windows ACLs are rejected rather than repaired. Registration updates use `gofrs/flock` with a
+45-second cancellable acquisition limit and held-file identity checks, followed by atomic writes
+using flushed private temporary files. Credential operations serialize within the process.
 
-Lock acquisition has a 45-second limit; key lookups have a 20-second budget. Key creation finishes
-under an independent 20-second commit context before the account lock is released. Atomic saves,
-refresh successor persistence, and local logout cleanup have explicit commit/recovery boundaries.
-Windows credential calls are synchronous and do not prompt; context is checked before they start,
-but a native call cannot be interrupted. macOS commands and Linux waits support cancellation;
-Linux resource cleanup can add up to two seconds per cleanup call. An accepted write cannot be
-rolled back merely because the caller stopped waiting.
+A refresh successor is retained in memory before identity verification; cancellation or a signing-key
+outage can recover it in the same process without replaying rotation. Exit discards that checkpoint.
+Logout attempts remote revocation and clears local tokens, including pending successors, even if
+revocation fails after starting. No account encryption, OS-keyring dependency, migration, legacy
+account loading, or cleanup utility remains. Old encrypted files and keyring entries are ignored.
 
 Windows keeps the host manifest beside its executable and registers its absolute path in the
 default string value of
 `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.browsefriend.native_host`, using the 32-bit
 registry view Chrome checks first. Installation needs no elevation. Uninstall removes only its own
-registration value and preserves other registry values/subkeys and saved account data.
+registration value and preserves other registry values/subkeys and non-secret registration data.
 
-There is one current registration. Logout clears access, refresh, and retained ID tokens and attempts
-remote revocation, while retaining registration and host identity. An unavailable keyring or damaged
-file fails without resetting or replacing saved credentials.
-
-The isolated [storage evaluation](STORAGE_EVALUATION.md) measures library and permission-policy
-alternatives with synthetic accounts. It has its own module and commands; it records the baseline comparison and subsequent production integration. Its legacy keyring
-adapter deliberately retains the upstream cancellation-limit probe.
+There is one selected registration. Logout retains registration identifiers. The
+[storage evaluation](STORAGE_EVALUATION.md) archives the retired persistence experiments; their
+separate module and CI hooks have been removed.
 
 ## Policy and verification
 
@@ -91,12 +82,12 @@ docker run --rm browsefriend-native-tests
 
 The tests use local simulated OAuth/TLS providers and synthetic signed identities. They exercise
 PKCE binding, identity validation, consent, expiry, pending-refresh recovery, cancellation,
-interprocess locks, persistence across actual process restarts, encrypted storage failures,
+registration locks, registration reuse and credential loss across actual process restarts, unsafe paths,
 framing, tool continuations, compaction, and atomic installation. The test driver is separate
 from the production binary and adds no injectable credentials/endpoints to the shipped executable.
 
-The Linux container uses an isolated D-Bus session and Secret Service keyring. It executes the
-companion and its installer. No real ChatGPT credentials or live model requests are used in tests.
+The Linux container runs race tests/vet and executes the companion and its installer. It needs no
+D-Bus session or Secret Service provider. No real ChatGPT credentials or live model requests are used in tests.
 
 The build emits six macOS/Linux/Windows ARM64/x64 binaries and `build/THIRD-PARTY-NOTICES.txt`; retain the
 notices with distributed binaries. Cross-compilation does not establish platform runtime support.
@@ -137,10 +128,21 @@ Results are saved to ignored `build/windows-wine-results.json`; failures produce
 No real ChatGPT credentials or live model calls are involved.
 
 The Wine run uses no race detector. Native-only security-enforcement tests are explicitly skipped
-with a pending-verification explanation; the remaining storage, Credential Manager, locking, registration, and
+with a pending-verification explanation; the remaining memory/registration storage, locking, registration, and
 installer checks still run. Their success under Wine does not certify Windows security enforcement.
 
 ## Verification record
+
+Records dated before the process-local authentication change describe the former persistent
+credential implementation. They do not verify the current replacement.
+
+On 2026-11-03, process-local authentication passed Linux x64 Go race/vet and the native protocol
+suite, all 128 JavaScript tests, workflow linting, and builds for all six targets. Both Windows
+architectures' test suites compiled. Actual process tests proved that registration identifiers
+survive while credentials do not; synthetic refresh recovery remained confined to one process.
+Chrome browser/sign-in/Ask/Act/restart checks, Docker, Wine, and other native platforms were not
+available in this environment. The user authorized proceeding on automated verification while
+reporting those checks as pending. No live authentication or model requests were made for Stage 1.
 
 On 2026-10-29, macOS ARM64 passed the full JavaScript suite, Go race tests, vet, and short fuzz runs
 for SSE and compacted-context parsing. Disposable-Keychain integration, installed-binary checks,

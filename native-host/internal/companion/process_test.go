@@ -4,13 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/binary"
 	"encoding/json"
-	"encoding/pem"
+	"errors"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -130,51 +127,24 @@ func TestProcessHelper(t *testing.T) {
 	if mode == "" {
 		return
 	}
-	store := &Store{Directory: os.Getenv("BROWSEFRIEND_TEST_DIRECTORY"), Key: func(context.Context, bool) ([]byte, error) { return bytes.Repeat([]byte{7}, 32), nil }}
-	if mode == "read-protected" {
-		service := os.Getenv("BROWSEFRIEND_TEST_KEY_SERVICE")
-		if service == "" {
-			t.Fatal("missing synthetic keyring service")
-		}
-		store.Key = keyringProvider(systemKeyring{}, service)
-	}
+	store := NewStore(os.Getenv("BROWSEFRIEND_TEST_DIRECTORY"))
 	switch mode {
-	case "read", "read-protected":
-		if err := store.WithLock(context.Background(), func(tx *AccountTransaction) error {
-			a := tx.Account
-
-			if a.ClientID != "test-client" || a.HostID == "" {
-				t.Fatal("account missing")
+	case "read-registration":
+		if err := store.WithLock(context.Background(), func(a *Account) error {
+			if a.ClientID != "test-client" || a.HostID == "" || a.Subject == "" || a.Credentials != nil || a.IDToken != "" || a.Pending != nil || a.Identity != nil || len(a.Scopes) != 0 {
+				t.Fatal("authentication crossed a process restart")
 			}
 			return nil
 		}); err != nil {
 			t.Fatal(err)
 		}
-	case "hold":
-		if err := store.WithLock(context.Background(), func(*AccountTransaction) error {
+	case "hold-registration":
+		if err := store.withRegistration(context.Background(), func(*Registration) error {
 			os.Stdout.WriteString("locked\n")
 			var b [1]byte
 			_, err := os.Stdin.Read(b[:])
 			return err
 		}); err != nil {
-			t.Fatal(err)
-		}
-	case "models":
-		c := NewConnection(store, nil)
-		c.issuer = os.Getenv("BROWSEFRIEND_TEST_ISSUER")
-		c.api = c.issuer + "/v1"
-		pool := x509.NewCertPool()
-		data, err := os.ReadFile(os.Getenv("BROWSEFRIEND_TEST_CA"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !pool.AppendCertsFromPEM(data) {
-			t.Fatal("invalid test certificate")
-		}
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
-		c.HTTP = &http.Client{Transport: transport}
-		if _, err := c.Models(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 	default:
@@ -188,13 +158,13 @@ func helper(t *testing.T, store *Store, mode string, extra ...string) *exec.Cmd 
 	cmd.Env = append(cmd.Env, extra...)
 	return cmd
 }
-func TestPersistenceAndLockAcrossProcesses(t *testing.T) {
+func TestProcessRestartKeepsRegistrationButNotAuthentication(t *testing.T) {
 	f := newFixture(t)
 	f.login(t)
-	if output, err := helper(t, f.c.Store, "read").CombinedOutput(); err != nil {
+	if output, err := helper(t, f.c.Store, "read-registration").CombinedOutput(); err != nil {
 		t.Fatalf("restart: %v %s", err, output)
 	}
-	cmd := helper(t, f.c.Store, "hold")
+	cmd := helper(t, f.c.Store, "hold-registration")
 	input, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -207,63 +177,23 @@ func TestPersistenceAndLockAcrossProcesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { input.Close(); cmd.Process.Kill() })
-	line, err := bufio.NewReader(output).ReadString('\n')
-	if err != nil || line != "locked\n" {
+	if line, err := bufio.NewReader(output).ReadString('\n'); err != nil || line != "locked\n" {
 		t.Fatal(line, err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	if err := f.c.Store.WithLock(ctx, func(*AccountTransaction) error { t.Fatal("process lock bypassed"); return nil }); err != context.DeadlineExceeded {
+	if err := f.c.Store.withRegistration(ctx, func(*Registration) error { t.Error("process lock bypassed"); return nil }); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal(err)
+	}
+	// A blocked registration writer does not lock existing process-local credentials.
+	if s, err := f.c.Status(context.Background()); err != nil || s.State != "signed_in" {
+		t.Fatal(s, err)
 	}
 	input.Write([]byte{1})
 	input.Close()
 	io.Copy(io.Discard, output)
 	if err := cmd.Wait(); err != nil {
 		t.Fatal(err)
-	}
-	if err := f.c.Store.WithLock(context.Background(), func(*AccountTransaction) error { return nil }); err != nil {
-		t.Fatal(err)
-	}
-}
-func TestRefreshSerializedAcrossProcesses(t *testing.T) {
-	f := newFixture(t)
-	f.login(t)
-	if err := f.c.Store.WithLock(context.Background(), func(tx *AccountTransaction) error {
-		a := tx.Account
-
-		a.Credentials.ExpiresAt = time.Now().Add(-time.Hour).UnixMilli()
-		return tx.Save(context.Background())
-	}); err != nil {
-		t.Fatal(err)
-	}
-	ca := filepath.Join(t.TempDir(), "ca.pem")
-	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: f.server.Certificate().Raw}), 0600); err != nil {
-		t.Fatal(err)
-	}
-	extra := []string{"BROWSEFRIEND_TEST_ISSUER=" + f.server.URL, "BROWSEFRIEND_TEST_CA=" + ca}
-	first, second := helper(t, f.c.Store, "models", extra...), helper(t, f.c.Store, "models", extra...)
-	var one, two bytes.Buffer
-	first.Stdout = &one
-	first.Stderr = &one
-	second.Stdout = &two
-	second.Stderr = &two
-	if err := first.Start(); err != nil {
-		t.Fatal(err)
-	}
-	if err := second.Start(); err != nil {
-		t.Fatal(err)
-	}
-	if err := first.Wait(); err != nil {
-		t.Fatal(err, one.String())
-	}
-	if err := second.Wait(); err != nil {
-		t.Fatal(err, two.String())
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.refreshes != 1 || f.apiCalls != 2 {
-		t.Fatal("refresh grant replayed", f.refreshes, f.apiCalls)
 	}
 }
 func FuzzCompactedContext(f *testing.F) {

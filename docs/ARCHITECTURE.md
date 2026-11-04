@@ -45,67 +45,49 @@ The companion implements the documented OAuth, discovery, token renewal, Respons
 
 The standalone Go executable implements the same eight auth/model messages and events as the
 extension's Native Messaging bridge expects. Its code separates framing, request state, OAuth,
-encrypted storage, model HTTP/SSE transport, and installation. The installer copies and atomically
-registers the executable; the installed process needs no source checkout or language runtime.
+registration metadata, model HTTP/SSE transport, and installation. The installer copies and
+atomically registers the executable; the installed process needs no language runtime.
 
-Platform-specific adapters implement secure files, browser launching, and Chrome registration.
-A pinned context-aware go-keyring fork provides macOS Keychain, Linux Secret Service, and Windows
-Credential Manager access. `gofrs/flock` supplies OS locking. Shared code retains the account state
-machine, AES-GCM format, refresh serialization, OAuth validation, and model transport. Windows
-retains protected user/SYSTEM ACLs and per-user HKCU registration; Unix retains owner-only file
-protections. Existing unsafe Windows ACLs fail validation rather than being automatically repaired.
+Platform-specific adapters implement secure files, browser launching, and per-user Chrome
+registration. Windows retains protected user/SYSTEM ACLs and HKCU registration; Unix retains
+owner-only file protections. Existing unsafe Windows ACLs fail validation rather than being repaired.
 
-Each account operation receives a lock-scoped `AccountTransaction` containing its account and
-`Save(ctx)`. It loads the encryption key once, creating it lazily for a new account's first save.
-Every save commits independently; a later callback failure cannot roll back a refresh checkpoint.
-The key and save capability expire when the callback returns. No key is cached across operations.
+One process-local store serializes credentials, profiles, and refresh state with a cancellable gate.
+Receiving a refresh successor updates memory before identity verification. A later cancellation or
+signing-key outage preserves that pending successor for retry in the same process. Process exit
+loses all authentication, including pending successors; no encryption key or credential file exists.
 
-Before locking, BrowseFriend creates/validates the lock file through its private-file helper.
-A fresh library lock object opens the existing file; its held file identity must match the validated
-handle. Acquisition retries every 25 ms for at most 45 seconds, respecting earlier caller cancellation.
-This budget applies to acquiring the lock, not the entire account operation. The lock file stays on
-disk. Independent lock objects serialize both goroutines and separate companion processes.
-
-Key lookups have a 20-second budget. macOS cancels and reaps its command; Linux cancels D-Bus waits
-and attempts prompt dismissal with bounded cleanup. Windows checks cancellation before synchronous,
-non-prompting credential calls; a started native call completes with its actual result. Once key
-creation begins it uses an independent 20-second commit context under the account lock. Cancellation
-is checked before atomic account writes; a started write finishes. Refresh rotation and local logout
-cleanup retain their own recovery contexts. Cancellation cannot undo a write already accepted by an
-OS credential service, and no library can impose a hard deadline on the Windows native call.
+Only `hostId`, `clientId`, and `subject` persist in `registration.json`. Registration updates reload
+this metadata under a fresh `gofrs/flock` interprocess lock, validate it, then atomically replace the
+file through a flushed private temporary file. Lock acquisition retries every 25 ms for up to
+45 seconds, respecting caller cancellation. The held file identity must match the separately
+validated private file. Authentication is never shared between processes, and ordinary credential
+operations need no interprocess lock once this process has loaded its registration.
 
 `shared/host-contract.json` is the canonical policy/tool/limits/registration definition. Go embeds it
 directly; `go generate ./shared` produces the committed browser module. Verification rejects drift.
 The browser still owns semantic page capture and action authorization; Go only transports model
 tool requests back through that established boundary.
 
-A selected registration, stable host ID, credentials, and pending refresh state are encrypted with
-AES-256-GCM. Atomic writes and an interprocess lock protect rotation. Successor credentials are
-checkpointed before identity verification and remain unusable during a signing-key outage.
-Cancellation preserves in-flight refresh persistence. Logout removes tokens and retains registration.
-There is no version-migration framework or legacy account fallback.
-
-Storage alternatives are evaluated in a separate nested Go module, excluded from production builds
-and ordinary root tests. Its experiments preserve the distinction between an exclusive account
-operation and individually committed saves: a verification failure must not roll back a previously
-saved refresh successor. See [Storage evaluation](STORAGE_EVALUATION.md) for results and the proposed,
-unadopted Windows permission simplification. Production retains the encrypted file and adopts the context-aware keyring fork described above; database candidates remain evaluation-only.
+Logout attempts remote revocation and clears local credentials while retaining registration.
+There is no migration framework, legacy account loading, or cleanup utility. Earlier encrypted
+files and OS-keyring entries are ignored. The retired storage comparison remains historical in
+[Storage evaluation](STORAGE_EVALUATION.md).
 
 See [Native companion](NATIVE_HOST.md) for commands, storage names, and the verification record.
 
 Build and distribution are separate from the installed runtime. The Go build helper creates native
 production binaries and packages them with project/dependency licenses and checksums. GitHub CI is
-configured to test six native targets in isolated credential-store environments before uploading
+configured to test six native targets with synthetic accounts and temporary registration directories before uploading
 development artifacts; hosted execution remains pending until the first push. See [CI](CI.md).
 
 ### Authentication
 
 Opening the panel immediately shows chat and starts a single background readiness operation. The
-controller launches the companion, reads saved authentication, refreshes credentials when needed,
+controller launches the companion, reads process-local authentication, refreshes credentials when needed,
 and discovers available models. If user action is required, the panel presents **Continue with
 ChatGPT** without discarding a draft or queued prompt. The companion temporarily listens on a random
-`127.0.0.1` port for the OAuth callback. The companion validates the result and persists encrypted
-credentials; only sanitized account state returns to the extension.
+`127.0.0.1` port for the OAuth callback. The companion validates the result and retains credentials only in its process memory; only sanitized account state returns to the extension.
 
 ### Ask mode
 
@@ -202,8 +184,8 @@ active conversation uses one global
 `chrome.storage.session` record shared across panels and windows. It survives service-worker
 suspension but not a browser restart or extension reload. New chat presents a cancel-first
 confirmation and, when accepted, clears both transcript and compaction; logout clears them directly.
-The companion stores account data in the platform application-data directory and encrypts
-credentials with a key protected by macOS Keychain, Linux Secret Service, or Windows Credential Manager.
+The companion stores only non-secret registration identifiers in the platform application-data
+directory. Restarting Chrome or the companion loses authentication and requires a fresh sign-in.
 
 ## Trust boundaries
 
@@ -223,4 +205,5 @@ deferred architecture work.
 
 ## Evaluation boundary
 
-The browser-free [Act evaluation harness](EVALUATIONS.md) runs production page extraction, actions, and controller code against trusted HTML in jsdom. An evaluation-only Go executable reuses the handler and model transport with baseline/candidate or blinded grading instructions. Credentials stay in Go; normal account locks and refresh checkpoints apply. No browser registration or runtime endpoint is added to BrowseFriend.
+The browser-free [Act evaluation harness](EVALUATIONS.md) runs production page extraction, actions, and controller code against trusted HTML in jsdom. An evaluation-only Go executable reuses the handler and model transport with baseline/candidate or blinded grading instructions. Credentials stay in Go; process-local serialization and refresh recovery apply. Each evaluator authenticates once and
+retains its Go process across cases; evaluation-only mode changes clear task context while idle. No browser registration or runtime endpoint is added to BrowseFriend.

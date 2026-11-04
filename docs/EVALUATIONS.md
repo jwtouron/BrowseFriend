@@ -1,10 +1,13 @@
 # Act evaluations
 
 `npm run eval:act -- --model <account-model-slug> --effort medium --repeat 1`
-always uses the real model and a real rubric grader through the saved BrowseFriend
-ChatGPT connection. Sign in through BrowseFriend first. No API key, browser automation,
-DevTools MCP, browser registration, or local web server is needed. The command reuses
-normal credential refresh and locking; it cannot sign in, log out, or compact a chat.
+always uses the real model and a real rubric grader. Complete ChatGPT sign-in in the browser
+when prompted at startup. Each evaluator keeps one authenticated Go process for the run; it cannot
+reuse a login from the extension or an earlier run. No API key, browser automation, DevTools MCP,
+browser registration, or model-facing local web server is needed. OAuth uses the normal temporary
+loopback listener. Credentials and refresh recovery stay in Go memory. The evaluation-only
+`eval.configure` operation changes baseline/candidate/grading mode only while idle and clears task
+context; it is absent from the production host. Normal compaction is available; logout is disabled.
 
 Install development dependencies with `npm ci`. Node must satisfy
 `^22.22.2 || ^24.15.0 || >=26.0.0`; Go 1.25+ is required. The command builds its separate
@@ -21,7 +24,8 @@ Use real-model evaluations when changing Act instructions, retained model contex
 behavior that affects the model's decisions. Run ordinary verification first, then compare fixed
 model/effort settings over repeated trials. The default comparison isolates instruction changes on
 the current implementation; `--baseline-host` compares implementations with identical current
-instructions. Preserve that executable before editing implementation code. If the saved account or
+instructions. Preserve that executable and its matching controller/harness before editing implementation code
+when a change alters the native protocol. If interactive authentication or
 requested model is unavailable, report live evaluation as blocked or inconclusive, never as passed.
 
 To cover another behavior:

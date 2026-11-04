@@ -73,7 +73,7 @@ browser storage. DNR provides no credential store. Encrypting tokens in browser 
 not establish compliance with that guidance or our OS-backed-key requirement.
 
 BrowseFriend currently keeps OAuth, PKCE state, verification, token exchange, refresh, and
-encrypted credentials in the native companion. Extension messages carry sanitized account
+credentials in the native companion. Extension messages carry sanitized account
 state. Routing a code through an extension page and the bridge would expand that boundary
 and require an explicit design change. Keeping the native host for tokens would still require
 installation while replacing its short-lived listener with additional browser coordination.
@@ -86,7 +86,7 @@ No production component boundaries or permissions were changed by this investiga
 Retain the Go companion for OAuth, model transport, and Act context. Remove authenticated-session
 persistence across process/browser restarts. Retain only non-secret host/client/account registration
 identifiers in an owner-protected native file; no encryption or OS keyring is needed for those IDs.
-The current encrypted credential implementation will be replaced in Stage 1, with no legacy-data
+Stage 1 replaces encrypted credential persistence with process-local memory, with no legacy-data
 migration or cleanup utility. Install and uninstall remain npm/mise commands without administrator
 access. Improved acquisition/setup guidance is deferred until versioned GitHub releases exist.
 

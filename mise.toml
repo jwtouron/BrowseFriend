@@ -51,5 +51,5 @@ description = "Run syntax, Go, JavaScript, and manifest checks"
 run = "npm run verify --"
 
 [tasks."eval:act"]
-description = "Evaluate Act behavior using the saved ChatGPT connection"
+description = "Evaluate Act behavior using the interactive process-local ChatGPT connection"
 run = "npm run eval:act --"

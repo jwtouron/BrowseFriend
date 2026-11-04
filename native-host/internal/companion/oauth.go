@@ -101,8 +101,7 @@ func (c *Connection) Status(ctx context.Context) (Session, error) {
 		return Session{State: "signing_in"}, nil
 	}
 	var result Session
-	err := c.Store.WithLock(ctx, func(tx *AccountTransaction) error {
-		a := tx.Account
+	err := c.Store.WithLock(ctx, func(a *Account) error {
 		result = session(a)
 		return nil
 	})
@@ -264,13 +263,13 @@ func (c *Connection) SignIn(ctx context.Context, reconsent bool) (resultSession 
 	}()
 	c.emit(Session{State: "signing_in"})
 	var previous Account
-	err := c.Store.WithLock(ctx, func(tx *AccountTransaction) error {
-		a := tx.Account
-
-		if a.HostID == "" {
-			a.HostID = hostID()
-		}
-		if err := tx.Save(ctx); err != nil {
+	err := c.Store.WithLock(ctx, func(a *Account) error {
+		if err := c.Store.UpdateRegistration(ctx, a, func(r *Registration) error {
+			if r.HostID == "" {
+				r.HostID = hostID()
+			}
+			return nil
+		}); err != nil {
 			return err
 		}
 		previous = *a
@@ -359,14 +358,14 @@ func (c *Connection) SignIn(ctx context.Context, reconsent bool) (resultSession 
 	if cb.Error != nil {
 		return Session{}, cb.Error
 	}
-	err = c.Store.WithLock(ctx, func(tx *AccountTransaction) error {
-		a := tx.Account
-
-		if a.ClientID != "" && a.ClientID != cb.ClientID {
-			return failure("connection_changed", "The account changed during sign-in.", true)
-		}
-		a.ClientID = cb.ClientID
-		return tx.Save(ctx)
+	err = c.Store.WithLock(ctx, func(a *Account) error {
+		return c.Store.UpdateRegistration(ctx, a, func(r *Registration) error {
+			if r.HostID != previous.HostID || (r.ClientID != "" && r.ClientID != cb.ClientID) {
+				return failure("connection_changed", "The account changed during sign-in.", true)
+			}
+			r.ClientID = cb.ClientID
+			return nil
+		})
 	})
 	if err != nil {
 		return Session{}, err
@@ -387,21 +386,27 @@ func (c *Connection) SignIn(ctx context.Context, reconsent bool) (resultSession 
 		return Session{}, err
 	}
 	var s Session
-	err = c.Store.WithLock(ctx, func(tx *AccountTransaction) error {
-		a := tx.Account
-
+	err = c.Store.WithLock(ctx, func(a *Account) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		a.Subject = subject
+		if err := c.Store.UpdateRegistration(ctx, a, func(r *Registration) error {
+			if r.HostID != previous.HostID || r.ClientID != cb.ClientID || (r.Subject != "" && r.Subject != subject) {
+				return failure("connection_changed", "The account changed during sign-in.", true)
+			}
+			r.Subject = subject
+			return nil
+		}); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		a.Identity = identity
 		a.Credentials = creds
 		a.Scopes = granted
 		a.IDToken = text(body["id_token"])
 		a.Pending = nil
-		if err := tx.Save(ctx); err != nil {
-			return err
-		}
 		s = session(a)
 		return nil
 	})
@@ -435,9 +440,7 @@ func (c *Connection) credentials(ctx context.Context) (string, error) {
 		return "", failure("connection_busy", "Sign-in is already in progress.", true)
 	}
 	var token string
-	err := c.Store.WithLock(ctx, func(tx *AccountTransaction) error {
-		a := tx.Account
-
+	err := c.Store.WithLock(ctx, func(a *Account) error {
 		if a.Credentials == nil {
 			return failure("sign_in_required", "Connect a ChatGPT account before sending a message.", false)
 		}
@@ -447,18 +450,15 @@ func (c *Connection) credentials(ctx context.Context) (string, error) {
 					return failure("refresh_not_ready", "Your ChatGPT connection cannot refresh yet. Try again shortly.", true)
 				}
 			} else {
-				// Once rotation starts, finish saving its successor even if the caller stops.
+				// Once rotation starts, retain its successor in memory even if the caller stops.
 				renewal, cancel := context.WithTimeout(context.WithoutCancel(ctx), 60*time.Second)
 				defer cancel()
-				if err := c.refresh(renewal, tx); err != nil {
+				if err := c.refresh(renewal, a); err != nil {
 					if has([]string{"invalid_grant", "invalid_refresh_token", "token_expired", "refresh_token_expired", "refresh_token_invalidated", "refresh_token_reused", "invalid_id_token", "invalid_token_response", "account_mismatch"}, publicError(err).Code) {
 						a.Credentials = nil
 						a.Pending = nil
 						a.IDToken = ""
 						a.Scopes = nil
-						if saveErr := tx.Save(renewal); saveErr != nil {
-							return saveErr
-						}
 						c.emit(session(a))
 					}
 					return err
@@ -476,8 +476,7 @@ func (c *Connection) credentials(ctx context.Context) (string, error) {
 	})
 	return token, err
 }
-func (c *Connection) refresh(ctx context.Context, tx *AccountTransaction) error {
-	a := tx.Account
+func (c *Connection) refresh(ctx context.Context, a *Account) error {
 	pending := a.Pending
 	if pending == nil {
 		if a.Credentials.Refresh == "" {
@@ -497,13 +496,10 @@ func (c *Connection) refresh(ctx context.Context, tx *AccountTransaction) error 
 		if id := text(body["id_token"]); id != "" {
 			pending = &Rotation{Credentials: *next, Scopes: granted, IDToken: id, ReceivedAt: time.Now().UnixMilli()}
 			a.Pending = pending
-			if err := tx.Save(ctx); err != nil {
-				return err
-			}
 		} else {
 			a.Credentials = next
 			a.Scopes = granted
-			return tx.Save(ctx)
+			return nil
 		}
 	}
 	subject, identity, err := c.verify(ctx, pending.IDToken, a.ClientID, "", time.UnixMilli(pending.ReceivedAt))
@@ -518,14 +514,12 @@ func (c *Connection) refresh(ctx context.Context, tx *AccountTransaction) error 
 	a.Identity = identity
 	a.IDToken = pending.IDToken
 	a.Pending = nil
-	return tx.Save(ctx)
+	return nil
 }
 func (c *Connection) SignOut(ctx context.Context) (Session, error) {
 	var s Session
 	var warning error
-	err := c.Store.WithLock(ctx, func(tx *AccountTransaction) error {
-		a := tx.Account
-
+	err := c.Store.WithLock(ctx, func(a *Account) error {
 		token := ""
 		if a.Credentials != nil {
 			token = a.Credentials.Refresh
@@ -569,11 +563,6 @@ func (c *Connection) SignOut(ctx context.Context) (Session, error) {
 		a.Pending = nil
 		a.IDToken = ""
 		a.Scopes = nil
-		cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer stop()
-		if err := tx.Save(cleanup); err != nil {
-			return err
-		}
 		s = session(a)
 		return nil
 	})

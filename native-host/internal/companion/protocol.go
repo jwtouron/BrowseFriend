@@ -41,8 +41,14 @@ func (w *Writer) Send(value any) error {
 	return nil
 }
 
+// RequestHandler supports production dispatch and the separate evaluation wrapper.
+type RequestHandler interface {
+	Dispatch(context.Context, Request)
+	Close()
+}
+
 // Run consumes Chrome framing. Invalid JSON does not consume subsequent frames.
-func Run(ctx context.Context, in io.Reader, handler *Handler) error {
+func Run(ctx context.Context, in io.Reader, handler RequestHandler) error {
 	defer handler.Close()
 	var header [4]byte
 	for {

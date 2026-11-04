@@ -19,7 +19,7 @@ export function startHost(executable, args = []) {
     ...bridge,
     async close() {
       if (child.exitCode !== null) return;
-      // Let production cancellation and independently durable refresh cleanup finish.
+      // Let production cancellation and process-local refresh work finish.
       try { await bridge.request("model.cancel", {}); } catch { /* Already disconnected. */ }
       child.stdin.end();
       await exited;

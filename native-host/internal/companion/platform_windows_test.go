@@ -131,10 +131,12 @@ func TestWindowsNativeSecurityEnforcement(t *testing.T) {
 	if os.Getenv("BROWSEFRIEND_TEST_WINE") != "" {
 		t.Skip("pending native Windows: Wine cannot validate Windows ACL/reparse security guarantees")
 	}
-	for _, name := range []string{"account.enc", "account.lock"} {
+	for _, name := range []string{"registration.json", "registration.lock"} {
 		t.Run("unsafe ACL "+name, func(t *testing.T) {
 			store := testStore(t)
-			if err := store.WithLock(context.Background(), func(tx *AccountTransaction) error { return tx.Save(context.Background()) }); err != nil {
+			if err := store.WithLock(context.Background(), func(a *Account) error {
+				return store.UpdateRegistration(context.Background(), a, func(r *Registration) error { r.HostID = "test-host"; return nil })
+			}); err != nil {
 				t.Fatal(err)
 			}
 			path := filepath.Join(store.Directory, name)
@@ -147,7 +149,7 @@ func TestWindowsNativeSecurityEnforcement(t *testing.T) {
 				t.Fatal(err)
 			}
 			before, _ := os.ReadFile(path)
-			if err := store.WithLock(context.Background(), func(*AccountTransaction) error { t.Fatal("unsafe ACL accepted"); return nil }); publicError(err).Code != "storage_unsafe" {
+			if err := NewStore(store.Directory).WithLock(context.Background(), func(*Account) error { t.Fatal("unsafe ACL accepted"); return nil }); publicError(err).Code != "storage_unsafe" {
 				t.Fatal(err)
 			}
 			after, _ := os.ReadFile(path)
@@ -158,14 +160,14 @@ func TestWindowsNativeSecurityEnforcement(t *testing.T) {
 	}
 	t.Run("junction root", func(t *testing.T) {
 		store := testStore(t)
-		if err := store.WithLock(context.Background(), func(*AccountTransaction) error { return nil }); err != nil {
+		if err := store.WithLock(context.Background(), func(*Account) error { return nil }); err != nil {
 			t.Fatal(err)
 		}
 		alias := filepath.Join(t.TempDir(), "junction")
 		if output, err := exec.Command("cmd.exe", "/d", "/c", "mklink", "/J", alias, store.Directory).CombinedOutput(); err != nil {
 			t.Fatalf("junction: %v %s", err, output)
 		}
-		if err := (&Store{Directory: alias, Key: store.Key}).WithLock(context.Background(), func(*AccountTransaction) error { t.Fatal("junction accepted"); return nil }); publicError(err).Code != "storage_unsafe" {
+		if err := NewStore(alias).WithLock(context.Background(), func(*Account) error { t.Fatal("junction accepted"); return nil }); publicError(err).Code != "storage_unsafe" {
 			t.Fatal(err)
 		}
 	})

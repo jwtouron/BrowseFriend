@@ -17,7 +17,7 @@ func (r *recorder) Stream(_ context.Context, o companion.ModelOptions, delta fun
 	delta("synthetic")
 	return nil, nil
 }
-func TestInstructionOverridesAndAuthDisabled(t *testing.T) {
+func TestInstructionOverrides(t *testing.T) {
 	for _, judge := range []bool{false, true} {
 		r := &recorder{}
 		e := evaluator{Client: r, instructions: "baseline", judge: judge}
@@ -32,15 +32,6 @@ func TestInstructionOverridesAndAuthDisabled(t *testing.T) {
 		} else if r.options.Instructions != contract.Contract.BaseInstructions+"\n\nbaseline" {
 			t.Fatal("baseline changed base policy")
 		}
-		if _, err := e.SignIn(context.Background(), false); err == nil {
-			t.Fatal("sign in enabled")
-		}
-		if _, err := e.SignOut(context.Background()); err == nil {
-			t.Fatal("logout enabled")
-		}
-		if _, err := e.Compact(context.Background(), companion.ModelOptions{}); err == nil {
-			t.Fatal("unexpected compaction")
-		}
 	}
 }
 func TestActorAskInstructionsRemainUnchanged(t *testing.T) {
@@ -49,5 +40,51 @@ func TestActorAskInstructionsRemainUnchanged(t *testing.T) {
 	_, err := e.Stream(context.Background(), companion.ModelOptions{Instructions: "ask"}, func(string) {})
 	if err != nil || r.options.Instructions != "ask" {
 		t.Fatal("ask policy changed", err)
+	}
+}
+
+func (r *recorder) SignIn(context.Context, bool) (companion.Session, error) {
+	return companion.Session{State: "signed_in"}, nil
+}
+func (r *recorder) Compact(context.Context, companion.ModelOptions) (string, error) {
+	return "synthetic-compact", nil
+}
+func TestEvaluationAuthAndCompactionUseTheSameClient(t *testing.T) {
+	e := &evaluator{Client: &recorder{}}
+	if s, err := e.SignIn(context.Background(), false); err != nil || s.State != "signed_in" {
+		t.Fatal(s, err)
+	}
+	if s, err := e.Compact(context.Background(), companion.ModelOptions{}); err != nil || s != "synthetic-compact" {
+		t.Fatal(s, err)
+	}
+	if _, err := e.SignOut(context.Background()); err == nil {
+		t.Fatal("evaluation unexpectedly logged out")
+	}
+}
+func TestEvaluationConfigurationRejectsBusyAndUnknownModes(t *testing.T) {
+	replies := make(chan map[string]any, 4)
+	e := &evaluator{Client: &recorder{}, baseline: "baseline"}
+	h := &evaluationHandler{evaluator: e, pending: map[string]bool{"active": true}}
+	h.Handler = companion.NewHandler(e, func(v any) { replies <- v.(map[string]any) })
+	defer h.Close()
+	configure := func(variant string) map[string]any {
+		h.Dispatch(context.Background(), companion.Request{ID: "configure", Method: "eval.configure", Params: map[string]any{"variant": variant}})
+		return <-replies
+	}
+	if configure("judge")["ok"] != false {
+		t.Fatal("changed active evaluation mode")
+	}
+	delete(h.pending, "active")
+	if configure("unknown")["ok"] != false {
+		t.Fatal("unknown mode accepted")
+	}
+	if configure("judge")["ok"] != true || !e.judge {
+		t.Fatal("judge not selected")
+	}
+	if configure("baseline")["ok"] != true || e.judge || e.instructions != "baseline" {
+		t.Fatal("baseline not selected")
+	}
+	if configure("candidate")["ok"] != true || e.instructions != contract.Contract.ActInstructions {
+		t.Fatal("candidate not selected")
 	}
 }

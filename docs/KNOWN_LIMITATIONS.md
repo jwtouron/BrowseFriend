@@ -39,6 +39,36 @@ access; per-user native registration already supports that requirement.
 - The [storage evaluation](STORAGE_EVALUATION.md) archives retired persistence experiments. The
   current runtime has no keyring or database dependency; protected files store registration only.
 
+## Side-panel layout
+
+The panel uses ordinary responsive CSS within the browser-reported viewport. Clipping at very
+narrow tiled browser widths is accepted behavior; BrowseFriend has no viewport compensation,
+resize recovery, or window-manager integration for it.
+
+A native Wayland reproduction used Brave 1.98.60 / Chromium 156 and Hyprland 0.56.2, with a
+synthetic unpacked extension using the production panel assets. Hyprland allocated a 926px window,
+and later a 600px window, while Brave's `window.outerWidth` remained 1072. The panel reported about
+334 CSS pixels at device-pixel ratio 1.25. Compositor screenshots showed both Brave's toolbar and
+the panel clipped on the right. Widening the actual window to 1200px restored the complete panel.
+These are observed dimensions for that setup, not universal minimums.
+
+The user also reproduced clipped headings and composer content in the separately installed
+[Webbrain extension](https://github.com/webbrain-one/webbrain). Keeping the entire browser window
+wide enough avoids the observed clipping. Reloading the extension is not a lasting fix.
+
+One-off rendered-page checks passed 648 layout/navigation checks across 220–640px viewports,
+both themes, and 16/20px text, but could not detect clipping outside the page's reported viewport.
+Their investigation harness and speculative clipping adjustments were removed after identifying
+this accepted browser limitation. Existing navigation tests remain. The X11 comparison and
+production authentication integration were not completed by that probe.
+
+Related firsthand reports describe the same class of viewport/surface mismatch:
+[Brave and Vesktop under Hyprland](https://www.reddit.com/r/hyprland/comments/1lhl0c5/),
+[T3 Code clipping below its 840px minimum](https://github.com/pingdotgg/t3code/issues/8849), and
+[Codex reporting a 600px viewport inside a 508px tile](https://github.com/openai/codex/issues/40518).
+These corroborate the failure pattern; they are not confirmed duplicates of BrowseFriend's
+specific Brave setup or evidence of a released fix.
+
 ## Page understanding
 
 - BrowseFriend reads ordinary HTTP and HTTPS top-level documents only. Chrome-internal pages,

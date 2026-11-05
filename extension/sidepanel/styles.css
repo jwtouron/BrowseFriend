@@ -63,7 +63,6 @@
 
 body {
   margin: 0;
-  min-width: 280px;
   min-height: 100vh;
   color: var(--text);
   background: var(--background);
@@ -80,6 +79,7 @@ button {
 
 .app {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr;
   height: 100vh;
   overflow: hidden;
@@ -87,6 +87,7 @@ button {
 
 .view-stack {
   position: relative;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
@@ -94,6 +95,7 @@ button {
 .chat-view,
 .settings-view {
   position: absolute;
+  min-width: 0;
   inset: 0;
   transition: transform 220ms ease;
   will-change: transform;
@@ -106,8 +108,10 @@ button {
 
 .chat-content {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 1fr auto auto auto;
   height: 100%;
+  min-width: 0;
   min-height: 0;
   background: var(--background);
 }
@@ -126,8 +130,10 @@ button {
 
 .topbar {
   display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--background) 88%, transparent);
@@ -135,8 +141,22 @@ button {
 
 .brand {
   display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
   align-items: center;
   gap: 10px;
+}
+
+.brand__text,
+.brand__tagline {
+  min-width: 0;
+}
+
+.brand h1,
+.brand__tagline {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .brand__mark {
@@ -158,12 +178,14 @@ button {
 
 .brand__subtitle {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 6px;
 }
 
 .connection-status {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
 }
 
@@ -198,6 +220,7 @@ button {
 
 .topbar__actions {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 2px;
 }
@@ -211,11 +234,23 @@ button {
 }
 
 .icon-button {
+  flex: 0 0 34px;
   width: 34px;
   height: 34px;
   border-radius: 9px;
   background: transparent;
   font-size: 1.25rem;
+}
+
+.icon-button__icon {
+  display: block;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .icon-button:hover,
@@ -244,6 +279,7 @@ button {
 
 .settings-view {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr;
   min-height: 0;
   padding: 16px;
@@ -269,6 +305,7 @@ button {
 }
 
 .settings-content {
+  min-width: 0;
   overflow-y: auto;
   padding-top: 22px;
 }
@@ -303,6 +340,7 @@ button {
 
 .settings-select {
   display: grid;
+  min-width: 0;
   gap: 7px;
   padding: 13px 14px;
   border: 1px solid var(--border);
@@ -320,6 +358,7 @@ button {
 }
 
 .settings-select select {
+  min-width: 0;
   width: 100%;
   padding: 8px 34px 8px 10px;
   appearance: none;
@@ -349,6 +388,7 @@ button {
 }
 
 .accent-picker {
+  min-inline-size: 0;
   margin: 16px 0 0;
   padding: 13px 14px 15px;
   border: 1px solid var(--border);
@@ -364,7 +404,7 @@ button {
 
 .accent-picker__options {
   display: grid;
-  grid-template-columns: repeat(7, minmax(26px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(28px, 1fr));
   gap: 8px;
   margin-top: 7px;
 }
@@ -567,6 +607,7 @@ button {
 
 .message--assistant .message__content {
   min-width: 0;
+  overflow-wrap: anywhere;
   white-space: normal;
 }
 
@@ -661,6 +702,7 @@ button {
   display: block;
   max-width: 100%;
   overflow-x: auto;
+  overflow-wrap: normal;
   border-collapse: collapse;
   font-size: 0.8rem;
 }
@@ -761,6 +803,7 @@ button {
 .mode-switch {
   position: relative;
   display: grid;
+  min-inline-size: 0;
   grid-template-columns: 1fr 1fr;
   justify-self: center;
   width: min(180px, calc(100% - 24px));
@@ -827,6 +870,7 @@ button {
 
 .composer {
   display: flex;
+  min-width: 0;
   align-items: end;
   gap: 8px;
   margin: 10px 12px 0;
@@ -1085,6 +1129,7 @@ textarea::placeholder {
 
 .action-dialog__actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
 }

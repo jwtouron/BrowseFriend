@@ -1,5 +1,6 @@
 .connection-notice {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   width: min(100%, 360px);
   margin: 18px auto;
   padding: 18px;
@@ -46,6 +47,8 @@
 
 .chatgpt-button {
   display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
   align-items: center;
   justify-content: center;
   gap: 9px;
@@ -53,6 +56,10 @@
   border: 1px solid #d8d8d8;
   color: #111;
   background: #fff;
+}
+
+.chatgpt-button img {
+  flex: 0 0 auto;
 }
 
 .chatgpt-button:hover,
@@ -112,6 +119,7 @@
   background: color-mix(in srgb, #f04438 11%, var(--surface));
   font-size: 0.76rem !important;
   text-align: left;
+  overflow-wrap: anywhere;
 }
 
 .companion-help {
@@ -150,6 +158,11 @@
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.account-card__identity > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .account-card__avatar {

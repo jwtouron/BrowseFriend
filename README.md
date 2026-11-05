@@ -91,6 +91,9 @@ apply to the next response and do not clear the current chat.
 The chat footer shows the resolved model and effort expected for the next prompt. The **Automatic**
 model option names the first listed model it currently resolves to. Select the footer summary to
 open Model settings; use the warning icon beside it to review the page-context sharing notice.
+Header text can shorten as the panel narrows, and header icons have consistent sizes. Settings
+controls reflow, and long code or tables scroll within the transcript. Very narrow tiled Brave
+windows can still clip the panel; see [known limitations](docs/KNOWN_LIMITATIONS.md#side-panel-layout).
 
 With an empty composer, use Up or Ctrl+P to recall earlier prompts; continue with Up/Down or Ctrl+P/N. Typing starts a fresh draft. Use the × control or Ctrl+U to clear the composer.
 

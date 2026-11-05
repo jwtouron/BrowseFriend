@@ -205,6 +205,10 @@ user's ChatGPT conversations or memory; the model receives only the context Brow
 
 ### Settings and state
 
+Panel layout uses ordinary responsive CSS and the browser-reported viewport. Native browser/window
+clipping at very narrow tiled widths is accepted as a [known limitation](KNOWN_LIMITATIONS.md#side-panel-layout);
+the extension does not compensate for it with viewport overrides or window-manager integration.
+
 Theme, accent color, model, reasoning effort, and Debug preferences use `chrome.storage.local` and
 synchronize between open panels through `chrome.storage.onChanged`. Reasoning defaults to the
 effective model's advertised default and omits the API override; supported explicit efforts are

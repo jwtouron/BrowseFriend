@@ -43,6 +43,9 @@ current implementation unless a task explicitly promotes them into scope.
   controls enforced in code rather than relying on editable instructions.
 - [ ] Make the header connection indicator open **Settings → Account** and focus the account
   controls while preserving its non-color accessible status.
+- [ ] Revisit a **Settings** item in the extension icon's right-click menu. Deferred because
+  [narrow-window clipping](KNOWN_LIMITATIONS.md#side-panel-layout) can also hide **Back to chat**;
+  any future approach must make both entering and leaving Settings accessible.
 - [ ] Add model-directed context expansion through the typed tool channel.
 - [x] Verify the in-band OAuth compaction fix against the preserved dedicated-endpoint control
   with fixed fixtures/model/effort and three repetitions. The dedicated route returned HTTP 401

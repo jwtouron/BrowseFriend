@@ -35,6 +35,8 @@ const companionHelp = document.querySelector("#companion-help");
 const viewStack = document.querySelector("#view-stack");
 const chatView = document.querySelector("#chat-view");
 const settingsView = document.querySelector("#settings-view");
+const settingsContent = document.querySelector(".settings-content");
+const modelSettings = document.querySelector("#model-settings");
 const composer = document.querySelector("#composer");
 const modeSwitch = document.querySelector("#mode-switch");
 const modeInputs = document.querySelectorAll('input[name="page-mode"]');
@@ -127,6 +129,7 @@ let actionModalOpen = false;
 let newChatModalOpen = false;
 let settingsError = null;
 let localRecovery = null;
+let settingsNavigationEpoch = 0;
 const assistantSources = new WeakMap();
 
 function displayError(error, fallback = "BrowseFriend could not continue.") {
@@ -486,6 +489,7 @@ function focusChatSurface() {
 }
 
 function showSettings({ focusModel = false } = {}) {
+  const navigationEpoch = ++settingsNavigationEpoch;
   viewStack.classList.add("view-stack--settings");
   chatView.inert = true;
   chatView.setAttribute("aria-hidden", "true");
@@ -493,12 +497,20 @@ function showSettings({ focusModel = false } = {}) {
   settingsView.setAttribute("aria-hidden", "false");
   openSettingsButton.setAttribute("aria-expanded", "true");
   closeSettingsButton.focus({ preventScroll: true });
+  if (focusModel) {
+    requestAnimationFrame(() => {
+      if (navigationEpoch !== settingsNavigationEpoch) return;
+      // Scroll only Settings, without moving the sliding view stack's ancestors.
+      settingsContent.scrollTop += modelSettings.getBoundingClientRect().top -
+        settingsContent.getBoundingClientRect().top;
+    });
+  }
   if (currentState.connection.auth?.state !== "signed_in") return;
 
   const refresh = refreshModels(true);
   if (focusModel) {
     void refresh.then(() => {
-      if (viewStack.classList.contains("view-stack--settings") && !modelSelect.disabled) {
+      if (navigationEpoch === settingsNavigationEpoch && !modelSelect.disabled) {
         modelSelect.focus({ preventScroll: true });
       }
     });
@@ -506,6 +518,7 @@ function showSettings({ focusModel = false } = {}) {
 }
 
 function showChat() {
+  settingsNavigationEpoch++;
   viewStack.classList.remove("view-stack--settings");
   settingsView.inert = true;
   settingsView.setAttribute("aria-hidden", "true");

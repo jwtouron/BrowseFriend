@@ -212,9 +212,17 @@ Panel layout uses ordinary responsive CSS and the browser-reported viewport. Nat
 clipping at very narrow tiled widths is accepted as a [known limitation](KNOWN_LIMITATIONS.md#side-panel-layout);
 the extension does not compensate for it with viewport overrides or window-manager integration.
 
-Theme, accent color, model, reasoning effort, and Debug preferences use `chrome.storage.local` and
-synchronize between open panels through `chrome.storage.onChanged`. Reasoning defaults to the
-effective model's advertised default and omits the API override; supported explicit efforts are
+Theme, accent color, transcript typography, model, reasoning effort, and Debug preferences use
+`chrome.storage.local` and synchronize between open panels through `chrome.storage.onChanged`.
+Six independent typography fields control prompt font/size/bold/italic and response font/size.
+The side panel reads installed font names through `fontSettings.getFontList()` when Settings opens;
+the `fontSettings` permission is never used to change browser-wide fonts. The list stays in panel
+memory, outside model requests and the native companion. Scoped CSS updates history, streaming text,
+and live samples without rebuilding messages. Default retains inherited typography; response code
+keeps its monospace font and scales with the response size. Missing fonts fall back without deleting
+the user's selection, and discovery failures do not block other settings or authentication.
+
+Reasoning defaults to the effective model's advertised default and omits the API override; supported explicit efforts are
 listed from highest to lowest. Changing models resets an incompatible explicit effort to Model
 default. The background and side panel share the same model resolver: Automatic selects the first
 catalog model, while the chat footer resolves preference labels into the model and advertised effort

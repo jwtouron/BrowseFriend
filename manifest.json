@@ -12,7 +12,7 @@
     "service_worker": "extension/background/service-worker.js",
     "type": "module"
   },
-  "permissions": ["nativeMessaging", "scripting", "sidePanel", "storage"],
+  "permissions": ["fontSettings", "nativeMessaging", "scripting", "sidePanel", "storage"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "side_panel": {
     "default_path": "extension/sidepanel/index.html"

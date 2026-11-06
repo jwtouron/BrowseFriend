@@ -252,6 +252,24 @@ test("Appearance offers seven accent swatches with Blue selected by default", as
   }
 });
 
+test("Appearance exposes two labeled typography groups and only prompts have emphasis controls", async () => {
+  const html = await readFile(htmlUrl, "utf8");
+  const { JSDOM } = await import("jsdom");
+  const dom = new JSDOM(html);
+  const { document } = dom.window;
+  const groups = [...document.querySelectorAll("#appearance-settings .typography-settings")];
+  assert.deepEqual(groups.map((group) => group.querySelector("legend").textContent), ["Prompt text", "Response text"]);
+  assert.equal(groups[0].querySelectorAll('input[role="switch"]').length, 2);
+  assert.equal(groups[1].querySelectorAll("input").length, 0);
+  for (const control of document.querySelectorAll("[data-typography-setting]")) {
+    assert.ok(document.querySelector(`label[for="${control.id}"]`));
+    assert.equal(control.disabled, true);
+  }
+  assert.ok(document.querySelector('#response-font-preview'));
+  assert.ok(document.querySelector('#retry-fonts'));
+  dom.window.close();
+});
+
 test("accent fills retain readable foreground contrast in both themes", async () => {
   const styles = await readFile(stylesUrl, "utf8");
   const palettes = [...styles.matchAll(

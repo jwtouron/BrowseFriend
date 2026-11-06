@@ -92,7 +92,15 @@ Retry action; retrying a response captures fresh page context and replaces the f
 connection failure disables the composer without discarding its draft.
 
 Appearance settings persist the System, Light, or Dark theme and one of seven accent colors; blue is
-the default. Settings can also use the first available model automatically or persist an explicit
+the default. **Prompt text** and **Response text** independently select an installed font and size,
+with live samples. Sizes range from 8–24 px, plus 28, 32, and 36 px; Default preserves the existing
+inherited font and size, shown in the Default labels. Prompt text also has Bold and Italic switches.
+Response Markdown keeps its emphasis, and code remains monospace while scaling with response size.
+These settings affect transcript text, including existing history, and are available before sign-in.
+The `fontSettings` permission is used only to list installed fonts; browser-wide font settings are
+not changed. Preferences persist locally and update other open panels.
+
+Settings can also use the first available model automatically or persist an explicit
 model choice. Reasoning effort defaults to the selected model's advertised default; its dropdown
 then lists that model's supported explicit efforts from highest to lowest. Model and effort changes
 apply to the next response and do not clear the current chat.

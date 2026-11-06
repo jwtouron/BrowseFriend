@@ -1,4 +1,5 @@
 import { normalizeReasoningPreference } from "../../shared/reasoning.js";
+import { normalizeTypography, TYPOGRAPHY_FIELDS } from "./typography.js";
 
 export { normalizeReasoningPreference };
 
@@ -41,6 +42,7 @@ export function createPreferences({ storageArea, storageChanged }) {
       ACCENT_KEY,
       MODEL_KEY,
       REASONING_KEY,
+      ...Object.values(TYPOGRAPHY_FIELDS).map((field) => field.key),
     ]);
     const reasoningEffort = normalizeReasoningPreference(stored?.[REASONING_KEY]);
     if (stored?.[REASONING_KEY] !== reasoningEffort) {
@@ -52,6 +54,8 @@ export function createPreferences({ storageArea, storageChanged }) {
       accent: normalizeAccent(stored?.[ACCENT_KEY]),
       model: normalizeModel(stored?.[MODEL_KEY]),
       reasoningEffort,
+      ...normalizeTypography(Object.fromEntries(Object.entries(TYPOGRAPHY_FIELDS)
+        .map(([name, field]) => [name, stored?.[field.key]]))),
     };
   }
 
@@ -85,6 +89,14 @@ export function createPreferences({ storageArea, storageChanged }) {
     return value;
   }
 
+  async function saveTypography(name, requested) {
+    if (!Object.hasOwn(TYPOGRAPHY_FIELDS, name)) throw new TypeError("Unknown typography setting.");
+    const field = TYPOGRAPHY_FIELDS[name];
+    const value = field.normalize(requested);
+    await storageArea.set({ [field.key]: value });
+    return value;
+  }
+
   function subscribe(listener) {
     const handleChange = (changes, areaName) => {
       if (areaName !== "local") return;
@@ -104,6 +116,9 @@ export function createPreferences({ storageArea, storageChanged }) {
       if (changes?.[REASONING_KEY]) {
         update.reasoningEffort = normalizeReasoningPreference(changes[REASONING_KEY].newValue);
       }
+      for (const [name, field] of Object.entries(TYPOGRAPHY_FIELDS)) {
+        if (changes?.[field.key]) update[name] = field.normalize(changes[field.key].newValue);
+      }
       if (Object.keys(update).length) listener(update);
     };
     storageChanged.addListener(handleChange);
@@ -117,6 +132,7 @@ export function createPreferences({ storageArea, storageChanged }) {
     saveTheme,
     saveModel,
     saveReasoningEffort,
+    saveTypography,
     subscribe,
   };
 }

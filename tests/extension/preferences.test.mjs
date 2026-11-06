@@ -25,6 +25,7 @@ import {
   automaticModelLabel,
   selectModel,
 } from "../../shared/model-selection.js";
+import { normalizeTypography, TYPOGRAPHY_FIELDS } from "../../extension/settings/typography.js";
 
 function createEvent() {
   const listeners = [];
@@ -63,6 +64,7 @@ test("settings default safely and normalize stored values", async () => {
     accent: "blue",
     model: "automatic",
     reasoningEffort: "model_default",
+    ...normalizeTypography(),
   });
   assert.deepEqual(await createHarness({
     [DEBUG_MODE_KEY]: "true",
@@ -76,6 +78,7 @@ test("settings default safely and normalize stored values", async () => {
     accent: "blue",
     model: "automatic",
     reasoningEffort: "model_default",
+    ...normalizeTypography(),
   });
   assert.equal(normalizeTheme("light"), "light");
   assert.equal(normalizeTheme("dark"), "dark");
@@ -86,6 +89,34 @@ test("settings default safely and normalize stored values", async () => {
   assert.equal(normalizeReasoningPreference("minimal"), "minimal");
   assert.equal(normalizeReasoningPreference("xlow"), "model_default");
   assert.equal(normalizeReasoningPreference("automatic"), "model_default");
+});
+
+test("typography fields save independently and storage changes normalize without rewriting other fields", async () => {
+  const harness = createHarness({
+    [TYPOGRAPHY_FIELDS.promptFont.key]: "Some Font",
+    [TYPOGRAPHY_FIELDS.promptBold.key]: true,
+    [TYPOGRAPHY_FIELDS.responseFontSize.key]: 36,
+  });
+  const loaded = await harness.preferences.load();
+  assert.equal(loaded.promptFont, "Some Font");
+  assert.equal(loaded.promptBold, true);
+  assert.equal(loaded.responseFontSize, 36);
+  harness.writes.length = 0;
+  await harness.preferences.saveTypography("promptFontSize", 18);
+  await harness.preferences.saveTypography("responseFontSize", 25);
+  assert.deepEqual(harness.writes, [
+    { [TYPOGRAPHY_FIELDS.promptFontSize.key]: 18 },
+    { [TYPOGRAPHY_FIELDS.responseFontSize.key]: "default" },
+  ]);
+  await assert.rejects(harness.preferences.saveTypography("responseBold", true), TypeError);
+  const changes = [];
+  harness.preferences.subscribe((update) => changes.push(update));
+  harness.storageChanged.emit({
+    [TYPOGRAPHY_FIELDS.promptItalic.key]: { newValue: true },
+    [TYPOGRAPHY_FIELDS.responseFont.key]: { newValue: undefined },
+    [TYPOGRAPHY_FIELDS.responseFontSize.key]: { newValue: "large" },
+  }, "local");
+  assert.deepEqual(changes, [{ promptItalic: true, responseFont: "default", responseFontSize: "default" }]);
 });
 
 test("settings persist normalized local preferences", async () => {

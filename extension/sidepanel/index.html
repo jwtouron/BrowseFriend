@@ -289,6 +289,56 @@
                 </div>
               </fieldset>
               <p class="status-message" id="accent-settings-error" role="alert" hidden></p>
+
+              <fieldset class="typography-settings">
+                <legend>Prompt text</legend>
+                <div class="typography-settings__controls">
+                  <label class="typography-control" for="prompt-font">
+                    <span>Font</span>
+                    <select id="prompt-font" data-typography-setting="promptFont" aria-describedby="font-list-error prompt-font-note" disabled></select>
+                  </label>
+                  <div class="typography-options">
+                    <label class="typography-control" for="prompt-font-size">
+                      <span>Size</span>
+                      <select id="prompt-font-size" data-typography-setting="promptFontSize" disabled></select>
+                    </label>
+                    <label class="typography-style" for="prompt-bold">
+                      <input id="prompt-bold" data-typography-setting="promptBold" type="checkbox" role="switch" disabled />
+                      <strong>Bold</strong>
+                    </label>
+                    <label class="typography-style" for="prompt-italic">
+                      <input id="prompt-italic" data-typography-setting="promptItalic" type="checkbox" role="switch" disabled />
+                      <em>Italic</em>
+                    </label>
+                  </div>
+                  <p class="settings-note" id="prompt-font-note" hidden>This font is unavailable. Using the default fallback.</p>
+                  <div class="typography-preview message--user" role="group" aria-label="Prompt text preview">
+                    <div class="message__content">Explain this page simply.</div>
+                  </div>
+                </div>
+                <p class="status-message" id="prompt-typography-error" role="alert" hidden></p>
+              </fieldset>
+
+              <fieldset class="typography-settings">
+                <legend>Response text</legend>
+                <div class="typography-settings__controls">
+                  <label class="typography-control" for="response-font">
+                    <span>Font</span>
+                    <select id="response-font" data-typography-setting="responseFont" aria-describedby="font-list-error response-font-note" disabled></select>
+                  </label>
+                  <label class="typography-control" for="response-font-size">
+                    <span>Size</span>
+                    <select id="response-font-size" data-typography-setting="responseFontSize" disabled></select>
+                  </label>
+                  <p class="settings-note" id="response-font-note" hidden>This font is unavailable. Using the default fallback.</p>
+                  <div class="typography-preview message--assistant" role="group" aria-label="Response text preview">
+                    <div class="message__content" id="response-font-preview"></div>
+                  </div>
+                </div>
+                <p class="status-message" id="response-typography-error" role="alert" hidden></p>
+              </fieldset>
+              <p class="status-message" id="font-list-error" role="alert" hidden></p>
+              <button class="secondary-button" id="retry-fonts" type="button" hidden>Retry font list</button>
             </section>
 
             <section class="settings-section" id="model-settings" aria-labelledby="model-title">

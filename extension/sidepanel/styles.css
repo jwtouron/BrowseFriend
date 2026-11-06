@@ -352,12 +352,14 @@ button {
   margin-top: 10px;
 }
 
-.settings-select label {
+.settings-select label,
+.typography-control > span {
   font-size: 0.86rem;
   font-weight: 650;
 }
 
-.settings-select select {
+.settings-select select,
+.typography-control select {
   min-width: 0;
   width: 100%;
   padding: 8px 34px 8px 10px;
@@ -377,12 +379,14 @@ button {
   font: inherit;
 }
 
-.settings-select select:focus-visible {
+.settings-select select:focus-visible,
+.typography-control select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-.settings-select select:disabled {
+.settings-select select:disabled,
+.typography-control select:disabled {
   cursor: wait;
   opacity: 0.6;
 }
@@ -396,7 +400,8 @@ button {
   background: var(--surface);
 }
 
-.accent-picker legend {
+.accent-picker legend,
+.typography-settings legend {
   float: left;
   width: 100%;
   margin-bottom: 7px;
@@ -476,6 +481,57 @@ button {
 
 .accent-swatch--cyan {
   --swatch-color: light-dark(#0e7490, #22d3ee);
+}
+
+.typography-settings {
+  min-inline-size: 0;
+  margin: 16px 0 0;
+  padding: 13px 14px 15px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface);
+}
+
+.typography-settings__controls {
+  display: grid;
+  clear: both;
+  min-width: 0;
+  gap: 12px;
+}
+
+.typography-control {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.typography-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+}
+
+.typography-options .typography-control {
+  flex: 1 1 110px;
+}
+
+.typography-style {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 38px;
+  font-size: 0.86rem;
+}
+
+.typography-style input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.typography-preview {
+  min-width: 0;
+  line-height: 1.55;
 }
 
 .settings-toggle__copy label {
@@ -609,6 +665,8 @@ button {
 }
 
 .message--assistant .message__content {
+  font-family: var(--response-font-family, inherit);
+  font-size: var(--response-font-size, inherit);
   min-width: 0;
   overflow-wrap: anywhere;
   white-space: normal;
@@ -643,14 +701,14 @@ button {
 
 .message--assistant .message__content h1,
 .message--assistant .message__content h2 {
-  font-size: 1.08rem;
+  font-size: calc(1.08rem * var(--response-font-scale, 1));
 }
 
 .message--assistant .message__content h3,
 .message--assistant .message__content h4,
 .message--assistant .message__content h5,
 .message--assistant .message__content h6 {
-  font-size: 0.96rem;
+  font-size: calc(0.96rem * var(--response-font-scale, 1));
 }
 
 .message--assistant .message__content ul,
@@ -686,7 +744,7 @@ button {
 .message--assistant .message__content pre code {
   padding: 0;
   background: transparent;
-  font-size: 0.76rem;
+  font-size: calc(0.76rem * var(--response-font-scale, 1));
 }
 
 .message--assistant .message__content blockquote {
@@ -707,7 +765,7 @@ button {
   overflow-x: auto;
   overflow-wrap: normal;
   border-collapse: collapse;
-  font-size: 0.8rem;
+  font-size: calc(0.8rem * var(--response-font-scale, 1));
 }
 
 .message--assistant .message__content th,
@@ -730,6 +788,10 @@ button {
 }
 
 .message--user .message__content {
+  font-family: var(--prompt-font-family, inherit);
+  font-size: var(--prompt-font-size, inherit);
+  font-weight: var(--prompt-font-weight, normal);
+  font-style: var(--prompt-font-style, normal);
   padding: 9px 12px;
   border-radius: 14px 14px 4px 14px;
   color: var(--accent-foreground);

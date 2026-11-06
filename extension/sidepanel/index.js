@@ -22,6 +22,7 @@ import {
 } from "../../shared/model-selection.js";
 import { deriveViewState } from "./view-state.js";
 import { actionLabel } from "../../shared/action-history.js";
+import { installTypographySettings } from "./typography.js";
 
 const topbar = document.querySelector(".topbar");
 const conversation = document.querySelector("#conversation");
@@ -100,6 +101,7 @@ const preferences = createPreferences({
   storageArea: chrome.storage.local,
   storageChanged: chrome.storage.onChanged,
 });
+const typographySettings = installTypographySettings({ document, preferences, fontSettings: chrome.fontSettings });
 let currentState = {
   connection: {
     phase: "checking",
@@ -491,6 +493,7 @@ function showSettings({ focusModel = false } = {}) {
   settingsView.setAttribute("aria-hidden", "false");
   openSettingsButton.setAttribute("aria-expanded", "true");
   closeSettingsButton.focus({ preventScroll: true });
+  void typographySettings.refreshFonts();
   if (focusModel) {
     requestAnimationFrame(() => {
       if (navigationEpoch !== settingsNavigationEpoch) return;
@@ -668,6 +671,7 @@ async function loadPreferences() {
   reasoningSelect.disabled = true;
   try {
     const stored = await preferences.load();
+    typographySettings.initialize(stored);
     applyDebugMode(stored.debugMode);
     applyThemePreference(stored.theme);
     applyAccentPreference(stored.accent);
@@ -676,6 +680,7 @@ async function loadPreferences() {
     preferencesLoaded = true;
     await reconcileReasoningPreference();
   } catch {
+    typographySettings.initialize({}, true);
     applyDebugMode(false);
     applyThemePreference("system");
     applyAccentPreference("blue");

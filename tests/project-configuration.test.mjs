@@ -39,7 +39,7 @@ test("manifest exposes only required permissions and matches the native contract
     .replace(/[0-9a-f]/g, (d) => String.fromCharCode(97 + Number.parseInt(d, 16)));
   assert.equal(manifest.name, HOST_CONTRACT.appName);
   assert.equal(HOST_CONTRACT.extensionOrigin, "chrome-extension://" + id + "/");
-  assert.deepEqual(manifest.permissions.sort(), ["nativeMessaging", "scripting", "sidePanel", "storage"]);
+  assert.deepEqual(manifest.permissions.sort(), ["fontSettings", "nativeMessaging", "scripting", "sidePanel", "storage"]);
   assert.deepEqual(manifest.host_permissions.sort(), ["http://*/*", "https://*/*"]);
   await access(new URL("../" + manifest.background.service_worker, import.meta.url));
   await access(new URL("../" + manifest.side_panel.default_path, import.meta.url));

@@ -58,9 +58,15 @@ remain pending; see the [verification record](docs/NATIVE_HOST.md#verification-r
 
 See [Native companion](docs/NATIVE_HOST.md) for standalone commands, storage locations, tests, and platform verification.
 
-Open BrowseFriend from Chrome's toolbar. The chat is usable immediately while the header indicator quietly checks the local companion, current authentication, and available models. Yellow means connecting, green means ready, and red means an action or retry is required.
+Open BrowseFriend from Chrome's toolbar. Chat appears immediately and Settings stays accessible.
+The composer, suggested prompts, and Ask/Act controls stay disabled until the local companion,
+authentication, and available models are ready. Yellow means connecting, green means ready, and
+red means an action or retry is required.
 
-Signed-out users see **Continue with ChatGPT** inside the chat. OpenAI handles account and workspace selection in the browser, then returns to the local companion. A prompt submitted while setup is still running waits and sends automatically once ready. **Settings → Account** shows the selected identity, plan-access state, usage link, and logout action.
+Signed-out users see **Continue with ChatGPT** inside the chat. OpenAI handles account and workspace
+selection in the browser, then returns to the local companion. Finishing sign-in enables the composer;
+it never sends a draft automatically. **Settings → Account** shows the selected identity, plan-access
+state, usage link, and logout action.
 
 Ask a question to capture the current HTTP or HTTPS page. BrowseFriend sends a bounded semantic snapshot—not raw HTML—and Debug mode can show the inspectable context attachment beside the message. If the page changes during generation, the completed answer is marked as stale. **New chat** asks for confirmation before clearing the memory-only conversation and its compacted context.
 
@@ -80,7 +86,10 @@ destructive operations pause for confirmation. File controls pause and highlight
 so the user can choose files directly; BrowseFriend observes only the selected count. Stop restores
 the prompt only if the task has not already changed the page.
 
-Send changes to Stop while a prompt is waiting or generating. Stop leaves connection setup running, restores the prompt as an editable draft, and preserves any partial answer as stopped. Connection and response failures share a Retry action; retrying a response captures fresh page context and replaces the failed attempt.
+Send changes to Stop while a response is preparing or generating. Stop restores the prompt as an
+editable draft and preserves any partial answer as stopped. Connection and response failures share a
+Retry action; retrying a response captures fresh page context and replaces the failed attempt. A
+connection failure disables the composer without discarding its draft.
 
 Appearance settings persist the System, Light, or Dark theme and one of seven accent colors; blue is
 the default. Settings can also use the first available model automatically or persist an explicit

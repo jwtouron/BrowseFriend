@@ -98,7 +98,7 @@ test("chat exposes Ask and Act modes plus an accessible action confirmation", as
     readFile(stylesUrl, "utf8"),
     readFile(scriptUrl, "utf8"),
   ]);
-  assert.match(html, /<fieldset class="mode-switch" id="mode-switch" aria-label="Page capability">/);
+  assert.match(html, /<fieldset class="mode-switch" id="mode-switch" aria-label="Page capability" disabled>/);
   assert.match(html, /name="page-mode" value="ask" checked/);
   assert.match(html, /name="page-mode" value="act"/);
   assert.match(styles, /\.mode-switch::before[\s\S]*transition: transform 180ms ease/);

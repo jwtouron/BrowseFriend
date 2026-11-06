@@ -82,9 +82,9 @@
                 <p>Ask about the current page. BrowseFriend will show the context it shares.</p>
 
                 <div class="suggestions" aria-label="Suggested prompts">
-                  <button class="suggestion" type="button">Explain this page simply</button>
-                  <button class="suggestion" type="button">Help me brainstorm</button>
-                  <button class="suggestion" type="button">Summarize an idea</button>
+                  <button class="suggestion" type="button" disabled>Explain this page simply</button>
+                  <button class="suggestion" type="button" disabled>Help me brainstorm</button>
+                  <button class="suggestion" type="button" disabled>Summarize an idea</button>
                 </div>
               </div>
 
@@ -120,7 +120,7 @@
               </section>
             </section>
 
-            <fieldset class="mode-switch" id="mode-switch" aria-label="Page capability">
+            <fieldset class="mode-switch" id="mode-switch" aria-label="Page capability" disabled>
               <label>
                 <input type="radio" name="page-mode" value="ask" checked />
                 <span>Ask</span>
@@ -140,6 +140,7 @@
                 maxlength="4000"
                 placeholder="Message BrowseFriend"
                 aria-keyshortcuts="ArrowUp ArrowDown Control+P Control+N Control+U"
+                disabled
                 required
               ></textarea>
               <button
@@ -152,7 +153,7 @@
               >
                 <span aria-hidden="true">×</span>
               </button>
-              <button class="send-button" id="send-message" type="submit" aria-label="Send message">
+              <button class="send-button" id="send-message" type="submit" aria-label="Send message" disabled>
                 <span aria-hidden="true">↑</span>
               </button>
               <button class="send-button send-button--stop" id="stop-response" type="button" aria-label="Stop response" hidden>

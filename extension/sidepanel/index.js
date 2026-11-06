@@ -257,18 +257,10 @@ function renderMessages() {
   conversation.scrollTop = conversation.scrollHeight;
 }
 
-function composerBusy() {
-  return deriveViewState(currentState, optimisticSubmission).busy;
-}
-
-function authBlocksComposer() {
-  const view = deriveViewState(currentState, optimisticSubmission);
-  return view.inputDisabled && !view.busy;
-}
-
 function renderComposer() {
   const view = deriveViewState(currentState, optimisticSubmission);
   messageInput.disabled = view.inputDisabled;
+  sendMessageButton.disabled = view.inputDisabled;
   sendMessageButton.hidden = view.sendHidden;
   stopResponseButton.hidden = view.stopHidden;
   clearMessageButton.hidden = messageInput.value.length === 0 || messageInput.disabled;
@@ -279,7 +271,7 @@ function renderComposer() {
 
 function renderMode() {
   const mode = currentState.mode === "act" ? "act" : "ask";
-  const disabled = composerBusy();
+  const disabled = deriveViewState(currentState, optimisticSubmission).inputDisabled;
   modeSwitch.disabled = disabled;
   modeInputs.forEach((input) => {
     input.checked = input.value === mode;
@@ -375,8 +367,9 @@ function renderApp(state, {
   const nextView = deriveViewState(currentState, optimisticSubmission);
   const submissionFinished = previousSubmission && !state.submission;
   const actionChanged = previousView.focusTarget !== nextView.focusTarget &&
-    ["signIn", "cancelSignIn", "retry"].includes(nextView.focusTarget);
-  if (submissionFinished || actionChanged) requestAnimationFrame(focusChatSurface);
+    ["settings", "signIn", "cancelSignIn", "retry"].includes(nextView.focusTarget);
+  const composerEnabled = previousView.inputDisabled && !nextView.inputDisabled;
+  if (submissionFinished || actionChanged || composerEnabled) requestAnimationFrame(focusChatSurface);
 }
 
 function showOperationError(error, recovery, scope = "connection") {
@@ -478,6 +471,7 @@ function focusChatSurface() {
   const targetName = deriveViewState(currentState, optimisticSubmission).focusTarget;
   const targets = {
     composer: messageInput,
+    settings: openSettingsButton,
     stop: stopResponseButton,
     signIn: signInButton,
     cancelSignIn: cancelSignInButton,
@@ -783,7 +777,7 @@ async function updateReasoningEffort() {
 
 async function submitMessage() {
   const message = messageInput.value.trim();
-  if (!message || composerBusy() || authBlocksComposer()) return;
+  if (!message || deriveViewState(currentState, optimisticSubmission).inputDisabled) return;
   await submitText(message);
 }
 
@@ -822,7 +816,7 @@ async function stopSubmission() {
 }
 
 async function updateMode(mode) {
-  if (composerBusy() || !["ask", "act"].includes(mode)) return;
+  if (deriveViewState(currentState, optimisticSubmission).inputDisabled || !["ask", "act"].includes(mode)) return;
   modeInputs.forEach((input) => { input.disabled = true; });
   try {
     renderApp(await appClient.setMode(mode), { restoreCompletionFocus: false });

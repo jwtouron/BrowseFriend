@@ -20,10 +20,10 @@ flowchart LR
 ```
 
 The side panel sends user intents and renders state owned by the service worker's application
-controller. Connection readiness and the active submission are orthogonal state machines: setup can
-continue while a user cancels a queued prompt, and stable IDs prevent late asynchronous results from
-reviving cancelled work. One normalized notice represents the current authentication action or
-recoverable connection/chat error.
+controller. Connection readiness and the active submission are orthogonal state machines. New
+prompts require a ready connection; an explicit response retry may wait for connection recovery.
+Stable IDs prevent late asynchronous results from reviving cancelled work. One normalized notice
+represents the current authentication action or recoverable connection/chat error.
 
 The page reader injects `extension/page/read/content-script.js` only into supported HTTP or HTTPS
 pages and returns a bounded semantic snapshot. The application controller combines that snapshot
@@ -84,14 +84,17 @@ development artifacts; hosted execution remains pending until the first push. Se
 ### Authentication
 
 Opening the panel immediately shows chat and starts a single background readiness operation. The
-controller launches the companion, reads process-local authentication, refreshes credentials when needed,
-and discovers available models. If user action is required, the panel presents **Continue with
-ChatGPT** without discarding a draft or queued prompt. The companion temporarily listens on a random
-`127.0.0.1` port for the OAuth callback. The companion validates the result and retains credentials only in its process memory; only sanitized account state returns to the extension.
+composer, suggested prompts, and Ask/Act controls remain disabled until authentication and model
+discovery finish; Settings stays accessible. The controller launches the companion, reads process-local
+authentication, refreshes credentials when needed, and discovers available models. If user action is
+required, the panel presents **Continue with ChatGPT** without discarding an existing draft. New
+prompts are rejected before readiness and never queued across sign-in. The companion temporarily
+listens on a random `127.0.0.1` port for the OAuth callback. The companion validates the result and
+retains credentials only in its process memory; only sanitized account state returns to the extension.
 
 ### Ask mode
 
-Submitting a prompt creates one cancellable submission. It may wait for shared readiness, then
+Submitting a prompt requires a ready connection and creates one cancellable submission that
 captures the active page, stores a user/assistant pair, and starts one model request. Stop restores
 the prompt as a draft without cancelling readiness; stable submission IDs discard late capture or
 stream results. Page content is wrapped as untrusted data rather than instructions. DOM mutations or

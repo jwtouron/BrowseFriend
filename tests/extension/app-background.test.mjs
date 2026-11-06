@@ -30,6 +30,7 @@ function createHarness({
   authStatusRequest,
   compactRequest,
   modelListError,
+  modelListRequest,
   modelPreference,
   modelPreferenceGate,
   models,
@@ -106,6 +107,7 @@ function createHarness({
       }
       if (method === "model.list") {
         if (modelListError) throw modelListError;
+        if (modelListRequest) return modelListRequest.promise;
         return {
           result: {
             models: models || [{ slug: "model-1", displayName: "Model One" }],
@@ -227,7 +229,7 @@ function largeStoredSession(exchangeCount = 10) {
   };
 }
 
-test("readiness loads the saved session and model catalog before becoming ready", async () => {
+test("readiness checks process-local authentication and loads models before becoming ready", async () => {
   const harness = createHarness();
   const before = await harness.controller.getState();
   assert.equal(before.connection.phase, "checking");
@@ -240,37 +242,50 @@ test("readiness loads the saved session and model catalog before becoming ready"
     harness.companionCalls.map((call) => call.method),
     ["auth.status", "model.list"],
   );
+  await harness.controller.ensureReady();
+  assert.equal(harness.companionCalls.length, 2);
 });
 
-test("a queued prompt survives sign-in and sends automatically after readiness", async () => {
+test("signed-out submissions are rejected and sign-in never sends them later", async () => {
   const harness = createHarness({
     authStatus: { state: "signed_out", profile: null, planUsageEnabled: false },
   });
   let state = await harness.controller.ensureReady();
   assert.equal(state.connection.phase, "auth_required");
 
-  state = await harness.controller.submit("submission-1", "Question");
-  assert.equal(state.submission.phase, "queued");
+  await assert.rejects(harness.controller.submit("submission-1", "Question"), {
+    code: "connection_not_ready",
+  });
+  state = await harness.controller.getState();
+  assert.equal(state.submission, null);
+  assert.equal(state.issue.action, "sign_in");
   await harness.controller.signIn();
   await settle();
 
   state = await harness.controller.getState();
   assert.equal(state.connection.phase, "ready");
   assert.equal(state.submission, null);
+  assert.deepEqual(state.messages, []);
+  assert.equal(harness.captureCount, 0);
+  assert.equal(harness.companionCalls.some((call) => call.method === "model.stream"), false);
+
+  await harness.controller.submit("submission-2", "Question");
+  await settle();
+  state = await harness.controller.getState();
   assert.equal(state.messages[0].text, "Question");
   assert.equal(state.messages[1].text, "Answer");
 });
 
-test("Stop restores a queued draft without cancelling shared readiness", async () => {
+test("submissions during startup are rejected without waiting for authentication", async () => {
   const status = deferred();
   const harness = createHarness({ authStatusRequest: status });
   const readiness = harness.controller.ensureReady();
   await settle();
-  await harness.controller.submit("submission-1", "Waiting question");
-
-  const stopped = await harness.controller.stop("submission-1");
-  assert.equal(stopped.draft, "Waiting question");
-  assert.equal(stopped.state.submission, null);
+  await assert.rejects(harness.controller.submit("submission-1", "Waiting question"), {
+    code: "connection_not_ready",
+  });
+  assert.equal((await harness.controller.getState()).submission, null);
+  assert.deepEqual(harness.companionCalls.map((call) => call.method), ["auth.status"]);
 
   status.resolve({ result: harness.signedIn });
   await readiness;
@@ -279,6 +294,53 @@ test("Stop restores a queued draft without cancelling shared readiness", async (
   assert.equal(state.connection.phase, "ready");
   assert.deepEqual(state.messages, []);
   assert.equal(harness.companionCalls.some((call) => call.method === "model.stream"), false);
+});
+
+test("submissions are rejected during model discovery and interactive sign-in", async () => {
+  const models = deferred();
+  const modelHarness = createHarness({ modelListRequest: models });
+  const readiness = modelHarness.controller.ensureReady();
+  await settle();
+  assert.equal((await modelHarness.controller.getState()).connection.auth.state, "signed_in");
+  await assert.rejects(modelHarness.controller.submit("model-pending", "Question"), {
+    code: "connection_not_ready",
+  });
+  models.resolve({ result: { models: [{ slug: "model-1", displayName: "Model One" }] } });
+  await readiness;
+  assert.equal(modelHarness.captureCount, 0);
+
+  const signIn = deferred();
+  const authHarness = createHarness({ signInRequest: signIn });
+  const signingIn = authHarness.controller.signIn();
+  await settle();
+  await assert.rejects(authHarness.controller.submit("auth-pending", "Question"), {
+    code: "connection_not_ready",
+  });
+  signIn.resolve({ result: authHarness.signedIn });
+  await signingIn;
+  await settle();
+  assert.equal(authHarness.captureCount, 0);
+  assert.equal((await authHarness.controller.getState()).submission, null);
+});
+
+test("submissions cannot retry a failed connection or bypass required plan permission", async () => {
+  for (const options of [
+    { modelListError: { code: "companion_unavailable", message: "Unavailable.", retryable: true } },
+    { authStatus: { state: "plan_disabled", profile: null, planUsageEnabled: false } },
+  ]) {
+    const harness = createHarness(options);
+    await harness.controller.ensureReady();
+    const before = await harness.controller.getState();
+    const requestCount = harness.companionCalls.length;
+    await assert.rejects(harness.controller.submit("submission-1", "Question"), {
+      code: "connection_not_ready",
+    });
+    const after = await harness.controller.getState();
+    assert.deepEqual(after.issue, before.issue);
+    assert.equal(after.submission, null);
+    assert.equal(harness.companionCalls.length, requestCount);
+    assert.equal(harness.captureCount, 0);
+  }
 });
 
 test("Stop during page capture prevents a late capture from sending", async () => {
@@ -295,6 +357,19 @@ test("Stop during page capture prevents a late capture from sending", async () =
 
   const state = await harness.controller.getState();
   assert.deepEqual(state.messages, []);
+  assert.equal(harness.companionCalls.some((call) => call.method === "model.stream"), false);
+});
+
+test("Stop while accepting a ready submission prevents preparation from starting", async () => {
+  const harness = createHarness();
+  await harness.controller.ensureReady();
+  const accepting = harness.controller.submit("submission-1", "Question");
+  const stopped = await harness.controller.stop("submission-1");
+  await accepting;
+  await settle();
+  assert.equal(stopped.draft, "Question");
+  assert.equal(harness.captureCount, 0);
+  assert.equal((await harness.controller.getState()).submission, null);
   assert.equal(harness.companionCalls.some((call) => call.method === "model.stream"), false);
 });
 
@@ -365,6 +440,44 @@ test("Retry replaces a failed response and captures fresh page context", async (
   assert.equal(state.messages[1].status, "complete");
   assert.equal(state.messages[0].context.revision, 2);
   assert.equal(harness.captureCount, 2);
+});
+
+test("an explicit response retry can recover its connection and Stop prevents a late retry", async () => {
+  for (const stopRetry of [false, true]) {
+    const catalog = { result: { models: [{ slug: "model-1", displayName: "Model One" }] } };
+    const modelListRequest = { promise: Promise.resolve(catalog) };
+    let attempts = 0;
+    const harness = createHarness({
+      modelListRequest,
+      streamRequest() {
+        if (++attempts === 1) throw { code: "invalid_token", message: "Reconnect.", retryable: true };
+        return { result: { completed: true } };
+      },
+    });
+    await harness.controller.ensureReady();
+    await harness.controller.submit("submission-1", "Question");
+    await settle();
+    assert.equal((await harness.controller.getState()).connection.phase, "error");
+
+    const discovery = deferred();
+    modelListRequest.promise = discovery.promise;
+    await harness.controller.retry();
+    await settle();
+    const pending = await harness.controller.getState();
+    assert.equal(pending.connection.phase, "checking");
+    assert.equal(pending.submission.phase, "waiting_connection");
+    if (stopRetry) {
+      const stopped = await harness.controller.stop(pending.submission.id);
+      assert.equal(stopped.draft, "Question");
+    }
+    discovery.resolve(catalog);
+    await settle();
+    const ready = await harness.controller.getState();
+    assert.equal(ready.connection.phase, "ready");
+    assert.equal(ready.submission, null);
+    assert.equal(attempts, stopRetry ? 1 : 2);
+    assert.equal(harness.captureCount, stopRetry ? 1 : 2);
+  }
 });
 
 test("completed exchanges become bounded history without old page snapshots", async () => {

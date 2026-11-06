@@ -343,7 +343,7 @@ export function installAppController({
         connection = { phase: "ready", auth, error: null };
         issue = null;
         await publish(chat);
-        void resumeSubmission();
+        void resumeRetry();
         return publicState(chat);
       } catch (error) {
         if (epoch === connectionEpoch) await failConnection(chat, error);
@@ -809,13 +809,17 @@ export function installAppController({
     }
   }
 
-  async function resumeSubmission() {
+  async function resumeRetry() {
     const chat = await loadChat();
     const submission = chat.submission;
-    if (!submission || submission.phase !== "queued" || connection.phase !== "ready") return;
+    if (!submission || submission.phase !== "waiting_connection" || connection.phase !== "ready") return;
     submission.phase = "preparing";
     await publish(chat);
+    void prepareSubmission(chat, submission);
+  }
 
+  async function prepareSubmission(chat, submission) {
+    if (chat.submission?.id !== submission.id) return;
     try {
       const context = await captureForSubmission(chat, submission);
       if (!context || chat.submission?.id !== submission.id) return;
@@ -886,12 +890,17 @@ export function installAppController({
       message: "Wait for the current response or stop it first.",
       retryable: true,
     };
+    if (connection.phase !== "ready") throw {
+      code: "connection_not_ready",
+      message: "Finish connecting BrowseFriend before sending a message.",
+      retryable: true,
+    };
 
     issue = issue?.scope === "generation" ? null : issue;
-    chat.submission = {
+    const submission = {
       id,
       text: prompt,
-      phase: "queued",
+      phase: "preparing",
       mode: chat.mode,
       actionCount: 0,
       actionHistory: [],
@@ -904,10 +913,9 @@ export function installAppController({
       currentOrigin: null,
       currentUrl: null,
     };
+    chat.submission = submission;
     await publish(chat);
-    if (connection.phase === "ready") void resumeSubmission();
-    else if (connection.phase === "error") void ensureReady({ force: true });
-    else if (connection.phase === "checking") void ensureReady();
+    void prepareSubmission(chat, submission);
     return publicState(chat);
   }
 
@@ -1033,10 +1041,10 @@ export function installAppController({
         retryable: true,
       };
       issue = null;
-      chat.submission = {
+      const submission = {
         id: randomUUID(),
         text: retryIssue.prompt,
-        phase: "queued",
+        phase: connection.phase === "ready" ? "preparing" : "waiting_connection",
         retryAssistantId: retryIssue.assistantId,
         mode: chat.mode,
         actionCount: 0,
@@ -1050,8 +1058,9 @@ export function installAppController({
         currentOrigin: null,
         currentUrl: null,
       };
+      chat.submission = submission;
       await publish(chat);
-      if (connection.phase === "ready") void resumeSubmission();
+      if (submission.phase === "preparing") void prepareSubmission(chat, submission);
       else void ensureReady({ force: true });
       return publicState(chat);
     }
@@ -1095,7 +1104,7 @@ export function installAppController({
         };
         connection = { phase: "ready", auth, error: null };
         await publish(chat);
-        void resumeSubmission();
+        void resumeRetry();
         return publicState(chat);
       } catch (error) {
         const publicError = safeError(error);

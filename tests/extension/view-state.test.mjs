@@ -6,14 +6,14 @@ function state(phase, authState = "signed_out", submission = null, issue = null)
   return { connection: { phase, auth: { state: authState } }, issue, submission };
 }
 
-test("initial checking looks usable while reporting connection progress", () => {
+test("initial checking disables the composer while leaving Settings accessible", () => {
   assert.deepEqual(deriveViewState(state("checking", "loading")), {
     authRequired: false,
     busy: false,
     connectionLabel: "Connecting",
     connectionTone: "checking",
-    focusTarget: "composer",
-    inputDisabled: false,
+    focusTarget: "settings",
+    inputDisabled: true,
     sendHidden: false,
     stopHidden: true,
   });
@@ -28,6 +28,16 @@ test("one derived state controls authentication, pending, and ready composer beh
   const signingIn = deriveViewState(state("checking", "signing_in"));
   assert.equal(signingIn.inputDisabled, true);
   assert.equal(signingIn.focusTarget, "cancelSignIn");
+
+  const modelsLoading = deriveViewState(state("checking", "signed_in"));
+  assert.equal(modelsLoading.inputDisabled, true);
+  assert.equal(modelsLoading.focusTarget, "settings");
+
+  const connectionError = deriveViewState(state("error", "signed_in", null, {
+    kind: "error", scope: "connection",
+  }));
+  assert.equal(connectionError.inputDisabled, true);
+  assert.equal(connectionError.focusTarget, "retry");
 
   const pending = deriveViewState(state("ready", "signed_in", { id: "one" }));
   assert.equal(pending.busy, true);
@@ -49,6 +59,7 @@ test("one derived state controls authentication, pending, and ready composer beh
   }));
   assert.equal(generationError.connectionTone, "error");
   assert.equal(generationError.connectionLabel, "Response failed");
+  assert.equal(generationError.inputDisabled, false);
 
   const ready = deriveViewState(state("ready", "signed_in"));
   assert.equal(ready.connectionTone, "ready");
@@ -57,7 +68,7 @@ test("one derived state controls authentication, pending, and ready composer beh
 });
 
 test("an optimistic submission uses the same busy composer state", () => {
-  const view = deriveViewState(state("checking", "loading"), { id: "optimistic" });
+  const view = deriveViewState(state("ready", "signed_in"), { id: "optimistic" });
   assert.equal(view.busy, true);
   assert.equal(view.inputDisabled, true);
   assert.equal(view.sendHidden, true);

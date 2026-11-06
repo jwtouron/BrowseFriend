@@ -2,7 +2,7 @@ export function deriveViewState(state, optimisticSubmission = null) {
   const busy = Boolean(optimisticSubmission || state.submission);
   const signingIn = state.connection.auth?.state === "signing_in";
   const authRequired = ["auth_required", "plan_required"].includes(state.connection.phase);
-  const inputDisabled = busy || signingIn || authRequired;
+  const inputDisabled = busy || state.connection.phase !== "ready";
   const hasError = state.issue?.kind === "error";
   const connectionTone = hasError
     ? "error"
@@ -19,7 +19,7 @@ export function deriveViewState(state, optimisticSubmission = null) {
   if (hasError && state.issue.scope === "generation") connectionLabel = "Response failed";
   else if (hasError) connectionLabel = "Connection error";
 
-  let focusTarget = "composer";
+  let focusTarget = state.connection.phase === "ready" ? "composer" : "settings";
   if (busy) focusTarget = "stop";
   if (state.issue?.kind === "error") focusTarget = "retry";
   if (authRequired) focusTarget = "signIn";

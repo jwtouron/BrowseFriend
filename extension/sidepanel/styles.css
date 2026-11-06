@@ -940,9 +940,14 @@ textarea::placeholder {
   font-size: 1.15rem;
 }
 
-.send-button:hover,
+.send-button:enabled:hover,
 .send-button:focus-visible {
   background: var(--accent-hover);
+}
+
+.send-button:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .send-button--stop {

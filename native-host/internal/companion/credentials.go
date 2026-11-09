@@ -41,7 +41,7 @@ func invalidCredentials() error {
 }
 
 func validAccount(a *Account) bool {
-	if !validRegistration(a.Registration) {
+	if !validRegistration(a.Registration) || len(a.Generation) > 200 {
 		return false
 	}
 	if a.Credentials == nil {
@@ -61,7 +61,7 @@ func validAccount(a *Account) bool {
 func (s *Store) readCredentials(r Registration) (*Account, string, error) {
 	f, err := privateFile(filepath.Join(s.Directory, credentialFile), os.O_RDONLY)
 	if errors.Is(err, os.ErrNotExist) {
-		return &Account{Registration: r}, "", nil
+		return &Account{Registration: r, Generation: s.lifecycle.Generation}, "", nil
 	}
 	if err != nil {
 		return nil, "", storageError(err)
@@ -88,6 +88,9 @@ func (s *Store) readCredentials(r Registration) (*Account, string, error) {
 	d.DisallowUnknownFields()
 	if d.Decode(&record) != nil || d.Decode(new(any)) != io.EOF || record.Revision == "" || len(record.Revision) > 200 || (record.Account.Credentials != nil && record.Account.Registration != r) || !validAccount(&record.Account) {
 		return nil, "", invalidCredentials()
+	}
+	if record.Account.Generation != s.lifecycle.Generation {
+		return &Account{Registration: r, Generation: s.lifecycle.Generation}, record.Revision, nil
 	}
 	record.Account.Registration = r
 	return &record.Account, record.Revision, nil
@@ -156,10 +159,12 @@ func (s *Store) validateCredentialFile() error {
 	return storageError(f.Close())
 }
 
-// Reset clears credentials without parsing them. A new empty revision also prevents a
-// failed checkpoint in another process from resurrecting the login after reset/logout.
+// Reset bypasses damaged credential parsing but keeps all ownership/path checks.
 func (s *Store) Reset(ctx context.Context) error {
 	return s.withDiskLock(ctx, func() error {
+		if s.lifecycle.Disabled {
+			return failure("companion_unavailable", "The companion has been uninstalled. Install it again before signing in.", false)
+		}
 		r, err := s.readRegistration()
 		if err != nil {
 			return storageError(err)
@@ -167,24 +172,90 @@ func (s *Store) Reset(ctx context.Context) error {
 		a := &Account{Registration: r}
 		s.active = a
 		defer func() { s.active = nil }()
-		if err := s.save(ctx, a); err != nil {
-			return err
-		}
-		s.retry = nil
-		if s.sessionOnly {
-			s.account = a
-		}
-		return nil
+		return s.clearLogin(ctx, a, false)
 	})
 }
 
-// removeCredentials is only for explicit uninstall, under the same account lock.
+// removeCredentials runs under the account lock during explicit uninstall.
 func (s *Store) removeCredentials() error {
+	return s.clearLogin(context.Background(), nil, true)
+}
+
+// clearLogin is the common invalidation/cleanup path for revoked grants, logout, reset and uninstall.
+func (s *Store) clearLogin(ctx context.Context, a *Account, remove bool) error {
 	if err := s.validateCredentialFile(); err != nil {
 		return err
 	}
-	if err := os.Remove(filepath.Join(s.Directory, credentialFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if s.sessionOnly {
+		*a = Account{Registration: a.Registration, Generation: randomValue()}
+		s.account = a
+		return nil
+	}
+	state := authLifecycle{Generation: randomValue(), Disabled: remove}
+	if err := s.writeLifecycle(ctx, state); err != nil {
+		return err
+	}
+	if remove {
+		s.retry = nil
+		if err := os.Remove(filepath.Join(s.Directory, credentialFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return storageError(err)
+		}
+		return storageError(syncDirectory(s.Directory))
+	}
+	*a = Account{Registration: a.Registration, Generation: state.Generation}
+	return s.checkpoint(ctx, a)
+}
+
+type authLifecycle struct {
+	Generation string `json:"generation"`
+	Disabled   bool   `json:"disabled"`
+}
+
+func (s *Store) readLifecycle() error {
+	f, err := privateFile(filepath.Join(s.Directory, "auth-state.json"), os.O_RDONLY)
+	if errors.Is(err, os.ErrNotExist) {
+		s.lifecycle = authLifecycle{}
+		return nil
+	}
+	if err != nil {
 		return storageError(err)
 	}
-	return storageError(syncDirectory(s.Directory))
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, 4097))
+	if err != nil {
+		return storageError(err)
+	}
+	var state authLifecycle
+	if len(data) > 4096 || json.Unmarshal(data, &state) != nil || len(state.Generation) > 200 {
+		return failure("storage_unsafe", "The native authentication state is invalid. Existing data has been preserved.", false)
+	}
+	s.lifecycle = state
+	return nil
+}
+func (s *Store) writeLifecycle(ctx context.Context, state authLifecycle) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		return storageError(err)
+	}
+	if err := atomicFile(filepath.Join(s.Directory, "auth-state.json"), bytes.NewReader(data), 0600); err != nil {
+		return storageError(err)
+	}
+	s.lifecycle = state
+	return nil
+}
+
+func (s *Store) activate(ctx context.Context, a *Account) error {
+	if s.sessionOnly {
+		a.Generation = randomValue()
+		return s.save(ctx, a)
+	}
+	state := authLifecycle{Generation: randomValue()}
+	if err := s.writeLifecycle(ctx, state); err != nil {
+		return err
+	}
+	a.Generation = state.Generation
+	return s.checkpoint(ctx, a)
 }

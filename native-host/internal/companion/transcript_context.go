@@ -17,6 +17,11 @@ func (h *Handler) invalidateContext() {
 
 // AuthChanged handles sanitized connection events, including refresh failures outside auth requests.
 func (h *Handler) AuthChanged(s Session) {
+	h.clearAuthenticationContext()
+	h.Send(object{"event": "auth.changed", "payload": s})
+}
+
+func (h *Handler) clearAuthenticationContext() {
 	h.mu.Lock()
 	h.invalidateContext()
 	h.actTask = nil
@@ -24,7 +29,6 @@ func (h *Handler) AuthChanged(s Session) {
 		h.modelCancel()
 	}
 	h.mu.Unlock()
-	h.Send(object{"event": "auth.changed", "payload": s})
 }
 
 // prepareContext runs after validation, under h.mu. Expired handles fail before a provider request.

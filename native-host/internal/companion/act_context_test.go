@@ -37,7 +37,7 @@ func contextHarness(t *testing.T, stream func(context.Context, ModelOptions, fun
 	h := NewHandler(contextClient{stream: stream}, func(v any) { replies <- v.(map[string]any) })
 	t.Cleanup(h.Close)
 	run := func(id string, p object) object {
-		h.model(Request{ID: id, Method: "model.stream", Params: p})
+		h.Dispatch(context.Background(), Request{ID: id, Method: "model.stream", Params: p})
 		for {
 			r := <-replies
 			if r["id"] == id {
@@ -180,12 +180,15 @@ func TestActContextCancellationAndAccountChanges(t *testing.T) {
 }
 func TestActContextCancelledCompletionCannotReviveBuffer(t *testing.T) {
 	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	h, _ := contextHarness(t, func(context.Context, ModelOptions, func(string)) ([]object, error) {
+	h, run := contextHarness(t, func(context.Context, ModelOptions, func(string)) ([]object, error) {
 		close(entered)
 		<-release
 		return []object{contextCall("late")}, nil
 	})
-	go func() { h.model(Request{ID: "task", Method: "model.stream", Params: contextParams()}); close(done) }()
+	go func() {
+		run("task", contextParams())
+		close(done)
+	}()
 	<-entered
 	h.Dispatch(context.Background(), Request{ID: "stop", Method: "model.cancel", Params: object{"requestId": "task"}})
 	close(release)
@@ -218,7 +221,7 @@ func TestSSEPreservesOpaqueItemsInOrder(t *testing.T) {
 		s.WriteString("data: " + string(b) + "\n\n")
 	}
 	s.WriteString("data: {\"type\":\"response.completed\"}\n\n")
-	output, err := consumeSSE(context.Background(), strings.NewReader(s.String()), func(string) {}, "")
+	output, err := consumeResponseSSE(context.Background(), strings.NewReader(s.String()), func(string) {}, "", false)
 	if err != nil || !reflect.DeepEqual(output, items) {
 		t.Fatal(output, err)
 	}
@@ -250,7 +253,7 @@ func TestSSEOversizedAndMalformedCanonicalOutput(t *testing.T) {
 			}
 			b, _ := json.Marshal(object{"type": "response.output_item.done", "item": item})
 			input := strings.Repeat("data: "+string(b)+"\n\n", 22) + "data: {\"type\":\"response.completed\"}\n\n"
-			_, err := consumeSSE(context.Background(), strings.NewReader(input), func(string) {}, "")
+			_, err := consumeResponseSSE(context.Background(), strings.NewReader(input), func(string) {}, "", false)
 			if err == nil {
 				t.Fatal("unsafe output accepted")
 			}

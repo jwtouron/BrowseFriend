@@ -135,11 +135,11 @@ func TestRegistrationValidationAndCancelledWrite(t *testing.T) {
 		})
 	}
 	s := testStore(t)
-	if err := s.withRegistration(context.Background(), func(r *Registration) error { r.HostID = "before"; return nil }); err != nil {
+	if err := updateRegistration(s, context.Background(), func(r *Registration) error { r.HostID = "before"; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	err := s.withRegistration(ctx, func(r *Registration) error { r.HostID = "after"; cancel(); return nil })
+	err := updateRegistration(s, ctx, func(r *Registration) error { r.HostID = "after"; cancel(); return nil })
 	if !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}

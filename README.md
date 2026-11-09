@@ -71,7 +71,9 @@ state, usage link, and logout action. Saved login restores automatically while r
 remain valid. Temporary network/storage failures preserve existing data and offer Retry. A damaged
 or unsupported saved login exposes **Reset saved login** in Account settings, with confirmation;
 reset keeps preferences and registration identifiers. Permission and disk-space errors must be fixed
-before retrying. Logout attempts remote revocation and clears local credentials; reset and uninstall
+before retrying. If saving a refresh replacement fails, the companion retains the replacement and
+its account lock until Retry succeeds, local cleanup completes, or the process exits. Other companion
+processes wait or report busy instead of replaying the spent token. Logout attempts remote revocation and clears local credentials; reset and uninstall
 perform local cleanup only. Disconnect the app in ChatGPT Settings to revoke access separately.
 
 Ask a question to capture the current HTTP or HTTPS page. BrowseFriend sends a bounded semantic snapshot—not raw HTML—and Debug mode can show the inspectable context attachment beside the message. If the page changes during generation, the completed answer is marked as stale. **New chat** asks for confirmation before clearing the memory-only conversation and its compacted context.
@@ -95,7 +97,8 @@ the prompt only if the task has not already changed the page.
 Send changes to Stop while a response is preparing or generating. Stop restores the prompt as an
 editable draft and preserves any partial answer as stopped. Connection and response failures share a
 Retry action; retrying a response captures fresh page context and replaces the failed attempt. A
-connection failure disables the composer without discarding its draft.
+connection failure disables the composer without discarding its draft. If an extension message loses its
+reply, Retry first reconciles the current state; it never automatically repeats a prompt or page action.
 
 Appearance settings persist the System, Light, or Dark theme and one of seven accent colors; blue is
 the default. **Prompt text** and **Response text** independently select an installed font and size,

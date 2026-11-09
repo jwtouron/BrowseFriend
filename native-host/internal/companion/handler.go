@@ -48,16 +48,15 @@ func NewHandler(client Client, send func(any)) *Handler {
 func (h *Handler) Close() {
 	h.cancel()
 	h.mu.Lock()
-	h.actTask = nil
-	h.invalidateContext()
-	if h.modelCancel != nil {
-		h.modelCancel()
-	}
 	if h.signInCancel != nil {
 		h.signInCancel()
 	}
 	h.mu.Unlock()
+	h.clearAuthenticationContext()
 	h.wg.Wait()
+	if closer, ok := h.Client.(interface{ Close() error }); ok {
+		closer.Close()
+	}
 }
 func (h *Handler) reply(r Request, result any, err error) {
 	if err != nil {
@@ -163,15 +162,11 @@ func (h *Handler) auth(r Request) {
 			h.reply(r, nil, context.Canceled)
 			return
 		}
-		h.actTask = nil
-		h.invalidateContext()
 		h.signInCancel = cancel
 		done := make(chan struct{})
 		h.signInDone = done
-		if h.modelCancel != nil {
-			h.modelCancel()
-		}
 		h.mu.Unlock()
+		h.clearAuthenticationContext()
 		current, e := h.Client.Status(ctx)
 		err = e
 		if err == nil {
@@ -183,13 +178,7 @@ func (h *Handler) auth(r Request) {
 		close(done)
 		h.mu.Unlock()
 	case "auth.signOut", "auth.reset":
-		h.mu.Lock()
-		h.actTask = nil
-		h.invalidateContext()
-		if h.modelCancel != nil {
-			h.modelCancel()
-		}
-		h.mu.Unlock()
+		h.clearAuthenticationContext()
 		if r.Method == "auth.reset" {
 			s, err = h.Client.ResetLogin(ctx)
 		} else {
@@ -335,11 +324,6 @@ func options(p object, compact bool) (ModelOptions, bool) {
 		o.Input = append(o.Input, object{"type": "function_call", "callId": c["callId"], "name": c["name"], "arguments": args}, object{"type": "function_call_output", "callId": c["callId"], "output": output})
 	}
 	return o, true
-}
-func (h *Handler) model(r Request) {
-	if work := h.modelWork(r); work != nil {
-		work()
-	}
 }
 func (h *Handler) modelWork(r Request) func() {
 	if r.Method == "model.list" {

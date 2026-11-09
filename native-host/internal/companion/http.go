@@ -128,7 +128,7 @@ func apiInput(items []object) []object {
 	return result
 }
 func (c *Connection) Models(ctx context.Context) ([]object, error) {
-	token, err := c.credentials(ctx)
+	token, generation, err := c.credentials(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -176,6 +176,9 @@ func (c *Connection) Models(ctx context.Context) ([]object, error) {
 		}
 		result = append(result, entry)
 	}
+	if err := c.checkGeneration(ctx, generation); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
@@ -211,7 +214,7 @@ func (c *Connection) Stream(ctx context.Context, o ModelOptions, delta func(stri
 	return c.response(ctx, o, delta, false)
 }
 func (c *Connection) response(ctx context.Context, o ModelOptions, delta func(string), checkpoint bool) ([]object, error) {
-	token, err := c.credentials(ctx)
+	token, generation, err := c.credentials(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -243,10 +246,25 @@ func (c *Connection) response(ctx context.Context, o ModelOptions, delta func(st
 	if ct != "" && ct != "text/event-stream" {
 		return nil, failure("invalid_stream", "ChatGPT did not return the expected response stream.", true)
 	}
-	return consumeResponseSSE(ctx, res.Body, delta, res.Header.Get("x-request-id"), checkpoint)
+	output, err := consumeResponseSSE(ctx, res.Body, delta, res.Header.Get("x-request-id"), checkpoint)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.checkGeneration(ctx, generation); err != nil {
+		return nil, err
+	}
+	return output, nil
 }
-func consumeSSE(ctx context.Context, in io.Reader, delta func(string), requestID string) ([]object, error) {
-	return consumeResponseSSE(ctx, in, delta, requestID, false)
+
+// A request may finish after another process has replaced the authenticated session.
+func (c *Connection) checkGeneration(ctx context.Context, generation string) error {
+	return c.Store.WithLock(ctx, func(a *Account) error {
+		changed := c.observe(a)
+		if changed || a.Generation != generation || a.Credentials == nil {
+			return failure("connection_changed", "The ChatGPT session changed. Review the conversation and start a new prompt.", false)
+		}
+		return nil
+	})
 }
 func consumeResponseSSE(ctx context.Context, in io.Reader, delta func(string), requestID string, checkpoint bool) ([]object, error) {
 	scanner := bufio.NewScanner(in)

@@ -11,12 +11,12 @@ import {
   createPreferences,
   normalizeAccent,
   normalizeModel,
-  normalizeReasoningPreference,
   normalizeTheme,
   shouldShowPageContext,
 } from "../../extension/settings/preferences.js";
 import {
   effectiveReasoningEffort,
+  normalizeReasoningPreference,
   reasoningEffortLabel,
   reasoningEffortOptions,
   selectReasoningEffort,
@@ -62,8 +62,6 @@ test("settings default safely and normalize stored values", async () => {
     debugMode: false,
     theme: "system",
     accent: "blue",
-    model: "automatic",
-    reasoningEffort: "model_default",
     ...normalizeTypography(),
   });
   assert.deepEqual(await createHarness({
@@ -76,8 +74,6 @@ test("settings default safely and normalize stored values", async () => {
     debugMode: false,
     theme: "system",
     accent: "blue",
-    model: "automatic",
-    reasoningEffort: "model_default",
     ...normalizeTypography(),
   });
   assert.equal(normalizeTheme("light"), "light");
@@ -132,26 +128,13 @@ test("settings persist normalized local preferences", async () => {
   assert.equal(await harness.preferences.saveTheme("unknown"), "system");
   assert.equal(await harness.preferences.saveAccent("purple"), "purple");
   assert.equal(await harness.preferences.saveAccent("pink"), "blue");
-  assert.equal(await harness.preferences.saveModel("model-2"), "model-2");
-  assert.equal(await harness.preferences.saveReasoningEffort("xhigh"), "xhigh");
-  assert.equal(await harness.preferences.saveReasoningEffort("automatic"), "model_default");
   assert.deepEqual(harness.writes, [
     { [DEBUG_MODE_KEY]: true },
     { [THEME_KEY]: "dark" },
     { [THEME_KEY]: "system" },
     { [ACCENT_KEY]: "purple" },
     { [ACCENT_KEY]: "blue" },
-    { [MODEL_KEY]: "model-2" },
-    { [REASONING_KEY]: "xhigh" },
-    { [REASONING_KEY]: "model_default" },
   ]);
-});
-
-test("legacy Automatic reasoning migrates to Model default", async () => {
-  const harness = createHarness({ [REASONING_KEY]: "automatic" });
-
-  assert.equal((await harness.preferences.load()).reasoningEffort, "model_default");
-  assert.deepEqual(harness.writes, [{ [REASONING_KEY]: "model_default" }]);
 });
 
 test("reasoning options follow the model from highest to lowest", () => {
@@ -229,8 +212,6 @@ test("settings subscriptions normalize local changes and can unsubscribe", () =>
       debugMode: true,
       theme: "light",
       accent: "cyan",
-      model: "model-2",
-      reasoningEffort: "low",
     },
     { theme: "system", accent: "blue" },
   ]);

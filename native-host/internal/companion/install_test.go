@@ -77,7 +77,7 @@ func TestUpdatePreservesLoginAndExplicitUninstallClearsIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := NewStore(paths.Data)
-	if err := store.withRegistration(context.Background(), func(r *Registration) error {
+	if err := updateRegistration(store, context.Background(), func(r *Registration) error {
 		*r = Registration{HostID: "host", ClientID: "client", Subject: "subject"}
 		return nil
 	}); err != nil {

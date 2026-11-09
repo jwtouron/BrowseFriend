@@ -73,36 +73,46 @@ func Install(paths HostPaths, source string, dry bool, out io.Writer) error {
 	if err := checkRegistration(paths); err != nil {
 		return err
 	}
-	if err := privateDirectory(paths.Data); err != nil {
-		return err
-	}
-	if err := privateDirectory(filepath.Dir(paths.Manifest)); err != nil {
-		return err
-	}
-	input, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-	defer input.Close()
-	info, err := input.Stat()
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() {
-		return failure("install_failed", "The companion binary is not a regular file.", false)
-	}
-	if err := atomicFile(paths.Binary, input, 0700); err != nil {
-		return err
-	}
-	manifest := object{"name": hostcontract.Contract.HostName, "description": "BrowseFriend secure ChatGPT sign-in companion", "path": paths.Binary, "type": "stdio", "allowed_origins": []string{hostcontract.Contract.ExtensionOrigin}}
-	data, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err = atomicFile(paths.Manifest, bytes.NewReader(append(data, '\n')), 0600); err != nil {
-		return err
-	}
-	return registerHost(paths)
+	store := NewStore(paths.Data)
+	defer store.Close()
+	return store.withDiskLock(context.Background(), func() error {
+		if err := privateDirectory(paths.Data); err != nil {
+			return err
+		}
+		if err := privateDirectory(filepath.Dir(paths.Manifest)); err != nil {
+			return err
+		}
+		input, err := os.Open(source)
+		if err != nil {
+			return err
+		}
+		defer input.Close()
+		info, err := input.Stat()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return failure("install_failed", "The companion binary is not a regular file.", false)
+		}
+		if err := atomicFile(paths.Binary, input, 0700); err != nil {
+			return err
+		}
+		manifest := object{"name": hostcontract.Contract.HostName, "description": "BrowseFriend secure ChatGPT sign-in companion", "path": paths.Binary, "type": "stdio", "allowed_origins": []string{hostcontract.Contract.ExtensionOrigin}}
+		data, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err = atomicFile(paths.Manifest, bytes.NewReader(append(data, '\n')), 0600); err != nil {
+			return err
+		}
+		if err := registerHost(paths); err != nil {
+			return err
+		}
+		if store.lifecycle.Disabled {
+			return store.writeLifecycle(context.Background(), authLifecycle{Generation: randomValue()})
+		}
+		return nil
+	})
 }
 func Uninstall(paths HostPaths, dry bool, out io.Writer) error {
 	fmt.Fprintf(out, "Remove BrowseFriend registration: %s\nSaved login credentials will be removed; non-secret registration data is preserved.\n", paths.Manifest)
@@ -116,6 +126,7 @@ func Uninstall(paths HostPaths, dry bool, out io.Writer) error {
 		return unregisterHost(paths)
 	}
 	store := NewStore(paths.Data)
+	defer store.Close()
 	return store.withDiskLock(context.Background(), func() error { return uninstallLocked(paths, store) })
 }
 func uninstallLocked(paths HostPaths, store *Store) error {

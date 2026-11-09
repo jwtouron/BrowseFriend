@@ -12,19 +12,20 @@ function deferred() {
   return { promise, resolve };
 }
 
-async function createPanel(t, { connection, initialRequest, resetError } = {}) {
+async function createPanel(t, { connection, initialRequest, resetError, submitError, initialPreferences = {} } = {}) {
   const html = await readFile(new URL("../../extension/sidepanel/index.html", import.meta.url), "utf8");
   const dom = new JSDOM(html);
   const { document } = dom.window;
   document.hasFocus = () => true;
   const frames = [];
   const requests = [];
+  const writes = [];
   const listeners = [];
   const refresh = deferred();
   const models = [{ slug: "model-1", displayName: "First Model" }];
-  const modelResult = { models, preference: "automatic" };
   let state = {
     connection: connection || { phase: "ready", auth: { state: "signed_in" } },
+    modelPreference: "automatic", reasoningPreference: "model_default",
     messages: [], models, mode: "ask", submission: null, issue: null,
   };
   const globals = {
@@ -36,6 +37,7 @@ async function createPanel(t, { connection, initialRequest, resetError } = {}) {
         async sendMessage(message) {
           const { method } = message;
           requests.push(message);
+          if (method === "app.submit" && submitError) return { ok: false, error: submitError };
           if (method === "app.state" && initialRequest) await initialRequest.promise;
           if (method === "app.resetLogin") {
             if (resetError) return { ok: false, error: resetError };
@@ -46,7 +48,7 @@ async function createPanel(t, { connection, initialRequest, resetError } = {}) {
         },
       },
       storage: {
-        local: { async get() { return {}; }, async set() {} },
+        local: { async get() { return initialPreferences; }, async set(values) { writes.push(values); } },
         onChanged: { addListener() {} },
       },
     },
@@ -71,7 +73,7 @@ async function createPanel(t, { connection, initialRequest, resetError } = {}) {
   section.getBoundingClientRect = () => ({ top: 650 - content.scrollTop });
   content.scrollTop = 250;
   return {
-    document, content, requests,
+    document, content, requests, writes,
     click(id) { document.querySelector(`#${id}`).click(); },
     frame() { frames.splice(0).forEach((callback) => callback(0)); },
     async updateState(update) {
@@ -80,7 +82,7 @@ async function createPanel(t, { connection, initialRequest, resetError } = {}) {
       await settle();
     },
     async finishRefresh(error = null) {
-      refresh.resolve(error ? { ok: false, error } : { ok: true, result: modelResult });
+      refresh.resolve(error ? { ok: false, error } : { ok: true, result: state });
       await settle();
     },
   };
@@ -259,4 +261,33 @@ test("failed reset displays storage failure without claiming the saved login was
   assert.equal(panel.document.querySelector("#reset-login-confirmation").hidden, true);
   assert.equal(panel.document.querySelector("#reset-login").hidden, false);
   assert.match(panel.document.querySelector("#settings-auth-error").textContent, /Check permissions/);
+});
+
+
+test("an uncertain submit reconciles state without replaying the prompt", async (t) => {
+  const panel = await createPanel(t, { submitError: { code: "app_unavailable", message: "Reply was lost.", retryable: true } });
+  const input = panel.document.querySelector("#message-input");
+  input.value = "Do this once";
+  panel.document.querySelector("#composer").dispatchEvent(new panel.document.defaultView.Event("submit"));
+  await settle();
+  assert.equal(input.value, "Do this once");
+  panel.frame();
+  assert.equal(panel.document.activeElement.id, "retry-operation");
+  assert.equal(input.disabled, true);
+  assert.equal(panel.document.querySelector("#retry-operation").hidden, false);
+  const statesBefore = panel.requests.filter(({ method }) => method === "app.state").length;
+  panel.click("retry-operation");
+  await settle();
+  assert.equal(panel.requests.filter(({ method }) => method === "app.submit").length, 1);
+  assert.equal(panel.requests.filter(({ method }) => method === "app.state").length, statesBefore + 1);
+  assert.equal(input.disabled, false);
+  assert.equal(input.value, "Do this once");
+});
+
+test("rendering a model with an unsupported saved effort never writes preferences", async (t) => {
+  const panel = await createPanel(t, { initialPreferences: { "browsefriend.settings.reasoningEffort": "high" } });
+  await panel.updateState({ reasoningPreference: "high" });
+  assert.equal(panel.requests.some(({ method }) => ["app.setModel", "app.setReasoningEffort"].includes(method)), false);
+  assert.equal(panel.writes.some((values) => Object.keys(values).some((key) =>
+    ["browsefriend.settings.model", "browsefriend.settings.reasoningEffort"].includes(key))), false);
 });

@@ -42,6 +42,8 @@ type Connection struct {
 	Changed     func(Session)
 	mu          sync.Mutex
 	signing     bool
+	observed    bool
+	generation  string
 	discovery   *discovery
 	issuer      string
 	api         string
@@ -102,6 +104,7 @@ func (c *Connection) Status(ctx context.Context) (Session, error) {
 	}
 	var result Session
 	err := c.Store.WithLock(ctx, func(a *Account) error {
+		c.observe(a)
 		result = session(a)
 		return nil
 	})
@@ -263,7 +266,7 @@ func (c *Connection) SignIn(ctx context.Context, reconsent bool) (resultSession 
 	}()
 	c.emit(Session{State: "signing_in"})
 	var previous Account
-	var previousRevision string
+	var previousGeneration string
 	err := c.Store.WithLock(ctx, func(a *Account) error {
 		if err := c.Store.UpdateRegistration(ctx, a, func(r *Registration) error {
 			if r.HostID == "" {
@@ -274,7 +277,7 @@ func (c *Connection) SignIn(ctx context.Context, reconsent bool) (resultSession 
 			return err
 		}
 		previous = *a
-		previousRevision = c.Store.revision
+		previousGeneration = a.Generation
 		return nil
 	})
 	if err != nil {
@@ -392,7 +395,7 @@ func (c *Connection) SignIn(ctx context.Context, reconsent bool) (resultSession 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if c.Store.revision != previousRevision {
+		if a.Generation != previousGeneration {
 			return failure("connection_changed", "The saved login changed during sign-in. Please try again.", true)
 		}
 		if err := c.Store.UpdateRegistration(ctx, a, func(r *Registration) error {
@@ -412,9 +415,10 @@ func (c *Connection) SignIn(ctx context.Context, reconsent bool) (resultSession 
 		a.Scopes = granted
 		a.IDToken = text(body["id_token"])
 		a.Pending = nil
-		if err := c.Store.save(ctx, a); err != nil {
+		if err := c.Store.activate(ctx, a); err != nil {
 			return err
 		}
+		c.remember(a)
 		s = session(a)
 		return nil
 	})
@@ -440,17 +444,21 @@ func refreshTime(v any) time.Time {
 	}
 	return time.Time{}
 }
-func (c *Connection) credentials(ctx context.Context) (string, error) {
+func (c *Connection) credentials(ctx context.Context) (string, string, error) {
 	c.mu.Lock()
 	signing := c.signing
 	c.mu.Unlock()
 	if signing {
-		return "", failure("connection_busy", "Sign-in is already in progress.", true)
+		return "", "", failure("connection_busy", "Sign-in is already in progress.", true)
 	}
-	var token string
+	var token, generation string
 	err := c.Store.WithLock(ctx, func(a *Account) error {
+		changed := c.observe(a)
 		if a.Credentials == nil {
 			return failure("sign_in_required", "Connect a ChatGPT account before sending a message.", false)
+		}
+		if changed {
+			return failure("connection_changed", "The ChatGPT session changed. Review the conversation and start a new prompt.", false)
 		}
 		if a.Pending != nil || a.Credentials.ExpiresAt < time.Now().Add(time.Minute).UnixMilli() {
 			if a.Pending == nil && time.Now().Before(refreshTime(a.Credentials.EarliestRefreshAt)) {
@@ -463,14 +471,10 @@ func (c *Connection) credentials(ctx context.Context) (string, error) {
 				defer cancel()
 				if err := c.refresh(renewal, a); err != nil {
 					if has([]string{"invalid_grant", "invalid_refresh_token", "token_expired", "refresh_token_expired", "refresh_token_invalidated", "refresh_token_reused", "invalid_id_token", "invalid_token_response", "account_mismatch"}, publicError(err).Code) {
-						a.Credentials = nil
-						a.Pending = nil
-						a.IDToken = ""
-						a.Scopes = nil
-						a.Identity = nil
-						if saveErr := c.Store.checkpoint(renewal, a); saveErr != nil {
+						if saveErr := c.Store.clearLogin(renewal, a, false); saveErr != nil {
 							return saveErr
 						}
+						c.remember(a)
 						c.emit(session(a))
 					}
 					return err
@@ -483,10 +487,10 @@ func (c *Connection) credentials(ctx context.Context) (string, error) {
 		if !has(a.Scopes, sharing) {
 			return failure("sharing_not_enabled", "Enable ChatGPT plan usage to continue.", false)
 		}
-		token = a.Credentials.Access
+		token, generation = a.Credentials.Access, a.Generation
 		return nil
 	})
-	return token, err
+	return token, generation, err
 }
 func (c *Connection) refresh(ctx context.Context, a *Account) error {
 	pending := a.Pending
@@ -535,6 +539,9 @@ func (c *Connection) ResetLogin(ctx context.Context) (Session, error) {
 	if err := c.Store.Reset(ctx); err != nil {
 		return Session{}, err
 	}
+	c.mu.Lock()
+	c.observed = false
+	c.mu.Unlock()
 	s := Session{State: "signed_out"}
 	c.emit(s)
 	return s, nil
@@ -582,17 +589,13 @@ func (c *Connection) SignOut(ctx context.Context) (Session, error) {
 				warning = failure("revocation_failed", "Local credentials were removed, but remote disconnection could not be confirmed. Disconnect the app in ChatGPT Settings.", true)
 			}
 		}
-		a.Credentials = nil
-		a.Pending = nil
-		a.IDToken = ""
-		a.Scopes = nil
-		a.Identity = nil
-		// Revocation or caller cancellation must not prevent clearing the local login.
+		// Local invalidation has an independent lifetime from remote revocation/cancellation.
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
-		if err := c.Store.checkpoint(cleanup, a); err != nil {
+		if err := c.Store.clearLogin(cleanup, a, false); err != nil {
 			return err
 		}
+		c.remember(a)
 		s = session(a)
 		return nil
 	})
@@ -602,3 +605,22 @@ func (c *Connection) SignOut(ctx context.Context) (Session, error) {
 	c.emit(s)
 	return s, warning
 }
+
+func (c *Connection) remember(a *Account) {
+	c.mu.Lock()
+	c.observed = true
+	c.generation = a.Generation
+	c.mu.Unlock()
+}
+func (c *Connection) observe(a *Account) bool {
+	c.mu.Lock()
+	changed := c.observed && c.generation != a.Generation
+	c.observed = true
+	c.generation = a.Generation
+	c.mu.Unlock()
+	if changed {
+		c.emit(session(a))
+	}
+	return changed
+}
+func (c *Connection) Close() error { return c.Store.Close() }

@@ -1,4 +1,12 @@
 const NATIVE_HOST = "com.browsefriend.native_host";
+// Include account-lock contention, refresh, and the provider deadline.
+const REQUEST_TIMEOUTS = {
+  "auth.signIn": 11 * 60 * 1000,
+  "auth.signOut": 120 * 1000,
+  "model.list": 150 * 1000,
+  "model.stream": 300 * 1000,
+  "model.compact": 300 * 1000,
+};
 
 function companionError(message = "The BrowseFriend companion is unavailable.") {
   return {
@@ -79,11 +87,7 @@ export function installCompanionBridge({
       }
 
       const id = explicitId || randomUUID();
-      const timeoutMs = method === "auth.signIn"
-        ? 11 * 60 * 1000
-        : ["model.stream", "model.compact"].includes(method)
-          ? 190 * 1000
-          : 30 * 1000;
+      const timeoutMs = REQUEST_TIMEOUTS[method] || 60 * 1000;
       const timeoutId = setTimer(() => {
         pendingRequests.delete(id);
         if (["model.stream", "model.compact"].includes(method)) {

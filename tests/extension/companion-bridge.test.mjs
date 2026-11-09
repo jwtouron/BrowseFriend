@@ -93,7 +93,7 @@ test("companion bridge returns a retryable timeout and forgets the request", asy
   const harness = createHarness();
   const pending = harness.companion.request("auth.status");
   const [timer] = harness.timers.values();
-  assert.equal(timer.delay, 30_000);
+  assert.equal(timer.delay, 60_000);
   timer.callback();
 
   await assert.rejects(pending, { code: "companion_timeout" });
@@ -131,7 +131,7 @@ test("companion bridge routes model deltas to the matching request", async () =>
     "generation-1",
   );
   const [timer] = harness.timers.values();
-  assert.equal(timer.delay, 190_000);
+  assert.equal(timer.delay, 300_000);
 
   harness.nativeMessages.emit({
     event: "model.delta",
@@ -176,7 +176,7 @@ test("transcript compaction uses the generation deadline and cancels on timeout"
     "generation-1",
   );
   const [timer] = harness.timers.values();
-  assert.equal(timer.delay, 190_000);
+  assert.equal(timer.delay, 300_000);
   timer.callback();
 
   await assert.rejects(pending, { code: "companion_timeout" });

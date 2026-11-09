@@ -161,7 +161,7 @@ func TestProcessHelper(t *testing.T) {
 			t.Fatal(err)
 		}
 	case "hold-registration":
-		if err := store.withRegistration(context.Background(), func(*Registration) error {
+		if err := updateRegistration(store, context.Background(), func(*Registration) error {
 			os.Stdout.WriteString("locked\n")
 			var b [1]byte
 			_, err := os.Stdin.Read(b[:])
@@ -204,7 +204,7 @@ func TestProcessRestartRestoresLogin(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	if err := f.c.Store.withRegistration(ctx, func(*Registration) error { t.Error("process lock bypassed"); return nil }); !errors.Is(err, context.DeadlineExceeded) {
+	if err := updateRegistration(f.c.Store, ctx, func(*Registration) error { t.Error("process lock bypassed"); return nil }); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal(err)
 	}
 	// Authentication now observes the same process lock, rather than stale memory.
@@ -260,6 +260,6 @@ func FuzzSSE(f *testing.F) {
 		if len(input) > 2*1024*1024 {
 			return
 		}
-		consumeSSE(context.Background(), strings.NewReader(input), func(string) {}, "test")
+		consumeResponseSSE(context.Background(), strings.NewReader(input), func(string) {}, "test", false)
 	})
 }

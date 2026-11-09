@@ -41,7 +41,7 @@ func transcriptHarness(t *testing.T) (*Handler, *transcriptClient, func(string, 
 		if method == "model.context.clear" {
 			h.Dispatch(context.Background(), r)
 		} else {
-			h.model(r)
+			h.Dispatch(context.Background(), r)
 		}
 		for {
 			reply := <-replies

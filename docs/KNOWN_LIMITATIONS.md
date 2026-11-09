@@ -37,7 +37,10 @@ access; per-user native registration already supports that requirement.
   the simpler policy remains deferred until native Windows validation.
 - Processes serialize account updates and share durable refresh checkpoints. A crash or storage
   failure before a rotating successor can be saved may still require fresh sign-in. In-memory
-  recovery cannot survive process exit when no replacement was committed.
+  recovery cannot survive process exit when no replacement was committed. While a failed-write
+  successor remains in memory, its process retains the account lock: other processes wait up to
+  45 seconds, then report busy. Recover storage and Retry in the owning panel, explicitly log out or
+  reset there, or close the process before another process can proceed.
 - Normal updates preserve the login. Confirmed reset and explicit uninstall clear local credentials;
   they do not confirm remote revocation. Log out or disconnect the app in ChatGPT Settings for that.
 - The [storage evaluation](STORAGE_EVALUATION.md) archives retired persistence experiments. The

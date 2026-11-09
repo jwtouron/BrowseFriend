@@ -20,7 +20,10 @@ export async function runCase({ scenario, companion, model, effort = "medium", t
   const pageActor = installPageActor({ ...site, pageReader });
   let calls = 0, budgetExceeded = false, haltReason = null;
   const controller = installAppController({ runtime: site.runtime, storage,
-    settingsStorage: { async get(key) { return { [key]: settings[key] }; } },
+    settingsStorage: {
+      async get(keys) { return Object.fromEntries(keys.map((key) => [key, settings[key]])); },
+      async set(values) { Object.assign(settings, values); },
+    },
     companion: {
       subscribe: (fn) => companion.subscribe(fn),
       async request(method, params, onEvent, id) {

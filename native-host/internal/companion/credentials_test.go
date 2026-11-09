@@ -177,12 +177,12 @@ func TestIndependentStoresSerializeRefreshAndObserveLogout(t *testing.T) {
 	}
 }
 
-func TestFailedRefreshSaveRecoversWithoutReplayAndRespectsNewerReset(t *testing.T) {
+func TestFailedRefreshSaveRecoversWithoutReplayOrAllowsExplicitReset(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix permission fault; Windows ACL tests exercise storage refusal")
 	}
 	for _, reset := range []bool{false, true} {
-		t.Run(map[bool]string{false: "retry", true: "newer-reset"}[reset], func(t *testing.T) {
+		t.Run(map[bool]string{false: "retry", true: "explicit-reset"}[reset], func(t *testing.T) {
 			f := newFixture(t)
 			f.login(t)
 			expire(t, f)
@@ -210,7 +210,7 @@ func TestFailedRefreshSaveRecoversWithoutReplayAndRespectsNewerReset(t *testing.
 			os.Chmod(f.c.Store.Directory, 0700)
 			f.c.HTTP.Transport = transport
 			if reset {
-				if _, err := reconnect(f).ResetLogin(context.Background()); err != nil {
+				if _, err := f.c.ResetLogin(context.Background()); err != nil {
 					t.Fatal(err)
 				}
 			}

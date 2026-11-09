@@ -25,7 +25,9 @@ import (
 
 func testStore(t *testing.T) *Store {
 	t.Helper()
-	return NewStore(filepath.Join(t.TempDir(), "account"))
+	s := NewStore(filepath.Join(t.TempDir(), "account"))
+	t.Cleanup(func() { s.Close() })
+	return s
 }
 
 type fixture struct {
@@ -364,7 +366,7 @@ func TestSSECompletionAndErrors(t *testing.T) {
 		{"data: invalid\n\n", "invalid_stream"},
 		{"data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"subscription_sharing_usage_limit_exceeded\",\"message\":\"synthetic-secret\"}}}\n\n", "subscription_sharing_usage_limit_exceeded"},
 	} {
-		_, err := consumeSSE(context.Background(), strings.NewReader(tc.data), func(string) {}, "req-test")
+		_, err := consumeResponseSSE(context.Background(), strings.NewReader(tc.data), func(string) {}, "req-test", false)
 		if publicError(err).Code != tc.code {
 			t.Fatal(tc.code, err)
 		}
@@ -375,11 +377,11 @@ func TestSSECompletionAndErrors(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := consumeSSE(ctx, strings.NewReader("data: {}\n\n"), func(string) {}, "")
+	_, err := consumeResponseSSE(ctx, strings.NewReader("data: {}\n\n"), func(string) {}, "", false)
 	if err != context.Canceled {
 		t.Fatal(err)
 	}
-	calls, err := consumeSSE(context.Background(), strings.NewReader("data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call-1\",\"name\":\"page_click\",\"arguments\":\"{}\"}}\r\n\r\ndata: {\"type\":\"response.completed\"}\r\n\r\n"), func(string) {}, "")
+	calls, err := consumeResponseSSE(context.Background(), strings.NewReader("data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call-1\",\"name\":\"page_click\",\"arguments\":\"{}\"}}\r\n\r\ndata: {\"type\":\"response.completed\"}\r\n\r\n"), func(string) {}, "", false)
 	if err != nil || len(calls) != 1 || calls[0]["call_id"] != "call-1" {
 		t.Fatal(calls, err)
 	}
@@ -403,4 +405,8 @@ func TestProtocolFrames(t *testing.T) {
 	if err := Run(context.Background(), bytes.NewReader(header), h); publicError(err).Code != "message_too_large" {
 		t.Fatal(err)
 	}
+}
+
+func updateRegistration(s *Store, ctx context.Context, op func(*Registration) error) error {
+	return s.WithLock(ctx, func(a *Account) error { return s.UpdateRegistration(ctx, a, op) })
 }

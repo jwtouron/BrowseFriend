@@ -23,7 +23,10 @@ The side panel sends user intents and renders state owned by the service worker'
 controller. Connection readiness and the active submission are orthogonal state machines. New
 prompts require a ready connection; an explicit response retry may wait for connection recovery.
 Stable IDs prevent late asynchronous results from reviving cancelled work. One normalized notice
-represents the current authentication action or recoverable connection/chat error.
+represents the current authentication action or recoverable connection/chat error. Startup and explicit
+sign-in share one readiness pipeline. Account epochs guard catalog results and setting changes before
+they can update state. A panel transport error stays view-local: Retry reads authoritative controller
+state instead of replaying the uncertain intent.
 
 The page reader injects `extension/page/read/content-script.js` only into supported HTTP or HTTPS
 pages and returns a bounded semantic snapshot. The application controller combines that snapshot
@@ -56,7 +59,9 @@ The native store owns a versioned `credentials.json` record (maximum 2 MiB), con
 tokens, scopes, expiry information, and any pending refresh successor. It is protected by owner-only
 Unix permissions or the existing Windows ACL policy, without application-level encryption or a
 keyring dependency. `registration.json` separately retains `hostId`, `clientId`, and `subject`.
-Authenticated credential records must match that registration.
+Authenticated credential records must match that registration and the generation in protected,
+non-secret `auth-state.json`. Its disabled marker prevents an unfinished sign-in or a running old
+process from restoring credentials after uninstall, including when the companion is reinstalled.
 
 Every account operation reloads current disk state under the validated `registration.lock`
 interprocess lock. A process-local gate also serializes operations on one store. Saves commit
@@ -64,9 +69,11 @@ independently through flushed private temporary files and atomic replacement. Lo
 retries every 25 ms for up to 45 seconds, respecting cancellation and validating held-file identity.
 Refresh rotation holds this lock and checkpoints the received successor before identity verification.
 A later cancellation or signing-key outage cannot roll back that checkpoint. Failed writes retain a
-bounded successor in memory and block model access until it commits; revision checks discard it if
-a newer durable refresh, logout, or reset supersedes it. A crash before a replacement can be saved
-may require fresh sign-in.
+bounded successor in memory and retain the interprocess lock until it commits, explicit cleanup
+replaces it, or the store closes. Other processes cannot read and replay the spent on-disk grant.
+Revision/generation checks reject obsolete checkpoints. A crash before a replacement can be saved
+may require fresh sign-in. Installation uses the same lock. Each locked operation sweeps abandoned
+private `.browsefriend-*` atomic-write files left by interrupted writers.
 
 `shared/host-contract.json` is the canonical policy/tool/limits/registration definition. Go embeds it
 directly; `go generate ./shared` produces the committed browser module. Verification rejects drift.
@@ -74,8 +81,12 @@ The browser still owns semantic page capture and action authorization; Go only t
 tool requests back through that established boundary.
 
 Logout attempts remote revocation and clears local credentials while retaining registration.
-Logout/reset write an empty credential record with a new non-secret revision to prevent stale
-in-memory checkpoints from resurrecting the login. Explicit uninstall removes the credential file.
+Logout/reset rotate the durable authentication generation and write an empty credential record.
+Uninstall rotates that generation, disables the store, and removes the credential file; reinstall
+reenables it under a fresh generation. The non-secret lifecycle barrier survives file removal.
+Connections emit sanitized account changes when they observe another process's generation change.
+One handler invalidation path cancels active work and clears Act/compaction memory. Model and catalog
+responses recheck their captured generation before returning, even if Status already observed the change.
 Normal updates preserve compatible records. Corrupt or unsupported records remain untouched until
 an explicit, confirmed reset; unsafe paths and permissions are never reset automatically.
 There is no migration framework, legacy account loading, or cleanup utility. Earlier encrypted
@@ -226,6 +237,9 @@ the extension does not compensate for it with viewport overrides or window-manag
 
 Theme, accent color, transcript typography, model, reasoning effort, and Debug preferences use
 `chrome.storage.local` and synchronize between open panels through `chrome.storage.onChanged`.
+The application controller serializes model/effort writes and compatibility repair, then publishes the
+canonical values with its catalog. Panels send setting intents and render that state; rendering
+never writes preferences. Appearance and Debug remain independent panel preferences.
 Seven independent typography fields control prompt font/size/bold/italic and response text font,
 code font, and shared size.
 The side panel reads installed font names through `fontSettings.getFontList()` when Settings opens;

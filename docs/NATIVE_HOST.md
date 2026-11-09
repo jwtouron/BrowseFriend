@@ -41,7 +41,8 @@ macOS stores files under `~/Library/Application Support/BrowseFriend/native-host
 Linux uses `$XDG_CONFIG_HOME/browsefriend/native-host/`, defaulting to `~/.config/`.
 Windows uses `%LOCALAPPDATA%\BrowseFriend\native-host\`, discovered through the Windows known-folder API.
 The directory contains the installed `browsefriend-native-host`, `registration.json`,
-`registration.lock`, and `credentials.json`. Registration contains only non-secret `hostId`,
+`registration.lock`, `auth-state.json`, and `credentials.json`. Authentication state is non-secret: it
+contains a generation and uninstall marker. Registration contains only non-secret `hostId`,
 `clientId`, and `subject`. The versioned credential record (maximum 2 MiB) contains tokens, validated
 profile details, scopes, expiry information, and pending refresh successors. Credentials restore
 automatically after browser restart, extension reload, bridge reconnection, or companion exit.
@@ -55,11 +56,18 @@ files and atomic replacement. Normal updates preserve compatible saved credentia
 
 A refresh successor commits before identity verification. Cancellation or a signing-key outage can
 recover it after restart without replaying rotation. Failed writes retain the successor in memory
-and block model use until storage recovery; newer durable logout/reset/refresh revisions supersede
-it. Exit before a successful save may require fresh sign-in.
+and retain the account lock until recovery, explicit cleanup, or process exit. Another process waits
+or reports busy rather than replaying the spent refresh token. The owner can retry after fixing
+storage, or explicitly log out/reset. Exit before a successful save may require fresh sign-in.
 
 Logout attempts remote revocation, then clears local credentials even if remote revocation fails.
-Logout/reset leave a token-free record with a fresh revision; explicit uninstall removes that file.
+Logout/reset rotate the authentication generation and leave a token-free record; explicit uninstall
+disables the store under a new generation and removes that file. The non-secret barrier survives
+uninstall/reinstall so unfinished sign-ins cannot recreate credentials. Account operations and
+installation share one lock and sweep validated private `.browsefriend-*` temporary files left by
+crashes before replacement. Connections detect external generation changes on account reads and
+invalidate Act/compaction context; in-flight catalogs and streams must still match their starting
+generation when they finish.
 Corrupt and unsupported records are preserved until confirmed **Reset saved login** in Account
 settings. Permission, disk-space, and temporary network failures preserve data and offer Retry.
 Reset keeps registration identifiers and preferences and does not open OAuth automatically.
@@ -165,6 +173,19 @@ installer checks still run. Their success under Wine does not certify Windows se
 
 Earlier records describe the historical encrypted or process-only implementations; they do not
 verify the current protected-file implementation.
+
+On 2026-11-09, the follow-up lifecycle and controller cleanup passed `npm run verify` with
+176 JavaScript tests, Linux x64 Go race tests/vet, and the native protocol suite. Regression tests
+cover crash-left private temporary files, uninstall during first sign-in, uninstall/reinstall
+barriers, failed-save lock retention without refresh replay, external account changes clearing native
+context, and catalog/stream results crossing a login change. Controller tests cover shared readiness,
+stale status/catalog/cancellation results, serialized model settings, and uncertain panel requests
+without operation replay. All six production targets built and both Windows test suites compiled.
+Four disposable Brave light/dark and narrow/wide cases passed reset/keyboard, restored-login,
+storage-error, and console checks using synthetic state without Native Messaging permission.
+Docker and Wine are unavailable here; native Windows/macOS runtime and real ChatGPT browser
+sign-in/restart/logout verification remain pending. No live OAuth/model requests were made;
+model instructions and successful task-context behavior are unchanged.
 
 On 2026-11-09, protected-file login persistence passed Linux x64 Go race tests/vet, the native
 protocol suite, and all 170 JavaScript tests. Actual child-process tests verified login restoration

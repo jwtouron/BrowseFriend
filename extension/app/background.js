@@ -134,13 +134,14 @@ export function installAppController({
   runtime,
   storage,
   settingsStorage,
+  settingsChanged,
   companion,
   pageReader,
   pageActor,
   randomUUID,
 }) {
   let chatPromise;
-  let modelCatalogPromise = null;
+  let settingsWork = Promise.resolve();
   let readinessPromise = null;
   let signInPromise = null;
   let accountMutationPromise = null;
@@ -246,53 +247,53 @@ export function installAppController({
     }, MAX_DELTA_SAVE_DELAY_MS);
   }
 
-  async function listModels(refresh = false) {
-    if (refresh || !modelCatalogPromise) {
-      const request = companion.request("model.list")
-        .then((response) => Array.isArray(response.result?.models) ? response.result.models : []);
-      modelCatalogPromise = request;
-      try {
-        return await request;
-      } catch (error) {
-        if (modelCatalogPromise === request) modelCatalogPromise = null;
-        throw error;
-      }
-    }
-    return modelCatalogPromise;
+  function syncModelSettings(catalog = models, changes = {}, current = () => true) {
+    const work = settingsWork.then(async () => {
+      const stored = await settingsStorage.get([MODEL_KEY, REASONING_KEY]);
+      if (!current()) return false;
+      let preference = normalizeModel(changes.model ?? stored?.[MODEL_KEY]);
+      if (catalog.length && preference !== "automatic" && !catalog.some((model) => model.slug === preference)) preference = "automatic";
+      const model = selectModel(catalog, preference);
+      let effort = normalizeReasoningPreference(changes.effort ?? stored?.[REASONING_KEY]);
+      if (model && effort !== "model_default" && !supportedReasoningEfforts(model).includes(effort)) effort = "model_default";
+      const update = {};
+      if (stored?.[MODEL_KEY] !== preference) update[MODEL_KEY] = preference;
+      if (stored?.[REASONING_KEY] !== effort) update[REASONING_KEY] = effort;
+      if (Object.keys(update).length) await settingsStorage.set(update);
+      if (!current()) return false;
+      modelPreference = preference;
+      reasoningPreference = effort;
+      return true;
+    });
+    settingsWork = work.catch(() => undefined);
+    return work;
   }
 
-  async function resolveModelPreference(catalog) {
-    const stored = await settingsStorage.get(MODEL_KEY);
-    const preference = normalizeModel(stored?.[MODEL_KEY]);
-    if (preference === "automatic" || catalog.some((model) => model.slug === preference)) {
-      return preference;
-    }
-    await settingsStorage.set({ [MODEL_KEY]: "automatic" });
-    return "automatic";
-  }
-
-  async function resolveReasoningPreference(model) {
-    const stored = await settingsStorage.get(REASONING_KEY);
-    const preference = normalizeReasoningPreference(stored?.[REASONING_KEY]);
-    const supported = supportedReasoningEfforts(model);
-    if (preference === "model_default" || supported.includes(preference)) {
-      if (stored?.[REASONING_KEY] !== preference) {
-        await settingsStorage.set({ [REASONING_KEY]: preference });
-      }
-      return preference;
-    }
-    await settingsStorage.set({ [REASONING_KEY]: "model_default" });
-    return "model_default";
-  }
-
-  async function loadModelOptions(refresh = false) {
-    const catalog = await listModels(refresh);
-    const preference = await resolveModelPreference(catalog);
+  async function loadModelOptions(epoch) {
+    if (epoch !== connectionEpoch) return false;
+    const response = await companion.request("model.list");
+    const current = () => epoch === connectionEpoch;
+    if (!current()) return false;
+    const catalog = Array.isArray(response.result?.models) ? response.result.models : [];
+    if (!await syncModelSettings(catalog, {}, current)) return false;
     models = catalog;
-    modelPreference = preference;
     const chat = await loadChat();
+    if (!current()) return false;
     if (chat.compaction && chat.compaction.model !== selectedModel()?.slug) await clearModelContext(chat);
-    return { models, preference };
+    return current();
+  }
+
+  async function updateModelSettings(changes) {
+    const chat = await loadChat();
+    if (connection.phase !== "ready" || accountMutationPromise) throw {
+      code: "connection_not_ready", message: "Finish connecting before changing model settings.", retryable: true,
+    };
+    const epoch = connectionEpoch;
+    if (await syncModelSettings(models, changes, () => epoch === connectionEpoch)) {
+      if (chat.compaction && chat.compaction.model !== selectedModel()?.slug) await clearModelContext(chat);
+      await publish(chat);
+    }
+    return publicState(chat);
   }
 
   function selectedModel() {
@@ -324,49 +325,54 @@ export function installAppController({
     await publish(chat);
   }
 
-  function ensureReady({ force = false } = {}) {
-    if (accountMutationPromise) return accountMutationPromise.then((result) => result.state);
-    if (readinessPromise) return readinessPromise;
+  async function completeReadiness(chat, auth, epoch) {
+    if (epoch !== connectionEpoch) return publicState(chat);
+    if (!await setAuthOutcome(chat, auth)) return publicState(chat);
+    if (!await loadModelOptions(epoch)) return publicState(chat);
+    if (!models.length) throw { code: "model_unavailable", message: "This ChatGPT account did not return an available model.", retryable: true };
+    connection = { phase: "ready", auth, error: null };
+    issue = null;
+    await publish(chat);
+    void resumeRetry();
+    return publicState(chat);
+  }
 
+  function ensureReady({ signIn = false, force = false } = {}) {
+    if (accountMutationPromise) return accountMutationPromise.then((result) => signIn ? ensureReady({ signIn }) : result.state);
+    if (signIn && signInPromise) return signInPromise;
+    if (!signIn && (signInPromise || readinessPromise)) return signInPromise || readinessPromise;
     const request = (async () => {
       const chat = await loadChat();
-      if (connection.phase === "ready" && !force) return publicState(chat);
+      if (!signIn && !force && connection.phase === "ready") return publicState(chat);
       const epoch = ++connectionEpoch;
-      connection = { phase: "checking", auth: connection.auth, error: null };
-      if (issue?.scope === "connection") issue = null;
+      connection = { phase: "checking", auth: signIn ? { ...connection.auth, state: "signing_in", error: null } : connection.auth, error: null };
+      issue = signIn ? {
+        kind: "action", action: "cancel_sign_in", title: "Complete sign-in in your browser",
+        message: "BrowseFriend will continue automatically when sign-in finishes.",
+      } : null;
+      if (signIn) chat.compaction = null;
       await publish(chat);
       try {
-        const response = await companion.request("auth.status");
-        if (epoch !== connectionEpoch) return publicState(chat);
-        const auth = response.result || { state: "signed_out", profile: null };
-        if (!await setAuthOutcome(chat, auth)) return publicState(chat);
-        await loadModelOptions(force);
-        if (epoch !== connectionEpoch) return publicState(chat);
-        if (!models.length) throw {
-          code: "model_unavailable",
-          message: "This ChatGPT account did not return an available model.",
-          retryable: true,
-        };
-        connection = { phase: "ready", auth, error: null };
-        issue = null;
-        await publish(chat);
-        void resumeRetry();
-        return publicState(chat);
+        const response = await companion.request(signIn ? "auth.signIn" : "auth.status");
+        return await completeReadiness(chat, response.result || { state: "signed_out", profile: null }, epoch);
       } catch (error) {
-        if (epoch === connectionEpoch) {
-          if (requiresReauthentication(error)) {
-            await setAuthOutcome(chat, { state: "signed_out", profile: null, planUsageEnabled: false });
-          } else await failConnection(chat, error);
-        }
+        if (epoch !== connectionEpoch) return publicState(chat);
+        if (requiresReauthentication(error) || error.code === "cancelled") {
+          await setAuthOutcome(chat, { state: "signed_out", profile: null, planUsageEnabled: false });
+        } else await failConnection(chat, error);
         return publicState(chat);
       }
     })();
     const tracked = request.finally(() => {
       if (readinessPromise === tracked) readinessPromise = null;
+      if (signInPromise === tracked) signInPromise = null;
     });
-    readinessPromise = tracked;
+    if (signIn) signInPromise = tracked;
+    else readinessPromise = tracked;
     return tracked;
   }
+
+  const signIn = () => ensureReady({ signIn: true });
 
   function contextFor(page) {
     if (!page.available) return { available: false, error: page.error };
@@ -755,7 +761,8 @@ export function installAppController({
         model = models.find((item) => item.slug === submission.modelSlug) ||
           (chat.model?.slug === submission.modelSlug ? chat.model : null);
       } else {
-        modelPreference = await resolveModelPreference(models);
+        const epoch = connectionEpoch;
+        if (!await syncModelSettings(models, {}, () => epoch === connectionEpoch)) return;
         model = selectedModel();
       }
       if (!model) throw {
@@ -764,7 +771,6 @@ export function installAppController({
         retryable: true,
       };
       if (!submission.modelSlug) {
-        reasoningPreference = await resolveReasoningPreference(model);
         submission.modelSlug = model.slug;
         submission.reasoningEffort = selectReasoningEffort(model, reasoningPreference) || null;
       }
@@ -905,7 +911,7 @@ export function installAppController({
       message: "Wait for the current response or stop it first.",
       retryable: true,
     };
-    if (connection.phase !== "ready") throw {
+    if (connection.phase !== "ready" || accountMutationPromise) throw {
       code: "connection_not_ready",
       message: "Finish connecting BrowseFriend before sending a message.",
       retryable: true,
@@ -1048,7 +1054,6 @@ export function installAppController({
     const chat = await loadChat();
     const retryIssue = issue;
     if (!retryIssue) return publicState(chat);
-    if (retryIssue.retry === "sign_in") return signIn();
     if (retryIssue.retry === "generation") {
       if (chat.submission) throw {
         code: "model_busy",
@@ -1085,70 +1090,12 @@ export function installAppController({
     return publicState(chat);
   }
 
-  function signIn() {
-    if (accountMutationPromise) return accountMutationPromise.then(() => signIn());
-    if (signInPromise) return signInPromise;
-    const request = (async () => {
-      const chat = await loadChat();
-      const epoch = ++connectionEpoch;
-      chat.compaction = null;
-      connection = {
-        phase: "checking",
-        auth: { ...connection.auth, state: "signing_in", error: null },
-        error: null,
-      };
-      issue = {
-        kind: "action",
-        action: "cancel_sign_in",
-        title: "Complete sign-in in your browser",
-        message: "BrowseFriend will continue automatically when sign-in finishes.",
-      };
-      await publish(chat);
-      try {
-        const response = await companion.request("auth.signIn");
-        if (epoch !== connectionEpoch) return publicState(chat);
-        const auth = response.result;
-        connection = { phase: "checking", auth, error: null };
-        issue = null;
-        await publish(chat);
-        await loadModelOptions(true);
-        if (epoch !== connectionEpoch) return publicState(chat);
-        if (!models.length) throw {
-          code: "model_unavailable",
-          message: "This ChatGPT account did not return an available model.",
-          retryable: true,
-        };
-        connection = { phase: "ready", auth, error: null };
-        await publish(chat);
-        void resumeRetry();
-        return publicState(chat);
-      } catch (error) {
-        const publicError = safeError(error);
-        if (epoch !== connectionEpoch) return publicState(chat);
-        if (publicError.code === "cancelled") {
-          connection = { phase: "auth_required", auth: { state: "signed_out", profile: null }, error: null };
-          issue = connectionIssue(connection.auth);
-          await publish(chat);
-        } else {
-          await failConnection(chat, publicError);
-        }
-        return publicState(chat);
-      }
-    })();
-    const tracked = request.finally(() => {
-      if (signInPromise === tracked) signInPromise = null;
-    });
-    signInPromise = tracked;
-    return tracked;
-  }
-
   async function cancelSignIn() {
     const chat = await loadChat();
-    ++connectionEpoch;
+    const epoch = ++connectionEpoch;
     const response = await companion.request("auth.cancel");
     const auth = response.result || { state: "signed_out", profile: null };
-    await setAuthOutcome(chat, auth);
-    return publicState(chat);
+    return completeReadiness(chat, auth, epoch);
   }
 
   function signOut(method = "auth.signOut") {
@@ -1156,13 +1103,14 @@ export function installAppController({
     const request = (async () => {
       const chat = await loadChat();
       ++connectionEpoch;
+      connection = { ...connection, phase: "checking", error: null };
+      await publish(chat);
       const activeId = chat.submission?.id;
       if (activeId) await stop(activeId);
       try {
         const response = await companion.request(method);
         Object.assign(chat, emptyChat(null, randomUUID()));
         models = [];
-        modelCatalogPromise = null;
         const auth = response.result || { state: "signed_out", profile: null };
         await setAuthOutcome(chat, auth);
         return { state: publicState(chat), warning: response.warning || null };
@@ -1298,15 +1246,29 @@ export function installAppController({
       });
       return;
     }
-    if (event.type !== "auth.changed" || readinessPromise || signInPromise || accountMutationPromise) return;
+    if (event.type !== "auth.changed" || signInPromise || accountMutationPromise) return;
     const auth = event.state;
-    void loadChat().then((chat) => { chat.compaction = null; });
-    if (auth.state === "signed_in") {
-      connection = { phase: "checking", auth, error: null };
-      void ensureReady({ force: true });
-      return;
-    }
-    void loadChat().then((chat) => setAuthOutcome(chat, auth));
+    const epoch = ++connectionEpoch;
+    connection = { ...connection, phase: "checking", error: null };
+    void loadChat().then(async (chat) => {
+      if (epoch !== connectionEpoch) return;
+      if (chat.submission) await stop(chat.submission.id);
+      if (epoch !== connectionEpoch) return;
+      chat.compaction = null;
+      chat.mode = "ask";
+      chat.authorization = null;
+      await setAuthOutcome(chat, auth);
+      if (readinessPromise) await readinessPromise;
+      if (epoch === connectionEpoch && auth.state === "signed_in") void ensureReady({ force: true });
+    });
+  });
+
+  settingsChanged?.addListener((changes, area) => {
+    if (area !== "local" || (!changes[MODEL_KEY] && !changes[REASONING_KEY])) return;
+    const epoch = connectionEpoch;
+    void loadChat().then(async (chat) => {
+      if (await syncModelSettings(models, {}, () => epoch === connectionEpoch)) await publish(chat);
+    }).catch(() => undefined);
   });
 
   runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -1329,9 +1291,9 @@ export function installAppController({
     if (message.method === "app.cancelSignIn") operation = cancelSignIn();
     if (message.method === "app.signOut") operation = signOut();
     if (message.method === "app.resetLogin") operation = Promise.resolve().then(resetLogin);
-    if (message.method === "app.models") {
-      operation = loadModelOptions(message.refresh === true).then((result) => ({ ...result }));
-    }
+    if (message.method === "app.models") operation = ensureReady({ force: message.refresh === true });
+    if (message.method === "app.setModel") operation = updateModelSettings({ model: message.model });
+    if (message.method === "app.setReasoningEffort") operation = updateModelSettings({ effort: message.effort });
     if (!operation) return false;
     operation
       .then((result) => sendResponse({ ok: true, result }))

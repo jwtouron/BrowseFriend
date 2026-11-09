@@ -19,6 +19,7 @@ installAppController({
   runtime: chrome.runtime,
   storage: chrome.storage.session,
   settingsStorage: chrome.storage.local,
+  settingsChanged: chrome.storage.onChanged,
   companion,
   pageReader,
   pageActor,

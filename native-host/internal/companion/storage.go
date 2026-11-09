@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,6 +38,7 @@ type Registration struct {
 // Account is private to the native runtime; only Session may cross the browser boundary.
 type Account struct {
 	Registration
+	Generation  string `json:"generation,omitempty"`
 	Identity    object
 	Scopes      []string
 	Credentials *Credentials
@@ -53,6 +55,8 @@ type Store struct {
 	active      *Account
 	revision    string
 	retry       *credentialCheckpoint
+	lock        *flock.Flock
+	lifecycle   authLifecycle
 }
 
 func DefaultDirectory() (string, error) {
@@ -85,11 +89,39 @@ func (s *Store) withDiskLock(ctx context.Context, op func() error) (err error) {
 	if err := privateDirectory(s.Directory); err != nil {
 		return storageError(err)
 	}
-	lock, err := acquireRegistrationLock(ctx, filepath.Join(s.Directory, "registration.lock"), 45*time.Second)
-	if err != nil {
-		return storageError(err)
+	if s.lock == nil {
+		lock, err := acquireRegistrationLock(ctx, filepath.Join(s.Directory, "registration.lock"), 45*time.Second)
+		if err != nil {
+			return storageError(err)
+		}
+		s.lock = lock
+	} else {
+		checked, e := privateFile(filepath.Join(s.Directory, "registration.lock"), os.O_RDONLY)
+		if e != nil {
+			return storageError(e)
+		}
+		info, e := checked.Stat()
+		checked.Close()
+		if e != nil {
+			return storageError(e)
+		}
+		if e = validateLockIdentity(info, s.lock); e != nil {
+			return e
+		}
 	}
-	defer func() { err = errors.Join(err, storageError(lock.Close())) }()
+	defer func() {
+		// An unsaved replacement owns the account lock until recovery or explicit cleanup.
+		if s.retry == nil {
+			err = errors.Join(err, storageError(s.releaseLock()))
+		}
+	}()
+	if err := s.cleanTemporaryFiles(); err != nil {
+		return err
+	}
+	if err := s.readLifecycle(); err != nil {
+		return err
+	}
+
 	return op()
 }
 
@@ -101,6 +133,9 @@ func (s *Store) WithLock(ctx context.Context, op func(*Account) error) error {
 
 func (s *Store) withAccount(ctx context.Context, commitPending bool, op func(*Account) error) error {
 	return s.withDiskLock(ctx, func() error {
+		if s.lifecycle.Disabled {
+			return failure("companion_unavailable", "The companion has been uninstalled. Install it again before signing in.", false)
+		}
 		r, err := s.readRegistration()
 		if err != nil {
 			return storageError(err)
@@ -108,7 +143,7 @@ func (s *Store) withAccount(ctx context.Context, commitPending bool, op func(*Ac
 		var a *Account
 		if s.sessionOnly {
 			if s.account == nil || s.account.Registration != r {
-				s.account = &Account{Registration: r}
+				s.account = &Account{Registration: r, Generation: s.lifecycle.Generation}
 			}
 			a = s.account
 		} else {
@@ -121,7 +156,7 @@ func (s *Store) withAccount(ctx context.Context, commitPending bool, op func(*Ac
 		defer func() { s.active = nil }()
 		if pending := s.retry; pending != nil {
 			// A newer logout, reset, or another process's refresh always wins.
-			if pending.revision != s.revision || pending.account.Registration != r {
+			if pending.revision != s.revision || pending.account.Registration != r || pending.account.Generation != s.lifecycle.Generation {
 				s.retry = nil
 			} else {
 				*a = pending.account
@@ -150,20 +185,6 @@ func (s *Store) UpdateRegistration(ctx context.Context, a *Account, op func(*Reg
 	}
 	a.Registration = r
 	return nil
-}
-
-func (s *Store) withRegistration(ctx context.Context, op func(*Registration) error) error {
-	return s.withDiskLock(ctx, func() error {
-		r, err := s.readRegistration()
-		if err != nil {
-			return storageError(err)
-		}
-		before := r
-		if err := op(&r); err != nil {
-			return err
-		}
-		return s.writeRegistration(ctx, before, r)
-	})
 }
 
 func (s *Store) writeRegistration(ctx context.Context, before, r Registration) error {
@@ -249,6 +270,51 @@ func validateLockIdentity(checked os.FileInfo, lock *flock.Flock) error {
 	}
 	if !os.SameFile(checked, info) {
 		return failure("storage_unsafe", "The registration lock file changed. The registration has been preserved.", false)
+	}
+	return nil
+}
+
+func (s *Store) releaseLock() error {
+	if s.lock == nil {
+		return nil
+	}
+	lock := s.lock
+	s.lock = nil
+	return lock.Close()
+}
+
+// Close runs after native requests stop, releasing any uncommitted memory checkpoint.
+func (s *Store) Close() error {
+	s.once.Do(func() { s.gate = make(chan struct{}, 1) })
+	s.gate <- struct{}{}
+	defer func() { <-s.gate }()
+	s.retry = nil
+	return s.releaseLock()
+}
+
+func (s *Store) cleanTemporaryFiles() error {
+	entries, err := os.ReadDir(s.Directory)
+	if err != nil {
+		return storageError(err)
+	}
+	removed := false
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), ".browsefriend-") {
+			continue
+		}
+		path := filepath.Join(s.Directory, entry.Name())
+		f, err := privateFile(path, os.O_RDONLY)
+		if err != nil {
+			return storageError(err)
+		}
+		f.Close()
+		if err := os.Remove(path); err != nil {
+			return storageError(err)
+		}
+		removed = true
+	}
+	if removed {
+		return storageError(syncDirectory(s.Directory))
 	}
 	return nil
 }

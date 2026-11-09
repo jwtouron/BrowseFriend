@@ -32,7 +32,8 @@ registration data intact when removed.
 All native jobs use simulated OAuth/TLS providers and synthetic identities. Credential files and
 registration/installation tests use temporary directories and a dedicated Windows registry subtree.
 Tests prove login restoration across actual process restarts, serialized refresh across processes,
-durable successor recovery, explicit reset/logout, update preservation, and uninstall cleanup. No OS-keyring service, OpenAI account, real tokens, or live model requests are needed.
+durable successor recovery without cross-process grant replay, explicit reset/logout, update
+preservation, abandoned-write cleanup, and uninstall/reinstall invalidation of unfinished sign-ins. No OS-keyring service, OpenAI account, real tokens, or live model requests are needed.
 Windows additionally exercises locked files, ACLs, and reparse targets without Wine exclusions.
 
 ## Downloadable builds
@@ -72,8 +73,8 @@ checks remain separate from CI.
 
 ## Retired credential-storage evaluation
 
-The optional storage-evaluation dispatch and OS-keyring integrations were removed with persistent
-login. [Storage evaluation](STORAGE_EVALUATION.md) preserves the historical results and fork links;
+The optional storage-evaluation dispatch and OS-keyring integrations were removed when login
+first became process-local. Protected-file persistence does not restore those integrations. [Storage evaluation](STORAGE_EVALUATION.md) preserves the historical results and fork links;
 the current companion no longer depends on that fork or the experiment module.
 
 Native jobs install locked development dependencies with `npm ci --ignore-scripts`. DOM evaluation harness checks use scripted responses in normal verification; real-model A/B evaluations run only through the dedicated local command and never in CI. See [Act evaluations](EVALUATIONS.md).

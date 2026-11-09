@@ -1,7 +1,4 @@
-import { normalizeReasoningPreference } from "../../shared/reasoning.js";
 import { normalizeTypography, TYPOGRAPHY_FIELDS } from "./typography.js";
-
-export { normalizeReasoningPreference };
 
 export const DEBUG_MODE_KEY = "browsefriend.settings.debugMode";
 export const THEME_KEY = "browsefriend.settings.theme";
@@ -40,20 +37,12 @@ export function createPreferences({ storageArea, storageChanged }) {
       DEBUG_MODE_KEY,
       THEME_KEY,
       ACCENT_KEY,
-      MODEL_KEY,
-      REASONING_KEY,
       ...Object.values(TYPOGRAPHY_FIELDS).map((field) => field.key),
     ]);
-    const reasoningEffort = normalizeReasoningPreference(stored?.[REASONING_KEY]);
-    if (stored?.[REASONING_KEY] !== reasoningEffort) {
-      await storageArea.set({ [REASONING_KEY]: reasoningEffort });
-    }
     return {
       debugMode: stored?.[DEBUG_MODE_KEY] === true,
       theme: normalizeTheme(stored?.[THEME_KEY]),
       accent: normalizeAccent(stored?.[ACCENT_KEY]),
-      model: normalizeModel(stored?.[MODEL_KEY]),
-      reasoningEffort,
       ...normalizeTypography(Object.fromEntries(Object.entries(TYPOGRAPHY_FIELDS)
         .map(([name, field]) => [name, stored?.[field.key]]))),
     };
@@ -74,18 +63,6 @@ export function createPreferences({ storageArea, storageChanged }) {
   async function saveAccent(accent) {
     const value = normalizeAccent(accent);
     await storageArea.set({ [ACCENT_KEY]: value });
-    return value;
-  }
-
-  async function saveModel(model) {
-    const value = normalizeModel(model);
-    await storageArea.set({ [MODEL_KEY]: value });
-    return value;
-  }
-
-  async function saveReasoningEffort(reasoningEffort) {
-    const value = normalizeReasoningPreference(reasoningEffort);
-    await storageArea.set({ [REASONING_KEY]: value });
     return value;
   }
 
@@ -110,12 +87,6 @@ export function createPreferences({ storageArea, storageChanged }) {
       if (changes?.[ACCENT_KEY]) {
         update.accent = normalizeAccent(changes[ACCENT_KEY].newValue);
       }
-      if (changes?.[MODEL_KEY]) {
-        update.model = normalizeModel(changes[MODEL_KEY].newValue);
-      }
-      if (changes?.[REASONING_KEY]) {
-        update.reasoningEffort = normalizeReasoningPreference(changes[REASONING_KEY].newValue);
-      }
       for (const [name, field] of Object.entries(TYPOGRAPHY_FIELDS)) {
         if (changes?.[field.key]) update[name] = field.normalize(changes[field.key].newValue);
       }
@@ -130,8 +101,6 @@ export function createPreferences({ storageArea, storageChanged }) {
     saveAccent,
     saveDebugMode,
     saveTheme,
-    saveModel,
-    saveReasoningEffort,
     saveTypography,
     subscribe,
   };

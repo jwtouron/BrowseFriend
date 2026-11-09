@@ -26,6 +26,7 @@ async function settle() {
 }
 
 function createHarness({
+  authCancelRequest,
   authStatus,
   authStatusRequest,
   compactRequest,
@@ -60,6 +61,7 @@ function createHarness({
   const fileListeners = [];
   const fileCancellations = [];
   const onMessage = createEvent();
+  const settingsChanged = createEvent();
   let nextId = 1;
   let captureCount = 0;
   let settingsGetCount = 0;
@@ -81,7 +83,7 @@ function createHarness({
     async get(key) {
       settingsGetCount += 1;
       if (modelPreferenceGate && settingsGetCount > 1) return modelPreferenceGate.promise;
-      return { [key]: settingsStored[key] };
+      return Object.fromEntries((Array.isArray(key) ? key : [key]).map((name) => [name, settingsStored[name]]));
     },
     async set(values) { Object.assign(settingsStored, structuredClone(values)); },
   };
@@ -101,6 +103,7 @@ function createHarness({
         return { result: signedIn };
       }
       if (method === "auth.cancel") {
+        if (authCancelRequest) return authCancelRequest.promise;
         return { result: { state: "signed_out", profile: null, planUsageEnabled: false } };
       }
       if (method === "auth.reset") {
@@ -112,7 +115,7 @@ function createHarness({
       }
       if (method === "model.list") {
         if (modelListError) throw modelListError;
-        if (modelListRequest) return modelListRequest.promise;
+        if (modelListRequest) return typeof modelListRequest === "function" ? modelListRequest() : modelListRequest.promise;
         return {
           result: {
             models: models || [{ slug: "model-1", displayName: "Model One" }],
@@ -178,6 +181,7 @@ function createHarness({
     runtime,
     storage,
     settingsStorage,
+    settingsChanged,
     companion,
     pageActor,
     pageReader,
@@ -195,6 +199,7 @@ function createHarness({
     onMessage,
     runtime,
     settingsStored,
+    settingsChanged,
     signedIn,
     storage,
   };
@@ -705,7 +710,7 @@ test("one submission runs at a time and an early Stop cannot be revived", async 
   assert.equal(state.messages.some((message) => message.text === "Late submit"), false);
 });
 
-test("an auth event cannot replace the result of active readiness work", async () => {
+test("an auth event invalidates a late status snapshot", async () => {
   const status = deferred();
   const harness = createHarness({ authStatusRequest: status });
   const readiness = harness.controller.ensureReady();
@@ -716,9 +721,11 @@ test("an auth event cannot replace the result of active readiness work", async (
   });
   status.resolve({ result: harness.signedIn });
 
-  const state = await readiness;
-  assert.equal(state.connection.phase, "ready");
-  assert.equal(state.connection.auth.state, "signed_in");
+  await readiness;
+  await settle();
+  const state = await harness.controller.getState();
+  assert.equal(state.connection.phase, "auth_required");
+  assert.equal(state.connection.auth.state, "signed_out");
 });
 
 test("concurrent readiness and sign-in intents share one operation", async () => {
@@ -1427,4 +1434,89 @@ test("expired renewable login returns directly to sign-in during startup and an 
     assert.equal(failed.messages[1].status, "error");
     assert.equal(active.companionCalls.some((call) => call.method === "auth.signIn"), false);
   }
+});
+
+
+test("a stale catalog cannot overwrite a later account's models or preferences", async () => {
+  const oldCatalog = deferred();
+  let calls = 0;
+  const harness = createHarness({
+    modelPreference: "new-model",
+    modelListRequest: () => ++calls === 1 ? oldCatalog.promise : Promise.resolve({ result: {
+      models: [{ slug: "new-model", displayName: "New model" }],
+    } }),
+  });
+  const oldReadiness = harness.controller.ensureReady();
+  await settle();
+  await new Promise((resolve) => harness.onMessage.emit({ channel: "app", method: "app.signOut" }, { id: "extension" }, resolve));
+  const ready = await harness.controller.signIn();
+  assert.equal(ready.models[0].slug, "new-model");
+  oldCatalog.resolve({ result: { models: [{ slug: "old-model", displayName: "Old model" }] } });
+  await oldReadiness;
+  const state = await harness.controller.getState();
+  assert.equal(state.models[0].slug, "new-model");
+  assert.equal(state.modelPreference, "new-model");
+  assert.equal(harness.settingsStored["browsefriend.settings.model"], "new-model");
+});
+
+test("startup and explicit sign-in use the same revoked-grant recovery", async () => {
+  for (const method of ["ensureReady", "signIn"]) {
+    const harness = createHarness({ modelListError: { code: "invalid_grant", message: "Sign in again.", retryable: false } });
+    const state = await harness.controller[method]();
+    assert.equal(state.connection.phase, "auth_required");
+    assert.equal(state.connection.auth.state, "signed_out");
+    assert.equal(state.issue.action, "sign_in");
+  }
+});
+
+test("controller owns model settings and reconciles changes from other panels", async () => {
+  const harness = createHarness({ models: [
+    { slug: "first", displayName: "First", supportedReasoningEfforts: ["high"] },
+    { slug: "second", displayName: "Second", supportedReasoningEfforts: ["low"] },
+  ], reasoningPreference: "high" });
+  await harness.controller.ensureReady();
+  const request = (method, params) => new Promise((resolve) => {
+    harness.onMessage.emit({ channel: "app", method, ...params }, { id: "extension" }, resolve);
+  });
+  const changed = await request("app.setModel", { model: "second" });
+  assert.equal(changed.ok, true);
+  assert.equal(changed.result.modelPreference, "second");
+  assert.equal(changed.result.reasoningPreference, "model_default");
+  assert.equal(harness.settingsStored["browsefriend.settings.reasoningEffort"], "model_default");
+  harness.settingsStored["browsefriend.settings.model"] = "first";
+  harness.settingsChanged.emit({ "browsefriend.settings.model": { newValue: "first" } }, "local");
+  await settle();
+  assert.equal((await harness.controller.getState()).modelPreference, "first");
+});
+
+
+test("an authentication change invalidates discovery already in flight", async () => {
+  const catalog = deferred();
+  const harness = createHarness({ modelListRequest: catalog });
+  const readiness = harness.controller.ensureReady();
+  await settle();
+  harness.companionListeners.forEach((listener) => listener({ type: "auth.changed", state: { state: "signed_out" } }));
+  await settle();
+  catalog.resolve({ result: { models: [{ slug: "old", displayName: "Old account" }] } });
+  await readiness;
+  await settle();
+  const state = await harness.controller.getState();
+  assert.equal(state.connection.phase, "auth_required");
+  assert.deepEqual(state.models, []);
+});
+
+
+test("a late sign-in cancellation result cannot undo logout", async () => {
+  const cancellation = deferred();
+  const harness = createHarness({ authCancelRequest: cancellation });
+  await harness.controller.ensureReady();
+  const request = (method) => new Promise((resolve) => harness.onMessage.emit({ channel: "app", method }, { id: "extension" }, resolve));
+  const cancelled = request("app.cancelSignIn");
+  await settle();
+  await request("app.signOut");
+  cancellation.resolve({ result: harness.signedIn });
+  await cancelled;
+  const state = await harness.controller.getState();
+  assert.equal(state.connection.phase, "auth_required");
+  assert.deepEqual(state.models, []);
 });

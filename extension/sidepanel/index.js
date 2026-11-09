@@ -7,15 +7,12 @@ import {
   applyAccent,
   applyTheme,
   createPreferences,
-  normalizeModel,
   shouldShowPageContext,
 } from "../settings/preferences.js";
 import {
   effectiveReasoningEffort,
-  normalizeReasoningPreference,
   reasoningEffortLabel,
   reasoningEffortOptions,
-  supportedReasoningEfforts,
 } from "../../shared/reasoning.js";
 import {
   automaticModelLabel,
@@ -127,16 +124,12 @@ let optimisticSubmission = null;
 let debugMode = false;
 let theme = "system";
 let accent = "blue";
-let modelPreference = "automatic";
-let reasoningPreference = "model_default";
-let availableModels = [];
-let preferencesLoaded = false;
 let contextViewerOpen = false;
 let actionModalOpen = false;
 let newChatModalOpen = false;
 let resetLoginModalOpen = false;
 let settingsError = null;
-let localRecovery = null;
+let viewError = null;
 let settingsNavigationEpoch = 0;
 const assistantSources = new WeakMap();
 
@@ -223,7 +216,7 @@ function renderConnectionStatus() {
 }
 
 function renderNotice() {
-  const notice = currentState.issue;
+  const notice = viewError ? { kind: "error", error: viewError, retry: "reconcile" } : currentState.issue;
   connectionNotice.hidden = !notice;
   signInButton.hidden = true;
   retryOperationButton.hidden = true;
@@ -267,8 +260,8 @@ function renderMessages() {
 
 function renderComposer() {
   const view = deriveViewState(currentState, optimisticSubmission);
-  messageInput.disabled = view.inputDisabled;
-  sendMessageButton.disabled = view.inputDisabled;
+  messageInput.disabled = view.inputDisabled || Boolean(viewError);
+  sendMessageButton.disabled = messageInput.disabled;
   sendMessageButton.hidden = view.sendHidden;
   stopResponseButton.hidden = view.stopHidden;
   clearMessageButton.hidden = messageInput.value.length === 0 || messageInput.disabled;
@@ -279,7 +272,7 @@ function renderComposer() {
 
 function renderMode() {
   const mode = currentState.mode === "act" ? "act" : "ask";
-  const disabled = deriveViewState(currentState, optimisticSubmission).inputDisabled;
+  const disabled = deriveViewState(currentState, optimisticSubmission).inputDisabled || Boolean(viewError);
   modeSwitch.disabled = disabled;
   modeInputs.forEach((input) => {
     input.checked = input.value === mode;
@@ -333,32 +326,29 @@ function renderAccount() {
   accountEmail.textContent = view.profileEmail;
   accountStatus.textContent = view.accountStatus;
   settingsSignInButton.hidden = view.signedIn;
-  settingsSignInButton.disabled = view.signingIn;
   settingsSignInLabel.textContent = view.signInLabel;
   manageUsageLink.hidden = !view.connected;
   signOutButton.hidden = !view.connected;
   const connectionError = currentState.connection.error;
   resetLoginButton.hidden = !canResetSavedLogin(connectionError);
   settingsSignInButton.disabled = view.signingIn || isLoginStorageError(connectionError);
-  setStatusMessage(settingsAuthError, settingsError || connectionError);
+  setStatusMessage(settingsAuthError, viewError || settingsError || connectionError);
   clearButton.hidden = !view.signedIn;
 }
 
 function renderModelsFromState() {
   const nextModels = Array.isArray(currentState.models) ? currentState.models : [];
-  populateModels(nextModels, modelPreference);
+  populateModels(nextModels, currentState.modelPreference);
   modelSelect.disabled = currentState.connection.phase !== "ready" || !nextModels.length;
-  void reconcileReasoningPreference();
 }
 
 function renderApp(state, {
   restoreCompletionFocus = true,
-  preserveLocalRecovery = false,
 } = {}) {
   const previousSubmission = currentState.submission;
   const previousView = deriveViewState(currentState, optimisticSubmission);
   currentState = state;
-  if (!preserveLocalRecovery) localRecovery = null;
+  viewError = null;
   if (optimisticSubmission && state.submission?.id === optimisticSubmission.id) {
     optimisticSubmission = null;
   }
@@ -383,22 +373,14 @@ function renderApp(state, {
   if (submissionFinished || actionChanged || composerEnabled) requestAnimationFrame(focusChatSurface);
 }
 
-function showOperationError(error, recovery, scope = "connection") {
-  const publicError = displayError(error);
-  localRecovery = recovery;
-  const state = {
-    ...currentState,
-    connection: scope === "connection"
-      ? { ...currentState.connection, phase: "error", error: publicError }
-      : currentState.connection,
-    issue: {
-      kind: "error",
-      scope,
-      error: publicError,
-      retry: recovery.type,
-    },
-  };
-  renderApp(state, { preserveLocalRecovery: true });
+function showOperationError(error) {
+  viewError = displayError(error);
+  renderNotice();
+  renderMessages();
+  renderComposer();
+  renderMode();
+  renderAccount();
+  if (document.hasFocus() && !chatView.inert && !topbar.inert) requestAnimationFrame(focusChatSurface);
 }
 
 function showContext(context) {
@@ -450,7 +432,7 @@ async function confirmNewChat() {
     messageInput.focus({ preventScroll: true });
   } catch (error) {
     hideNewChatConfirmation({ restoreFocus: false });
-    showOperationError(error, { type: "clear" }, "generation");
+    showOperationError(error);
   } finally {
     cancelNewChatButton.disabled = false;
     confirmNewChatButton.disabled = false;
@@ -479,7 +461,7 @@ function clearComposer({ focus = true } = {}) {
 }
 
 function focusChatSurface() {
-  const targetName = deriveViewState(currentState, optimisticSubmission).focusTarget;
+  const targetName = viewError ? "retry" : deriveViewState(currentState, optimisticSubmission).focusTarget;
   const targets = {
     composer: messageInput,
     settings: openSettingsButton,
@@ -560,28 +542,13 @@ function applyAccentPreference(nextAccent) {
   });
 }
 
-function hasModelOption(value) {
-  return [...modelSelect.options].some((option) => option.value === value);
-}
-
-function applyModelPreference(nextModel) {
-  modelPreference = normalizeModel(nextModel);
-  if (hasModelOption(modelPreference)) modelSelect.value = modelPreference;
-  populateReasoningEfforts();
-}
-
-function applyReasoningPreference(nextReasoningEffort) {
-  reasoningPreference = normalizeReasoningPreference(nextReasoningEffort);
-  populateReasoningEfforts();
-}
-
 function effectiveModel() {
-  return selectModel(availableModels, modelPreference);
+  return selectModel(currentState.models, currentState.modelPreference);
 }
 
 function renderModelSummary() {
   const model = effectiveModel();
-  const effort = effectiveReasoningEffort(model, reasoningPreference);
+  const effort = effectiveReasoningEffort(model, currentState.reasoningPreference);
   const effortLabel = reasoningEffortLabel(effort);
   modelSummaryButton.hidden = !model;
   effectiveModelLabel.textContent = model?.displayName || "";
@@ -607,36 +574,14 @@ function populateReasoningEfforts() {
     return option;
   });
   reasoningSelect.replaceChildren(...options);
-  reasoningSelect.value = options.some((option) => option.value === reasoningPreference)
-    ? reasoningPreference
+  reasoningSelect.value = options.some((option) => option.value === currentState.reasoningPreference)
+    ? currentState.reasoningPreference
     : "model_default";
-  reasoningSelect.disabled = !preferencesLoaded || currentState.connection.phase !== "ready" || !model;
+  reasoningSelect.disabled = currentState.connection.phase !== "ready" || !model;
   renderModelSummary();
 }
 
-async function reconcileReasoningPreference() {
-  const model = effectiveModel();
-  populateReasoningEfforts();
-  if (!preferencesLoaded || !model || reasoningPreference === "model_default" ||
-      supportedReasoningEfforts(model).includes(reasoningPreference)) return;
-
-  const previous = reasoningPreference;
-  reasoningPreference = "model_default";
-  populateReasoningEfforts();
-  setStatusMessage(reasoningSettingsError, null);
-  try {
-    await preferences.saveReasoningEffort("model_default");
-  } catch {
-    reasoningPreference = previous;
-    populateReasoningEfforts();
-    setStatusMessage(reasoningSettingsError, {
-      message: "BrowseFriend could not reset the Reasoning effort preference.",
-    });
-  }
-}
-
 function populateModels(models, preference) {
-  availableModels = models;
   const automaticOption = document.createElement("option");
   automaticOption.value = "automatic";
   automaticOption.textContent = automaticModelLabel(models);
@@ -648,7 +593,7 @@ function populateModels(models, preference) {
     options.push(option);
   }
   modelSelect.replaceChildren(...options);
-  applyModelPreference(preference);
+  modelSelect.value = options.some((option) => option.value === preference) ? preference : "automatic";
   populateReasoningEfforts();
 }
 
@@ -656,19 +601,10 @@ async function refreshModels(refresh = true) {
   modelSelect.disabled = true;
   setStatusMessage(modelSettingsError, null);
   try {
-    const result = await appClient.getModels(refresh);
-    populateModels(result.models, result.preference);
-    await reconcileReasoningPreference();
-    modelSelect.disabled = currentState.connection.phase !== "ready" || !result.models.length;
-    if (!result.models.length) {
-      setStatusMessage(modelSettingsError, {
-        message: "This ChatGPT account did not return an available model.",
-      });
-    }
+    renderApp(await appClient.getModels(refresh), { restoreCompletionFocus: false });
   } catch (error) {
-    availableModels = [];
+    renderModelsFromState();
     modelSelect.disabled = true;
-    populateReasoningEfforts();
     setStatusMessage(modelSettingsError, error);
   }
 }
@@ -684,22 +620,15 @@ async function loadPreferences() {
     applyDebugMode(stored.debugMode);
     applyThemePreference(stored.theme);
     applyAccentPreference(stored.accent);
-    applyModelPreference(stored.model);
-    applyReasoningPreference(stored.reasoningEffort);
-    preferencesLoaded = true;
-    await reconcileReasoningPreference();
   } catch {
     typographySettings.initialize({}, true);
     applyDebugMode(false);
     applyThemePreference("system");
     applyAccentPreference("blue");
-    applyModelPreference("automatic");
-    applyReasoningPreference("model_default");
     const error = { message: "BrowseFriend could not load saved settings." };
     setStatusMessage(debugSettingsError, error);
     setStatusMessage(themeSettingsError, error);
     setStatusMessage(accentSettingsError, error);
-    setStatusMessage(reasoningSettingsError, error);
   } finally {
     debugModeSwitch.disabled = false;
     themeSelect.disabled = false;
@@ -757,33 +686,24 @@ async function updateAccent() {
 }
 
 async function updateModel() {
-  const requested = modelSelect.value;
   modelSelect.disabled = true;
   setStatusMessage(modelSettingsError, null);
   try {
-    applyModelPreference(await preferences.saveModel(requested));
-    await reconcileReasoningPreference();
-  } catch {
-    modelSelect.value = hasModelOption(modelPreference) ? modelPreference : "automatic";
-    setStatusMessage(modelSettingsError, {
-      message: "BrowseFriend could not save the Model preference.",
-    });
+    renderApp(await appClient.setModel(modelSelect.value), { restoreCompletionFocus: false });
+  } catch (error) {
+    setStatusMessage(modelSettingsError, error);
   } finally {
-    modelSelect.disabled = currentState.connection.phase !== "ready" || !availableModels.length;
+    renderModelsFromState();
   }
 }
 
 async function updateReasoningEffort() {
-  const requested = reasoningSelect.value;
   reasoningSelect.disabled = true;
   setStatusMessage(reasoningSettingsError, null);
   try {
-    applyReasoningPreference(await preferences.saveReasoningEffort(requested));
-  } catch {
-    reasoningSelect.value = reasoningPreference;
-    setStatusMessage(reasoningSettingsError, {
-      message: "BrowseFriend could not save the Reasoning effort preference.",
-    });
+    renderApp(await appClient.setReasoningEffort(reasoningSelect.value), { restoreCompletionFocus: false });
+  } catch (error) {
+    setStatusMessage(reasoningSettingsError, error);
   } finally {
     populateReasoningEfforts();
   }
@@ -791,7 +711,7 @@ async function updateReasoningEffort() {
 
 async function submitMessage() {
   const message = messageInput.value.trim();
-  if (!message || deriveViewState(currentState, optimisticSubmission).inputDisabled) return;
+  if (!message || viewError || deriveViewState(currentState, optimisticSubmission).inputDisabled) return;
   await submitText(message);
 }
 
@@ -807,7 +727,7 @@ async function submitText(message) {
     optimisticSubmission = null;
     setComposerValue(message);
     renderComposer();
-    showOperationError(error, { type: "submit", text: message }, "generation");
+    showOperationError(error);
   }
 }
 
@@ -825,7 +745,7 @@ async function stopSubmission() {
     optimisticSubmission = null;
     setComposerValue(fallbackDraft, { focus: true });
     renderComposer();
-    showOperationError(error, { type: "start" });
+    showOperationError(error);
   }
 }
 
@@ -837,7 +757,7 @@ async function updateMode(mode) {
     messageInput.focus({ preventScroll: true });
   } catch (error) {
     renderMode();
-    showOperationError(error, { type: "mode", mode }, "generation");
+    showOperationError(error);
   }
 }
 
@@ -849,7 +769,7 @@ async function resolveAction(approved) {
   try {
     renderApp(await appClient.resolveAction(pending.id, approved), { restoreCompletionFocus: false });
   } catch (error) {
-    showOperationError(error, { type: "start" }, "generation");
+    showOperationError(error);
   } finally {
     confirmActionButton.disabled = false;
     cancelActionButton.disabled = false;
@@ -862,7 +782,7 @@ async function signIn() {
     renderApp(await appClient.signIn(), { restoreCompletionFocus: false });
   } catch (error) {
     showChat();
-    showOperationError(error, { type: "signIn" });
+    showOperationError(error);
   }
 }
 
@@ -872,7 +792,7 @@ async function cancelSignIn() {
   try {
     renderApp(await appClient.cancelSignIn(), { restoreCompletionFocus: false });
   } catch (error) {
-    showOperationError(error, { type: "cancelSignIn" });
+    showOperationError(error);
   } finally {
     cancelSignInButton.disabled = false;
   }
@@ -881,45 +801,12 @@ async function cancelSignIn() {
 async function retryOperation() {
   if (retryOperationButton.disabled) return;
   retryOperationButton.disabled = true;
-  const recovery = localRecovery;
-  localRecovery = null;
   try {
-    if (recovery) {
-      const connection = recovery.type === "start"
-        ? { ...currentState.connection, phase: "checking", error: null }
-        : currentState.connection;
-      renderApp(
-        { ...currentState, connection, issue: null },
-        { restoreCompletionFocus: false },
-      );
-    }
-    if (recovery?.type === "submit") {
-      await submitText(recovery.text);
-      return;
-    }
-    if (recovery?.type === "signIn") {
-      await signIn();
-      return;
-    }
-    if (recovery?.type === "cancelSignIn") {
-      await cancelSignIn();
-      return;
-    }
-    if (recovery?.type === "clear") {
-      await clearConversation();
-      return;
-    }
-    if (recovery?.type === "mode") {
-      await updateMode(recovery.mode);
-      return;
-    }
-    if (recovery?.type === "start") {
-      renderApp(await appClient.start(), { restoreCompletionFocus: false });
-      return;
-    }
-    renderApp(await appClient.retry(), { restoreCompletionFocus: false });
+    const state = viewError ? await appClient.getState() : await appClient.retry();
+    renderApp(state, { restoreCompletionFocus: false });
+    if (state.connection.phase === "checking") await appClient.start();
   } catch (error) {
-    showOperationError(error, recovery || { type: "start" });
+    showOperationError(error);
   } finally {
     retryOperationButton.disabled = false;
   }
@@ -1115,14 +1002,7 @@ preferences.subscribe((update) => {
   if (Object.hasOwn(update, "debugMode")) applyDebugMode(update.debugMode);
   if (Object.hasOwn(update, "theme")) applyThemePreference(update.theme);
   if (Object.hasOwn(update, "accent")) applyAccentPreference(update.accent);
-  if (Object.hasOwn(update, "model")) {
-    applyModelPreference(update.model);
-    void reconcileReasoningPreference();
-  }
-  if (Object.hasOwn(update, "reasoningEffort")) {
-    applyReasoningPreference(update.reasoningEffort);
-    void reconcileReasoningPreference();
-  }
+
 });
 
 closeButton.addEventListener("click", async () => {
@@ -1143,5 +1023,5 @@ void appClient.getState()
   })
   .then((state) => renderApp(state, { restoreCompletionFocus: false }))
   .catch((error) => {
-    showOperationError(error, { type: "start" });
+    showOperationError(error);
   });

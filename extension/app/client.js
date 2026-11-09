@@ -34,6 +34,8 @@ export function createAppClient(runtime) {
     cancelSignIn: () => request("app.cancelSignIn"),
     signOut: () => request("app.signOut"),
     resetLogin: () => request("app.resetLogin"),
+    setModel: (model) => request("app.setModel", { model }),
+    setReasoningEffort: (effort) => request("app.setReasoningEffort", { effort }),
     getModels: (refresh = false) => request("app.models", { refresh }),
     subscribe,
   };

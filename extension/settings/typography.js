@@ -1,5 +1,6 @@
 const PREFIX = "browsefriend.settings.";
 export const DEFAULT_FONT_LABEL = "Default (Inter / system)";
+export const DEFAULT_CODE_FONT_LABEL = "Default (system monospace)";
 export const FONT_SIZES = Object.freeze([
   8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 28, 32, 36,
 ]);
@@ -22,6 +23,7 @@ export const TYPOGRAPHY_FIELDS = Object.freeze({
   promptBold: { key: PREFIX + "promptBold", normalize: boolean, css: "--prompt-font-weight" },
   promptItalic: { key: PREFIX + "promptItalic", normalize: boolean, css: "--prompt-font-style" },
   responseFont: { key: PREFIX + "responseFont", normalize: normalizeFont, css: "--response-font-family" },
+  responseCodeFont: { key: PREFIX + "responseCodeFont", normalize: normalizeFont, css: "--response-code-font-family" },
   responseFontSize: { key: PREFIX + "responseFontSize", normalize: normalizeFontSize, css: "--response-font-size" },
 });
 
@@ -75,7 +77,8 @@ export function applyTypographyField(root, name, rawValue) {
   let cssValue = null;
   if (name.endsWith("Font") && value !== "default") {
     // A font name is one CSS string, even if it contains quotes, commas, or semicolons.
-    cssValue = `"${value.replace(/[\\"]/g, "\\$&")}", var(--transcript-default-font-family)`;
+    const fallback = name === "responseCodeFont" ? "--transcript-default-code-font-family" : "--transcript-default-font-family";
+    cssValue = `"${value.replace(/[\\"]/g, "\\$&")}", var(${fallback})`;
   } else if (name.endsWith("FontSize") && value !== "default") cssValue = `${value}px`;
   else if (name === "promptBold" && value) cssValue = "700";
   else if (name === "promptItalic" && value) cssValue = "italic";

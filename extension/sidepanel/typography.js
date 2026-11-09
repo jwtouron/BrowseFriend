@@ -1,6 +1,7 @@
 import { renderMarkdown } from "../chat/markdown.js";
 import {
   applyTypographyField,
+  DEFAULT_CODE_FONT_LABEL,
   defaultTypography,
   fontOptions,
   FONT_SIZES,
@@ -14,6 +15,7 @@ export function installTypographySettings({ document, preferences, fontSettings 
   const values = normalizeTypography();
   const controls = Object.fromEntries(Object.keys(TYPOGRAPHY_FIELDS)
     .map((name) => [name, document.querySelector(`[data-typography-setting="${name}"]`)]));
+  const fontControls = Object.keys(controls).filter((name) => name.endsWith("Font"));
   const revisions = Object.fromEntries(Object.keys(controls).map((name) => [name, 0]));
   const saving = new Set();
   const errors = {
@@ -29,6 +31,7 @@ export function installTypographySettings({ document, preferences, fontSettings 
 
   const defaults = defaultTypography(document);
   root.style.setProperty("--transcript-default-font-family", defaults.fontFamily);
+  root.style.setProperty("--transcript-default-font-size", `${defaults.fontSize}px`);
   for (const name of ["promptFontSize", "responseFontSize"]) {
     for (const value of ["default", ...FONT_SIZES]) {
       const option = document.createElement("option");
@@ -38,13 +41,14 @@ export function installTypographySettings({ document, preferences, fontSettings 
     }
   }
   renderMarkdown(document.querySelector("#response-font-preview"),
-    "A helpful answer with **emphasis**, *detail*, and `code`.");
+    "A helpful answer with **emphasis**, *detail*, and `code`.\n\n```js\nconst answer = 42;\n```");
 
   function render(name) {
     const control = controls[name];
     const value = values[name];
     if (name.endsWith("Font")) {
-      const options = fontOptions(fonts, value, defaults.fontLabel).map((font) => {
+      const defaultLabel = name === "responseCodeFont" ? DEFAULT_CODE_FONT_LABEL : defaults.fontLabel;
+      const options = fontOptions(fonts, value, defaultLabel).map((font) => {
         const option = document.createElement("option");
         option.value = font.fontId;
         option.textContent = font.displayName;
@@ -52,7 +56,7 @@ export function installTypographySettings({ document, preferences, fontSettings 
         return option;
       });
       control.replaceChildren(...options);
-      const note = document.querySelector(`#${name === "promptFont" ? "prompt" : "response"}-font-note`);
+      const note = document.querySelector(`#${control.id}-note`);
       note.hidden = fontPhase !== "ready" || value === "default" || fonts.some((font) => font.fontId === value);
     }
     if (control.type === "checkbox") control.checked = value;
@@ -117,8 +121,7 @@ export function installTypographySettings({ document, preferences, fontSettings 
     fontPhase = "loading";
     fontError.hidden = true;
     retryFonts.hidden = true;
-    render("promptFont");
-    render("responseFont");
+    for (const name of fontControls) render(name);
     const request = Promise.resolve().then(() => {
       if (!fontSettings?.getFontList) throw new Error("Font discovery is unavailable.");
       return fontSettings.getFontList();
@@ -132,8 +135,7 @@ export function installTypographySettings({ document, preferences, fontSettings 
       retryFonts.hidden = false;
     }).finally(() => {
       if (fontRequest === request) fontRequest = null;
-      render("promptFont");
-      render("responseFont");
+      for (const name of fontControls) render(name);
     });
     fontRequest = request;
     return request;

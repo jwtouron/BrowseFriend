@@ -16,6 +16,7 @@
   --status-ready: #16865f;
   --status-checking: #c58a00;
   --status-error: #c23b33;
+  --transcript-default-code-font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 :root[data-accent="red"] {
@@ -353,7 +354,8 @@ button {
 }
 
 .settings-select label,
-.typography-control > span {
+.typography-control > span,
+.typography-preview__label {
   font-size: 0.86rem;
   font-weight: 650;
 }
@@ -532,6 +534,10 @@ button {
 .typography-preview {
   min-width: 0;
   line-height: 1.55;
+}
+
+.typography-preview__label {
+  margin-bottom: 7px;
 }
 
 .settings-toggle__copy label {
@@ -729,7 +735,9 @@ button {
   padding: 0.12em 0.32em;
   border-radius: 5px;
   background: var(--surface-muted);
-  font: 0.84em/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(--response-code-font-family, var(--transcript-default-code-font-family));
+  font-size: var(--response-font-size, var(--transcript-default-font-size, 1em));
+  line-height: 1.4;
 }
 
 .message--assistant .message__content pre {
@@ -744,7 +752,6 @@ button {
 .message--assistant .message__content pre code {
   padding: 0;
   background: transparent;
-  font-size: calc(0.76rem * var(--response-font-scale, 1));
 }
 
 .message--assistant .message__content blockquote {

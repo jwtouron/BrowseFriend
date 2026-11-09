@@ -313,6 +313,7 @@
                   </div>
                   <p class="settings-note" id="prompt-font-note" hidden>This font is unavailable. Using the default fallback.</p>
                   <div class="typography-preview message--user" role="group" aria-label="Prompt text preview">
+                    <div class="typography-preview__label">Sample</div>
                     <div class="message__content">Explain this page simply.</div>
                   </div>
                 </div>
@@ -323,15 +324,22 @@
                 <legend>Response text</legend>
                 <div class="typography-settings__controls">
                   <label class="typography-control" for="response-font">
-                    <span>Font</span>
+                    <span>Text font</span>
                     <select id="response-font" data-typography-setting="responseFont" aria-describedby="font-list-error response-font-note" disabled></select>
                   </label>
+                  <p class="settings-note" id="response-font-note" hidden>This font is unavailable. Using the default fallback.</p>
+                  <label class="typography-control" for="response-code-font">
+                    <span>Code font</span>
+                    <select id="response-code-font" data-typography-setting="responseCodeFont" aria-describedby="response-code-font-help font-list-error response-code-font-note" disabled></select>
+                  </label>
+                  <p class="settings-note" id="response-code-font-help">Choose a monospace font for code.</p>
+                  <p class="settings-note" id="response-code-font-note" hidden>This font is unavailable. Using the system monospace fallback.</p>
                   <label class="typography-control" for="response-font-size">
                     <span>Size</span>
                     <select id="response-font-size" data-typography-setting="responseFontSize" disabled></select>
                   </label>
-                  <p class="settings-note" id="response-font-note" hidden>This font is unavailable. Using the default fallback.</p>
                   <div class="typography-preview message--assistant" role="group" aria-label="Response text preview">
+                    <div class="typography-preview__label">Sample</div>
                     <div class="message__content" id="response-font-preview"></div>
                   </div>
                 </div>

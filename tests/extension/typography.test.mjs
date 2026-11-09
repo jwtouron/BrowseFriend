@@ -4,6 +4,7 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 import {
   applyTypographyField,
+  DEFAULT_CODE_FONT_LABEL,
   DEFAULT_FONT_LABEL,
   defaultTypography,
   FONT_SIZES,
@@ -65,7 +66,7 @@ async function fixture(t, { stored = {}, save, discover } = {}) {
 test("typography defaults preserve inherited fonts and only allow the selected size range", () => {
   assert.deepEqual(normalizeTypography(), {
     promptFont: "default", promptFontSize: "default", promptBold: false, promptItalic: false,
-    responseFont: "default", responseFontSize: "default",
+    responseFont: "default", responseCodeFont: "default", responseFontSize: "default",
   });
   assert.deepEqual(FONT_SIZES, [...Array.from({ length: 17 }, (_, index) => index + 8), 28, 32, 36]);
   for (const value of [7, 25, 37, Infinity, "16", null]) assert.equal(normalizeFontSize(value), "default");
@@ -93,6 +94,9 @@ test("font CSS is quoted safely and defaults remove overrides", () => {
   const root = dom.window.document.documentElement;
   applyTypographyField(root, "promptFont", 'Font "Name", Example; color: red');
   assert.match(root.style.getPropertyValue("--prompt-font-family"), /^"Font \\"Name\\", Example; color: red", var\(--transcript-default-font-family\)$/);
+  assert.equal(root.style.color, "");
+  applyTypographyField(root, "responseCodeFont", 'Code "Name", Example; color: red');
+  assert.match(root.style.getPropertyValue("--response-code-font-family"), /^"Code \\"Name\\", Example; color: red", var\(--transcript-default-code-font-family\)$/);
   assert.equal(root.style.color, "");
   applyTypographyField(root, "promptFontSize", 24);
   applyTypographyField(root, "promptBold", true);
@@ -127,6 +131,8 @@ test("signed-out font controls initialize independently and previews retain Mark
   assert.equal(panel.document.querySelector("#response-font-preview strong").textContent, "emphasis");
   assert.equal(panel.document.querySelector("#response-font-preview em").textContent, "detail");
   assert.equal(panel.document.querySelector("#response-font-preview code").textContent, "code");
+  assert.equal(panel.document.querySelector("#response-font-preview pre code").textContent.trim(), "const answer = 42;");
+  assert.deepEqual([...panel.control("responseCodeFont").options].map((option) => option.textContent), [DEFAULT_CODE_FONT_LABEL, "Alpha", "Zulu"]);
   assert.equal(panel.document.querySelector('[data-typography-setting="responseBold"]'), null);
   await panel.change("promptFont", "Alpha");
   await panel.change("promptFontSize", 24);
@@ -140,6 +146,39 @@ test("signed-out font controls initialize independently and previews retain Mark
   assert.equal(panel.writes.length, 5);
 });
 
+test("code font changes remain independent of response text and size, with cross-panel reset", async (t) => {
+  const panel = await fixture(t, { stored: { responseFont: "Alpha", responseFontSize: 18 } });
+  panel.initialize();
+  await panel.view.refreshFonts();
+  await panel.change("responseCodeFont", "Zulu");
+  assert.match(panel.css("responseCodeFont"), /^"Zulu", var\(--transcript-default-code-font-family\)$/);
+  assert.match(panel.css("responseFont"), /Alpha/);
+  assert.equal(panel.css("responseFontSize"), "18px");
+  assert.deepEqual(panel.writes, [{ name: "responseCodeFont", value: "Zulu" }]);
+  panel.notify({ responseCodeFont: "default" });
+  assert.equal(panel.css("responseCodeFont"), "");
+  assert.equal(panel.control("responseCodeFont").value, "default");
+  assert.match(panel.css("responseFont"), /Alpha/);
+});
+
+test("code font retains missing selections and rolls back a failed save to monospace Default", async (t) => {
+  const panel = await fixture(t, { stored: { responseCodeFont: "Removed Code Font" } });
+  panel.initialize();
+  await panel.view.refreshFonts();
+  assert.equal(panel.control("responseCodeFont").value, "Removed Code Font");
+  assert.equal(panel.control("responseCodeFont").selectedOptions[0].disabled, true);
+  assert.equal(panel.document.querySelector("#response-code-font-note").hidden, false);
+  assert.match(panel.css("responseCodeFont"), /var\(--transcript-default-code-font-family\)/);
+
+  const other = await fixture(t, { save: async () => { throw new Error("Storage unavailable"); } });
+  other.initialize();
+  await other.view.refreshFonts();
+  await other.change("responseCodeFont", "Alpha");
+  assert.equal(other.css("responseCodeFont"), "");
+  assert.equal(other.control("responseCodeFont").value, "default");
+  assert.equal(other.document.querySelector("#response-typography-error").hidden, false);
+});
+
 test("font discovery deduplicates pending work, recovers from failure, and preserves unavailable selections", async (t) => {
   const discovery = deferred();
   let attempts = 0;
@@ -151,12 +190,14 @@ test("font discovery deduplicates pending work, recovers from failure, and prese
   const first = panel.view.refreshFonts();
   assert.equal(first, panel.view.refreshFonts());
   assert.equal(panel.control("promptFont").disabled, true);
+  assert.equal(panel.control("responseCodeFont").disabled, true);
   assert.equal(panel.control("responseFontSize").disabled, false);
   discovery.reject(new Error("Unavailable"));
   await first;
   assert.equal(attempts, 1);
   assert.equal(panel.document.querySelector("#font-list-error").hidden, false);
   assert.equal(panel.control("responseFont").disabled, false);
+  assert.equal(panel.control("responseCodeFont").disabled, false);
   assert.equal(panel.control("promptFont").value, "Removed Font");
   assert.equal(panel.writes.length, 0);
   panel.document.querySelector("#retry-fonts").click();

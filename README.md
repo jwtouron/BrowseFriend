@@ -95,7 +95,9 @@ Appearance settings persist the System, Light, or Dark theme and one of seven ac
 the default. **Prompt text** and **Response text** independently select an installed font and size,
 with live samples. Sizes range from 8–24 px, plus 28, 32, and 36 px; Default preserves the existing
 inherited font and size, shown in the Default labels. Prompt text also has Bold and Italic switches.
-Response Markdown keeps its emphasis, and code remains monospace while scaling with response size.
+Response text has separate **Text font** and **Code font** choices, sharing one size for prose,
+inline code, and code blocks. Code defaults to the system monospace stack; choose an installed
+monospace font to customize it. Response Markdown keeps its emphasis.
 These settings affect transcript text, including existing history, and are available before sign-in.
 The `fontSettings` permission is used only to list installed fonts; browser-wide font settings are
 not changed. Preferences persist locally and update other open panels.

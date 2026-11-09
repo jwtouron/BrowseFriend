@@ -96,17 +96,21 @@ test("typography fields save independently and storage changes normalize without
     [TYPOGRAPHY_FIELDS.promptFont.key]: "Some Font",
     [TYPOGRAPHY_FIELDS.promptBold.key]: true,
     [TYPOGRAPHY_FIELDS.responseFontSize.key]: 36,
+    [TYPOGRAPHY_FIELDS.responseCodeFont.key]: "Code Font",
   });
   const loaded = await harness.preferences.load();
   assert.equal(loaded.promptFont, "Some Font");
   assert.equal(loaded.promptBold, true);
   assert.equal(loaded.responseFontSize, 36);
+  assert.equal(loaded.responseCodeFont, "Code Font");
   harness.writes.length = 0;
   await harness.preferences.saveTypography("promptFontSize", 18);
   await harness.preferences.saveTypography("responseFontSize", 25);
+  await harness.preferences.saveTypography("responseCodeFont", "  New Code Font  ");
   assert.deepEqual(harness.writes, [
     { [TYPOGRAPHY_FIELDS.promptFontSize.key]: 18 },
     { [TYPOGRAPHY_FIELDS.responseFontSize.key]: "default" },
+    { [TYPOGRAPHY_FIELDS.responseCodeFont.key]: "New Code Font" },
   ]);
   await assert.rejects(harness.preferences.saveTypography("responseBold", true), TypeError);
   const changes = [];
@@ -115,8 +119,9 @@ test("typography fields save independently and storage changes normalize without
     [TYPOGRAPHY_FIELDS.promptItalic.key]: { newValue: true },
     [TYPOGRAPHY_FIELDS.responseFont.key]: { newValue: undefined },
     [TYPOGRAPHY_FIELDS.responseFontSize.key]: { newValue: "large" },
+    [TYPOGRAPHY_FIELDS.responseCodeFont.key]: { newValue: undefined },
   }, "local");
-  assert.deepEqual(changes, [{ promptItalic: true, responseFont: "default", responseFontSize: "default" }]);
+  assert.deepEqual(changes, [{ promptItalic: true, responseFont: "default", responseCodeFont: "default", responseFontSize: "default" }]);
 });
 
 test("settings persist normalized local preferences", async () => {

@@ -43,9 +43,10 @@ access; per-user native registration already supports that requirement.
 
 Transcript font choices depend on fonts installed on the current computer. Default preserves the
 inherited font and size, including browser extension-page defaults; Inter is not bundled. Missing
-selected fonts use that fallback while retaining the preference. A font-list failure leaves Default,
-size, and prompt emphasis controls available and
-offers Retry. Browser zoom and minimum-font settings can affect the rendered sizes.
+selected fonts use that fallback while retaining the preference; code fonts fall back to the system
+monospace stack. Chrome's font list does not classify fonts as monospace, so the Code font selector
+offers all installed fonts. A font-list failure leaves Default, size, and prompt emphasis controls
+available and offers Retry. Browser zoom and minimum-font settings can affect the rendered sizes.
 
 The panel uses ordinary responsive CSS within the browser-reported viewport. Clipping at very
 narrow tiled browser widths is accepted behavior; BrowseFriend has no viewport compensation,

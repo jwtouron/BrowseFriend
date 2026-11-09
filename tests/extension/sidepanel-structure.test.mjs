@@ -261,6 +261,7 @@ test("Appearance exposes two labeled typography groups and only prompts have emp
   assert.deepEqual(groups.map((group) => group.querySelector("legend").textContent), ["Prompt text", "Response text"]);
   assert.equal(groups[0].querySelectorAll('input[role="switch"]').length, 2);
   assert.equal(groups[1].querySelectorAll("input").length, 0);
+  assert.deepEqual([...groups[1].querySelectorAll("label > span")].map((label) => label.textContent), ["Text font", "Code font", "Size"]);
   for (const control of document.querySelectorAll("[data-typography-setting]")) {
     assert.ok(document.querySelector(`label[for="${control.id}"]`));
     assert.equal(control.disabled, true);

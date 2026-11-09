@@ -6,9 +6,10 @@ BrowseFriend is a local-first Chrome side-panel companion. It provides a support
 
 The extension never receives OAuth credentials. Its service worker talks to a native-messaging host
 written in Go that runs OpenAI's loopback sign-in flow and returns only
-display-safe account state. Tokens, profile details, and pending refresh successors stay only in
-that Go process. Restarting Chrome or losing the companion requires sign-in again. A small protected
-file retains only the non-secret host, client, and account-subject identifiers.
+display-safe account state. The companion saves tokens, profile details, and refresh checkpoints in
+an owner-protected local file, restoring login automatically after browser or companion restart.
+The file is not application-encrypted and requires no OS keyring. Separate registration metadata
+retains the non-secret host, client, and account-subject identifiers.
 
 BrowseFriend does not create product accounts, subscriptions, or billing. It does not read ChatGPT cookies, conversations, memory, or private endpoints. The official flow can use eligible ChatGPT plan usage but does not grant access to ChatGPT history or memory.
 
@@ -43,7 +44,7 @@ go run ./native-host/cmd/build --check --install
 
 Then open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select this repository. The checked-in manifest key gives development builds the stable ID expected by the native host. Reload the extension after code changes.
 
-The installer copies the standalone binary into the application-data directory and registers it with Chrome. Moving the repository does not affect the installed copy. Unregister it with `go run ./native-host/cmd/build --check --uninstall`; non-secret registration data is preserved.
+The installer copies the standalone binary into the application-data directory and registers it with Chrome. Moving the repository does not affect the installed copy. Unregister it with `go run ./native-host/cmd/build --check --uninstall`; saved login credentials are removed and non-secret registration data is preserved. Normal updates preserve the login.
 
 On Windows, installation uses the current user's registry and needs no administrator access. Close
 BrowseFriend before replacing or removing a running companion. A downloaded Windows executable can
@@ -66,7 +67,12 @@ red means an action or retry is required.
 Signed-out users see **Continue with ChatGPT** inside the chat. OpenAI handles account and workspace
 selection in the browser, then returns to the local companion. Finishing sign-in enables the composer;
 it never sends a draft automatically. **Settings → Account** shows the selected identity, plan-access
-state, usage link, and logout action.
+state, usage link, and logout action. Saved login restores automatically while renewable credentials
+remain valid. Temporary network/storage failures preserve existing data and offer Retry. A damaged
+or unsupported saved login exposes **Reset saved login** in Account settings, with confirmation;
+reset keeps preferences and registration identifiers. Permission and disk-space errors must be fixed
+before retrying. Logout attempts remote revocation and clears local credentials; reset and uninstall
+perform local cleanup only. Disconnect the app in ChatGPT Settings to revoke access separately.
 
 Ask a question to capture the current HTTP or HTTPS page. BrowseFriend sends a bounded semantic snapshot—not raw HTML—and Debug mode can show the inspectable context attachment beside the message. If the page changes during generation, the completed answer is marked as stale. **New chat** asks for confirmation before clearing the memory-only conversation and its compacted context.
 

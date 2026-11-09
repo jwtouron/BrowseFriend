@@ -16,9 +16,10 @@ random loopback listener only while completing the hosted OAuth callback.
 
 A [DNR callback investigation](AUTH_DNR_INVESTIGATION.md) demonstrated synthetic redirection in
 Brave/Chromium 156, but OpenAI support and browser-side token handling remain unverified. The selected
-implementation retains Go and loopback OAuth, replacing durable login with process-local credentials.
-Credentials now remain only in the native process. Browser restart, companion exit, or a bridge
-disconnect requires authentication again; only non-secret registration identifiers survive.
+implementation retains Go and loopback OAuth. Credentials now persist in an owner-protected native
+file and restore automatically across browser/companion restarts. The file is not application-encrypted;
+its protection depends on OS access controls and any disk/backup encryption configured by the user.
+Temporary network/storage errors preserve it; invalid renewable credentials require fresh sign-in.
 Old encrypted files and keyring entries are ignored, without migration or cleanup tooling.
 Stage 2 keeps opaque compaction payloads in a separate 320-KiB Go cache. Chrome retains handles,
 byte counts, and checkpoints. Losing the companion also loses this context; recovery can use only
@@ -34,10 +35,13 @@ access; per-user native registration already supports that requirement.
 - Windows requires protected owner/SYSTEM ACLs. Safe inherited permissions or normal Administrators
   entries can cause a storage error. The companion no longer repairs existing ACLs automatically;
   the simpler policy remains deferred until native Windows validation.
-- There is no cross-process credential sharing or durable refresh recovery. A signing-key outage or
-  cancellation preserves a refresh successor only while its owning process remains alive.
+- Processes serialize account updates and share durable refresh checkpoints. A crash or storage
+  failure before a rotating successor can be saved may still require fresh sign-in. In-memory
+  recovery cannot survive process exit when no replacement was committed.
+- Normal updates preserve the login. Confirmed reset and explicit uninstall clear local credentials;
+  they do not confirm remote revocation. Log out or disconnect the app in ChatGPT Settings for that.
 - The [storage evaluation](STORAGE_EVALUATION.md) archives retired persistence experiments. The
-  current runtime has no keyring or database dependency; protected files store registration only.
+  current runtime has no keyring or database dependency; protected files store registration and credentials separately.
 
 ## Side-panel layout
 

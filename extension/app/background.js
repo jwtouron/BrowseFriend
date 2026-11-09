@@ -1,3 +1,4 @@
+import { canResetSavedLogin, requiresReauthentication } from "../auth/errors.js";
 import {
   MODEL_KEY,
   REASONING_KEY,
@@ -25,6 +26,10 @@ const MAX_SESSION_BYTES = 8 * 1024 * 1024;
 const MAX_DELTA_SAVE_DELAY_MS = 200;
 const MAX_ACTION_CALLS = 32;
 const CONNECTION_ERROR_CODES = new Set([
+  "credentials_invalid", "credentials_version_unsupported", "credentials_too_large",
+  "storage_unavailable", "storage_unsafe", "storage_busy", "registration_invalid",
+  "invalid_grant", "invalid_refresh_token", "token_expired", "refresh_token_expired",
+  "refresh_token_invalidated", "refresh_token_reused", "invalid_id_token", "invalid_token_response", "account_mismatch",
   "companion_timeout",
   "companion_unavailable",
   "invalid_api_key",
@@ -138,6 +143,7 @@ export function installAppController({
   let modelCatalogPromise = null;
   let readinessPromise = null;
   let signInPromise = null;
+  let accountMutationPromise = null;
   let connectionEpoch = 0;
   let saveTimer = null;
   let connection = { phase: "checking", auth: loadingAuth(), error: null };
@@ -314,11 +320,12 @@ export function installAppController({
   async function failConnection(chat, error, retry = "connection") {
     const publicError = safeError(error, "BrowseFriend could not finish connecting.");
     connection = { ...connection, phase: "error", error: publicError };
-    issue = { kind: "error", scope: "connection", error: publicError, retry };
+    issue = { kind: "error", scope: "connection", error: publicError, retry: canResetSavedLogin(publicError) ? null : retry };
     await publish(chat);
   }
 
   function ensureReady({ force = false } = {}) {
+    if (accountMutationPromise) return accountMutationPromise.then((result) => result.state);
     if (readinessPromise) return readinessPromise;
 
     const request = (async () => {
@@ -346,7 +353,11 @@ export function installAppController({
         void resumeRetry();
         return publicState(chat);
       } catch (error) {
-        if (epoch === connectionEpoch) await failConnection(chat, error);
+        if (epoch === connectionEpoch) {
+          if (requiresReauthentication(error)) {
+            await setAuthOutcome(chat, { state: "signed_out", profile: null, planUsageEnabled: false });
+          } else await failConnection(chat, error);
+        }
         return publicState(chat);
       }
     })();
@@ -445,6 +456,10 @@ export function installAppController({
       if (CONNECTION_ERROR_CODES.has(publicError.code) || [401, 403].includes(publicError.status)) {
         connection = { ...connection, phase: "error", error: publicError };
       }
+    }
+    if (requiresReauthentication(publicError)) {
+      await setAuthOutcome(chat, { state: "signed_out", profile: null, planUsageEnabled: false });
+      return;
     }
     await publish(chat);
   }
@@ -1071,6 +1086,7 @@ export function installAppController({
   }
 
   function signIn() {
+    if (accountMutationPromise) return accountMutationPromise.then(() => signIn());
     if (signInPromise) return signInPromise;
     const request = (async () => {
       const chat = await loadChat();
@@ -1135,17 +1151,40 @@ export function installAppController({
     return publicState(chat);
   }
 
-  async function signOut() {
-    const chat = await loadChat();
-    const activeId = chat.submission?.id;
-    if (activeId) await stop(activeId);
-    const response = await companion.request("auth.signOut");
-    Object.assign(chat, emptyChat(null, randomUUID()));
-    models = [];
-    modelCatalogPromise = null;
-    const auth = response.result || { state: "signed_out", profile: null };
-    await setAuthOutcome(chat, auth);
-    return { state: publicState(chat), warning: response.warning || null };
+  function signOut(method = "auth.signOut") {
+    if (accountMutationPromise) return accountMutationPromise;
+    const request = (async () => {
+      const chat = await loadChat();
+      ++connectionEpoch;
+      const activeId = chat.submission?.id;
+      if (activeId) await stop(activeId);
+      try {
+        const response = await companion.request(method);
+        Object.assign(chat, emptyChat(null, randomUUID()));
+        models = [];
+        modelCatalogPromise = null;
+        const auth = response.result || { state: "signed_out", profile: null };
+        await setAuthOutcome(chat, auth);
+        return { state: publicState(chat), warning: response.warning || null };
+      } catch (error) {
+        await failConnection(chat, error);
+        throw error;
+      }
+    })();
+    const tracked = request.finally(() => {
+      if (accountMutationPromise === tracked) accountMutationPromise = null;
+    });
+    accountMutationPromise = tracked;
+    return tracked;
+  }
+
+  function resetLogin() {
+    if (!canResetSavedLogin(connection.error)) throw {
+      code: "reset_not_available",
+      message: "Saved login reset is only available for a damaged or unsupported credential record.",
+      retryable: false,
+    };
+    return signOut("auth.reset");
   }
 
   async function clear() {
@@ -1259,7 +1298,7 @@ export function installAppController({
       });
       return;
     }
-    if (event.type !== "auth.changed" || readinessPromise || signInPromise) return;
+    if (event.type !== "auth.changed" || readinessPromise || signInPromise || accountMutationPromise) return;
     const auth = event.state;
     void loadChat().then((chat) => { chat.compaction = null; });
     if (auth.state === "signed_in") {
@@ -1289,6 +1328,7 @@ export function installAppController({
     if (message.method === "app.signIn") operation = signIn();
     if (message.method === "app.cancelSignIn") operation = cancelSignIn();
     if (message.method === "app.signOut") operation = signOut();
+    if (message.method === "app.resetLogin") operation = Promise.resolve().then(resetLogin);
     if (message.method === "app.models") {
       operation = loadModelOptions(message.refresh === true).then((result) => ({ ...result }));
     }

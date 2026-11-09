@@ -50,4 +50,12 @@ func replaceFile(from, to string) error {
 	defer dir.Close()
 	return dir.Sync()
 }
+func syncDirectory(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
+}
 func removeBinary(path string) error { return os.Remove(path) }

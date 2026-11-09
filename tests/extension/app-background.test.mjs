@@ -40,6 +40,7 @@ function createHarness({
   pageActorExecute,
   pageActorPrepare,
   signInRequest,
+  resetRequest,
   storedSession,
   streamRequest,
 } = {}) {
@@ -100,6 +101,10 @@ function createHarness({
         return { result: signedIn };
       }
       if (method === "auth.cancel") {
+        return { result: { state: "signed_out", profile: null, planUsageEnabled: false } };
+      }
+      if (method === "auth.reset") {
+        if (resetRequest) return resetRequest.promise;
         return { result: { state: "signed_out", profile: null, planUsageEnabled: false } };
       }
       if (method === "auth.signOut") {
@@ -229,7 +234,7 @@ function largeStoredSession(exchangeCount = 10) {
   };
 }
 
-test("readiness checks process-local authentication and loads models before becoming ready", async () => {
+test("readiness restores native authentication and loads models before becoming ready", async () => {
   const harness = createHarness();
   const before = await harness.controller.getState();
   assert.equal(before.connection.phase, "checking");
@@ -1354,4 +1359,72 @@ test("a prefix below the provider compaction threshold preserves its handle and 
   const saved = (await harness.storage.get("browsefriend.chat.session"))["browsefriend.chat.session"];
   assert.equal(saved.compaction.handle, "retained-handle");
   assert.equal(saved.messages.at(-1).status, "complete");
+});
+
+
+function appRequest(harness, method) {
+  return new Promise((resolve) => {
+    harness.onMessage.emit({ channel: "app", method }, { id: harness.runtime.id }, resolve);
+  });
+}
+
+test("damaged login requires reset while transient failures preserve retry", async () => {
+  for (const code of ["credentials_invalid", "credentials_version_unsupported", "storage_unavailable"]) {
+    const status = deferred();
+    const harness = createHarness({ authStatusRequest: status });
+    const ready = harness.controller.ensureReady();
+    status.reject({ code, message: "Saved login unavailable.", retryable: code === "storage_unavailable" });
+    const failed = await ready;
+    assert.equal(failed.connection.phase, "error");
+    assert.equal(failed.issue.retry, code === "storage_unavailable" ? "connection" : null);
+    const response = await appRequest(harness, "app.resetLogin");
+    assert.equal(response.ok, code !== "storage_unavailable");
+    if (response.ok) {
+      assert.equal(response.result.state.connection.phase, "auth_required");
+      assert.equal(response.result.state.issue.action, "sign_in");
+      assert.equal(harness.companionCalls.filter((call) => call.method === "auth.reset").length, 1);
+    } else assert.equal(harness.companionCalls.some((call) => call.method === "auth.reset"), false);
+    assert.equal(harness.companionCalls.some((call) => call.method === "auth.signIn" || call.method === "model.stream"), false);
+  }
+});
+
+test("reset requests share one native mutation and storage failure leaves a recoverable error", async () => {
+  const status = deferred(); const reset = deferred();
+  const harness = createHarness({ authStatusRequest: status, resetRequest: reset });
+  const ready = harness.controller.ensureReady();
+  status.reject({ code: "credentials_invalid", message: "Damaged login.", retryable: false });
+  await ready;
+  const first = appRequest(harness, "app.resetLogin");
+  const second = appRequest(harness, "app.resetLogin");
+  await settle();
+  assert.equal(harness.companionCalls.filter((call) => call.method === "auth.reset").length, 1);
+  reset.reject({ code: "storage_unavailable", message: "Storage unavailable.", retryable: true });
+  assert.equal((await first).ok, false); assert.equal((await second).ok, false);
+  const state = await harness.controller.getState();
+  assert.equal(state.connection.error.code, "storage_unavailable");
+  assert.equal(state.issue.retry, "connection");
+});
+
+
+test("expired renewable login returns directly to sign-in during startup and an active response", async () => {
+  const error = { code: "invalid_grant", message: "Sign in again.", retryable: false };
+  const startup = createHarness({ modelListError: error });
+  const state = await startup.controller.ensureReady();
+  assert.equal(state.connection.phase, "auth_required");
+  assert.equal(state.connection.auth.state, "signed_out");
+  assert.equal(state.issue.action, "sign_in");
+  assert.equal(startup.companionCalls.some((call) => call.method === "auth.signIn" || call.method === "model.stream"), false);
+
+  for (const code of ["invalid_grant", "sign_in_required", "reauth_required"]) {
+    const active = createHarness({ streamRequest: async () => { throw { ...error, code }; } });
+    await active.controller.ensureReady();
+    await active.controller.submit("expired-request", "A question");
+    await settle();
+    const failed = await active.controller.getState();
+    assert.equal(failed.connection.phase, "auth_required");
+    assert.equal(failed.submission, null);
+    assert.equal(failed.issue.action, "sign_in");
+    assert.equal(failed.messages[1].status, "error");
+    assert.equal(active.companionCalls.some((call) => call.method === "auth.signIn"), false);
+  }
 });

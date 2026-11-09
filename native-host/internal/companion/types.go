@@ -58,6 +58,7 @@ type Client interface {
 	Status(context.Context) (Session, error)
 	SignIn(context.Context, bool) (Session, error)
 	SignOut(context.Context) (Session, error)
+	ResetLogin(context.Context) (Session, error)
 	Models(context.Context) ([]object, error)
 	// Stream returns canonical output items in their original order.
 	Stream(context.Context, ModelOptions, func(string)) ([]object, error)

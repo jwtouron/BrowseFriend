@@ -263,6 +263,7 @@ func (c *Connection) SignIn(ctx context.Context, reconsent bool) (resultSession 
 	}()
 	c.emit(Session{State: "signing_in"})
 	var previous Account
+	var previousRevision string
 	err := c.Store.WithLock(ctx, func(a *Account) error {
 		if err := c.Store.UpdateRegistration(ctx, a, func(r *Registration) error {
 			if r.HostID == "" {
@@ -273,6 +274,7 @@ func (c *Connection) SignIn(ctx context.Context, reconsent bool) (resultSession 
 			return err
 		}
 		previous = *a
+		previousRevision = c.Store.revision
 		return nil
 	})
 	if err != nil {
@@ -390,6 +392,9 @@ func (c *Connection) SignIn(ctx context.Context, reconsent bool) (resultSession 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		if c.Store.revision != previousRevision {
+			return failure("connection_changed", "The saved login changed during sign-in. Please try again.", true)
+		}
 		if err := c.Store.UpdateRegistration(ctx, a, func(r *Registration) error {
 			if r.HostID != previous.HostID || r.ClientID != cb.ClientID || (r.Subject != "" && r.Subject != subject) {
 				return failure("connection_changed", "The account changed during sign-in.", true)
@@ -407,6 +412,9 @@ func (c *Connection) SignIn(ctx context.Context, reconsent bool) (resultSession 
 		a.Scopes = granted
 		a.IDToken = text(body["id_token"])
 		a.Pending = nil
+		if err := c.Store.save(ctx, a); err != nil {
+			return err
+		}
 		s = session(a)
 		return nil
 	})
@@ -450,7 +458,7 @@ func (c *Connection) credentials(ctx context.Context) (string, error) {
 					return failure("refresh_not_ready", "Your ChatGPT connection cannot refresh yet. Try again shortly.", true)
 				}
 			} else {
-				// Once rotation starts, retain its successor in memory even if the caller stops.
+				// Rotation checkpoints have an independent lifetime from a cancelled model request.
 				renewal, cancel := context.WithTimeout(context.WithoutCancel(ctx), 60*time.Second)
 				defer cancel()
 				if err := c.refresh(renewal, a); err != nil {
@@ -459,6 +467,10 @@ func (c *Connection) credentials(ctx context.Context) (string, error) {
 						a.Pending = nil
 						a.IDToken = ""
 						a.Scopes = nil
+						a.Identity = nil
+						if saveErr := c.Store.checkpoint(renewal, a); saveErr != nil {
+							return saveErr
+						}
 						c.emit(session(a))
 					}
 					return err
@@ -496,10 +508,13 @@ func (c *Connection) refresh(ctx context.Context, a *Account) error {
 		if id := text(body["id_token"]); id != "" {
 			pending = &Rotation{Credentials: *next, Scopes: granted, IDToken: id, ReceivedAt: time.Now().UnixMilli()}
 			a.Pending = pending
+			if err := c.Store.checkpoint(ctx, a); err != nil {
+				return err
+			}
 		} else {
 			a.Credentials = next
 			a.Scopes = granted
-			return nil
+			return c.Store.checkpoint(ctx, a)
 		}
 	}
 	subject, identity, err := c.verify(ctx, pending.IDToken, a.ClientID, "", time.UnixMilli(pending.ReceivedAt))
@@ -514,12 +529,20 @@ func (c *Connection) refresh(ctx context.Context, a *Account) error {
 	a.Identity = identity
 	a.IDToken = pending.IDToken
 	a.Pending = nil
-	return nil
+	return c.Store.checkpoint(ctx, a)
+}
+func (c *Connection) ResetLogin(ctx context.Context) (Session, error) {
+	if err := c.Store.Reset(ctx); err != nil {
+		return Session{}, err
+	}
+	s := Session{State: "signed_out"}
+	c.emit(s)
+	return s, nil
 }
 func (c *Connection) SignOut(ctx context.Context) (Session, error) {
 	var s Session
 	var warning error
-	err := c.Store.WithLock(ctx, func(a *Account) error {
+	err := c.Store.withAccount(ctx, false, func(a *Account) error {
 		token := ""
 		if a.Credentials != nil {
 			token = a.Credentials.Refresh
@@ -563,6 +586,13 @@ func (c *Connection) SignOut(ctx context.Context) (Session, error) {
 		a.Pending = nil
 		a.IDToken = ""
 		a.Scopes = nil
+		a.Identity = nil
+		// Revocation or caller cancellation must not prevent clearing the local login.
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if err := c.Store.checkpoint(cleanup, a); err != nil {
+			return err
+		}
 		s = session(a)
 		return nil
 	})

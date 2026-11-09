@@ -52,17 +52,21 @@ Platform-specific adapters implement secure files, browser launching, and per-us
 registration. Windows retains protected user/SYSTEM ACLs and HKCU registration; Unix retains
 owner-only file protections. Existing unsafe Windows ACLs fail validation rather than being repaired.
 
-One process-local store serializes credentials, profiles, and refresh state with a cancellable gate.
-Receiving a refresh successor updates memory before identity verification. A later cancellation or
-signing-key outage preserves that pending successor for retry in the same process. Process exit
-loses all authentication, including pending successors; no encryption key or credential file exists.
+The native store owns a versioned `credentials.json` record (maximum 2 MiB), containing the account,
+tokens, scopes, expiry information, and any pending refresh successor. It is protected by owner-only
+Unix permissions or the existing Windows ACL policy, without application-level encryption or a
+keyring dependency. `registration.json` separately retains `hostId`, `clientId`, and `subject`.
+Authenticated credential records must match that registration.
 
-Only `hostId`, `clientId`, and `subject` persist in `registration.json`. Registration updates reload
-this metadata under a fresh `gofrs/flock` interprocess lock, validate it, then atomically replace the
-file through a flushed private temporary file. Lock acquisition retries every 25 ms for up to
-45 seconds, respecting caller cancellation. The held file identity must match the separately
-validated private file. Authentication is never shared between processes, and ordinary credential
-operations need no interprocess lock once this process has loaded its registration.
+Every account operation reloads current disk state under the validated `registration.lock`
+interprocess lock. A process-local gate also serializes operations on one store. Saves commit
+independently through flushed private temporary files and atomic replacement. Lock acquisition
+retries every 25 ms for up to 45 seconds, respecting cancellation and validating held-file identity.
+Refresh rotation holds this lock and checkpoints the received successor before identity verification.
+A later cancellation or signing-key outage cannot roll back that checkpoint. Failed writes retain a
+bounded successor in memory and block model access until it commits; revision checks discard it if
+a newer durable refresh, logout, or reset supersedes it. A crash before a replacement can be saved
+may require fresh sign-in.
 
 `shared/host-contract.json` is the canonical policy/tool/limits/registration definition. Go embeds it
 directly; `go generate ./shared` produces the committed browser module. Verification rejects drift.
@@ -70,6 +74,10 @@ The browser still owns semantic page capture and action authorization; Go only t
 tool requests back through that established boundary.
 
 Logout attempts remote revocation and clears local credentials while retaining registration.
+Logout/reset write an empty credential record with a new non-secret revision to prevent stale
+in-memory checkpoints from resurrecting the login. Explicit uninstall removes the credential file.
+Normal updates preserve compatible records. Corrupt or unsupported records remain untouched until
+an explicit, confirmed reset; unsafe paths and permissions are never reset automatically.
 There is no migration framework, legacy account loading, or cleanup utility. Earlier encrypted
 files and OS-keyring entries are ignored. The retired storage comparison remains historical in
 [Storage evaluation](STORAGE_EVALUATION.md).
@@ -85,12 +93,16 @@ development artifacts; hosted execution remains pending until the first push. Se
 
 Opening the panel immediately shows chat and starts a single background readiness operation. The
 composer, suggested prompts, and Ask/Act controls remain disabled until authentication and model
-discovery finish; Settings stays accessible. The controller launches the companion, reads process-local
+discovery finish; Settings stays accessible. The controller launches the companion, restores saved native
 authentication, refreshes credentials when needed, and discovers available models. If user action is
 required, the panel presents **Continue with ChatGPT** without discarding an existing draft. New
 prompts are rejected before readiness and never queued across sign-in. The companion temporarily
 listens on a random `127.0.0.1` port for the OAuth callback. The companion validates the result and
-retains credentials only in its process memory; only sanitized account state returns to the extension.
+saves validated credentials in protected native storage; only sanitized account state returns to the
+extension. Startup restoration never opens OAuth or submits a draft automatically. The controller
+routes confirmed `app.resetLogin` intent to native `auth.reset`; native reset cancels sign-in/model
+work and invalidates authentication-scoped context. Storage failures are typed separately from
+reauthentication and corrupt-record recovery.
 
 ### Ask mode
 
@@ -234,8 +246,9 @@ active conversation uses one global
 suspension but not a browser restart or extension reload. New chat presents a cancel-first
 confirmation and, when accepted, rotates the conversation ID and clears transcript and native
 compaction; logout clears them directly. Chrome retains compaction metadata, never its payload.
-The companion stores only non-secret registration identifiers in the platform application-data
-directory. Restarting Chrome or the companion loses authentication and requires a fresh sign-in.
+The companion stores protected credentials and separate registration identifiers in the platform
+application-data directory. Browser/companion restart restores login while renewable credentials
+remain valid; visible chat and native task context retain their existing transient lifetimes.
 
 ## Trust boundaries
 
@@ -255,5 +268,5 @@ deferred architecture work.
 
 ## Evaluation boundary
 
-The browser-free [Act evaluation harness](EVALUATIONS.md) runs production page extraction, actions, and controller code against trusted HTML in jsdom. An evaluation-only Go executable reuses the handler and model transport with baseline/candidate or blinded grading instructions. Credentials stay in Go; process-local serialization and refresh recovery apply. Each evaluator authenticates once and
+The browser-free [Act evaluation harness](EVALUATIONS.md) runs production page extraction, actions, and controller code against trusted HTML in jsdom. An evaluation-only Go executable reuses the handler and model transport with baseline/candidate or blinded grading instructions. The evaluator explicitly uses a memory-only native store, sharing registration identifiers while never reading or writing production credentials; logout and saved-login reset are disabled. Each evaluator authenticates once and
 retains its Go process across cases; evaluation-only mode changes clear task context while idle. No browser registration or runtime endpoint is added to BrowseFriend.

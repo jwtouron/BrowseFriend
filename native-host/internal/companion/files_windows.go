@@ -194,3 +194,6 @@ func replaceFile(from, to string) error {
 	return fileOperationError(windows.MoveFileEx(source, target, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH))
 }
 func removeBinary(path string) error { return fileOperationError(os.Remove(path)) }
+
+// Windows replacement already requests write-through; directory Sync is unsupported.
+func syncDirectory(string) error { return nil }

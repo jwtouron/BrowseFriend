@@ -78,15 +78,20 @@ prerequisite must support a user-owned installation rather than requiring a syst
   results. Windows ARM64 has no Go race detector. Cross-compilation and Wine do not substitute for
   successful native execution.
 - [ ] Run `tests/windows/verify.ps1` on native Windows for both architectures, including ACL/reparse
-  enforcement and process-local authentication loss on restart; manually verify Chrome sign-in, Ask/Act, cancellation,
+  enforcement and protected-file login restoration after restart; manually verify Chrome sign-in, Ask/Act, cancellation,
   restart, and logout. Wine compatibility coverage does not complete these checks.
 - [ ] Add signed/notarized macOS and Linux installers, Windows signing/installers, and verify registration and sign-in after upgrades.
   Users must not need to install a language runtime.
 - [ ] Add explicit account-selection support if multiple registrations become necessary.
-- [x] Stage 1: retain Go Native Messaging and loopback OAuth, but hold credentials and refresh
+- [x] Historical Stage 1: retain Go Native Messaging and loopback OAuth, but hold credentials and refresh
   recovery only in process memory. Persist only non-secret registration identifiers. Keep npm/mise
   installation commands; remove credential encryption/keyring machinery without migration tooling.
   Automated verification passed; manual browser and unavailable platform checks remain pending.
+- [x] Restore automatic login across browser restarts using an owner-protected native credential
+  file, durable refresh checkpoints, explicit corrupt-record reset, and uninstall credential cleanup.
+  Keep live evaluator authentication memory-only and leave keyring dependencies retired. Automated
+  verification passed; real-browser sign-in/restart/logout and unavailable platforms remain pending
+  in the [verification record](NATIVE_HOST.md#verification-record).
 - [x] Stage 2, after Stage 1 automated verification: move opaque compacted conversation context into a
   bounded native-memory cache. Keep only scoped handles, byte counts, and transcript checkpoints in
   Chrome; verify invalidation and restart recovery, and preserve a matching fixed-fixture real-model

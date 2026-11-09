@@ -23,6 +23,9 @@ func (f fake) SignIn(_ context.Context, reconsent bool) (companion.Session, erro
 	f.w.Send(map[string]any{"event": "test.signIn", "reconsent": reconsent})
 	return companion.Session{State: "signed_in", PlanUsageEnabled: true}, nil
 }
+func (f fake) ResetLogin(context.Context) (companion.Session, error) {
+	return companion.Session{State: "signed_out"}, nil
+}
 func (f fake) SignOut(context.Context) (companion.Session, error) {
 	if f.mode == "revocation-failure" {
 		return companion.Session{State: "signed_out"}, &companion.Error{Code: "revocation_failed", Message: "Revocation failed.", Retryable: true}

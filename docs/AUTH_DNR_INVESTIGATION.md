@@ -5,7 +5,7 @@ OAuth callback to an extension page without a listener at the callback address. 
 browser probe demonstrated this mechanism. It does not establish OpenAI support for this
 callback delivery method or for browser-side token handling. The extension-only proposal was
 superseded: retain Go Native Messaging and the documented loopback callback, with authentication
-held only in companion memory. This investigation remains a record of the alternative considered.
+held by the companion, now in protected native storage. This investigation remains a record of the alternative considered.
 
 ## Browser feasibility
 
@@ -71,7 +71,7 @@ OpenAI's [credential-security guidance](https://developers.openai.com/siwc/token
 says to keep access, refresh, and retained ID tokens in protected runtime storage and out of
 browser storage. DNR provides no credential store. Encrypting tokens in browser storage does
 not establish credential isolation. The investigation originally assumed an OS-backed encryption key;
-the selected implementation instead keeps credentials only in native process memory.
+Stage 1 initially selected process-only credentials; current native persistence is described below.
 
 BrowseFriend currently keeps OAuth, PKCE state, verification, token exchange, refresh, and
 credentials in the native companion. Extension messages carry sanitized account
@@ -82,14 +82,18 @@ The host also currently launches the system default browser; DNR only operates i
 profile containing the extension, so sign-in would need to start through that extension.
 No production component boundaries or permissions were changed by this investigation.
 
-## Selected direction
+## Selected direction at the investigation
 
-Retain the Go companion for OAuth, model transport, and Act context. Remove authenticated-session
-persistence across process/browser restarts. Retain only non-secret host/client/account registration
-identifiers in an owner-protected native file; no encryption or OS keyring is needed for those IDs.
-Stage 1 replaces encrypted credential persistence with process-local memory, with no legacy-data
-migration or cleanup utility. Install and uninstall remain npm/mise commands without administrator
-access. Improved acquisition/setup guidance is deferred until versioned GitHub releases exist.
+The investigation selected retaining Go for OAuth, model transport, and Act context. At that stage,
+authenticated-session persistence was removed; only non-secret host/client/account registration
+identifiers persisted in an owner-protected native file. Stage 1 replaced encrypted credentials with
+process-local memory, without legacy-data migration or cleanup tooling. Install and uninstall
+remained npm/mise commands without administrator access. Improved acquisition/setup guidance was
+deferred until versioned GitHub releases exist.
+
+Login persistence was subsequently restored with an owner-protected native credential file,
+without reviving keyring/encryption dependencies. See [Native companion](NATIVE_HOST.md#storage)
+for the current storage and recovery policy. DNR remains outside the selected architecture.
 
 After Stage 1 automated verification, Stage 2 moves the opaque compacted-conversation payload into
 bounded Go memory. Chrome retains a handle and transcript checkpoint. Visible chat, page previews,

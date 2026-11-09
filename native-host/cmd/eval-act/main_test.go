@@ -57,6 +57,9 @@ func TestEvaluationAuthAndCompactionUseTheSameClient(t *testing.T) {
 	if s, err := e.Compact(context.Background(), companion.ModelOptions{}); err != nil || s != "synthetic-compact" {
 		t.Fatal(s, err)
 	}
+	if _, err := e.ResetLogin(context.Background()); err == nil {
+		t.Fatal("evaluation unexpectedly reset saved login")
+	}
 	if _, err := e.SignOut(context.Background()); err == nil {
 		t.Fatal("evaluation unexpectedly logged out")
 	}

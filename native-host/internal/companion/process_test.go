@@ -4,10 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -129,13 +133,31 @@ func TestProcessHelper(t *testing.T) {
 	}
 	store := NewStore(os.Getenv("BROWSEFRIEND_TEST_DIRECTORY"))
 	switch mode {
-	case "read-registration":
+	case "read-login":
 		if err := store.WithLock(context.Background(), func(a *Account) error {
-			if a.ClientID != "test-client" || a.HostID == "" || a.Subject == "" || a.Credentials != nil || a.IDToken != "" || a.Pending != nil || a.Identity != nil || len(a.Scopes) != 0 {
-				t.Fatal("authentication crossed a process restart")
+			if a.ClientID != "test-client" || a.HostID == "" || a.Subject == "" || a.Credentials == nil || a.IDToken == "" || a.Pending != nil || a.Identity == nil || len(a.Scopes) == 0 {
+				t.Fatal("authentication was not restored after process restart")
 			}
 			return nil
 		}); err != nil {
+			t.Fatal(err)
+		}
+	case "list-models":
+		ca, err := base64.StdEncoding.DecodeString(os.Getenv("BROWSEFRIEND_TEST_CA"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cert, err := x509.ParseCertificate(ca)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pool := x509.NewCertPool()
+		pool.AddCert(cert)
+		c := NewConnection(store, nil)
+		c.issuer = os.Getenv("BROWSEFRIEND_TEST_ISSUER")
+		c.api = c.issuer + "/v1"
+		c.HTTP = &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		if _, err := c.Models(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 	case "hold-registration":
@@ -158,10 +180,10 @@ func helper(t *testing.T, store *Store, mode string, extra ...string) *exec.Cmd 
 	cmd.Env = append(cmd.Env, extra...)
 	return cmd
 }
-func TestProcessRestartKeepsRegistrationButNotAuthentication(t *testing.T) {
+func TestProcessRestartRestoresLogin(t *testing.T) {
 	f := newFixture(t)
 	f.login(t)
-	if output, err := helper(t, f.c.Store, "read-registration").CombinedOutput(); err != nil {
+	if output, err := helper(t, f.c.Store, "read-login").CombinedOutput(); err != nil {
 		t.Fatalf("restart: %v %s", err, output)
 	}
 	cmd := helper(t, f.c.Store, "hold-registration")
@@ -185,9 +207,9 @@ func TestProcessRestartKeepsRegistrationButNotAuthentication(t *testing.T) {
 	if err := f.c.Store.withRegistration(ctx, func(*Registration) error { t.Error("process lock bypassed"); return nil }); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal(err)
 	}
-	// A blocked registration writer does not lock existing process-local credentials.
-	if s, err := f.c.Status(context.Background()); err != nil || s.State != "signed_in" {
-		t.Fatal(s, err)
+	// Authentication now observes the same process lock, rather than stale memory.
+	if _, err := f.c.Status(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal(err)
 	}
 	input.Write([]byte{1})
 	input.Close()
@@ -196,6 +218,30 @@ func TestProcessRestartKeepsRegistrationButNotAuthentication(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+func TestConcurrentProcessesUseOneRotatingRefresh(t *testing.T) {
+	f := newFixture(t)
+	f.login(t)
+	expire(t, f)
+	extra := []string{"BROWSEFRIEND_TEST_ISSUER=" + f.server.URL, "BROWSEFRIEND_TEST_CA=" + base64.StdEncoding.EncodeToString(f.server.Certificate().Raw)}
+	commands := []*exec.Cmd{helper(t, f.c.Store, "list-models", extra...), helper(t, f.c.Store, "list-models", extra...)}
+	for _, cmd := range commands {
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { cmd.Process.Kill() })
+	}
+	for _, cmd := range commands {
+		if err := cmd.Wait(); err != nil {
+			t.Fatal("child could not resume saved login", err)
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.refreshes != 1 || f.apiCalls != 2 {
+		t.Fatal("processes raced refresh rotation")
+	}
+}
+
 func FuzzCompactedContext(f *testing.F) {
 	for _, seed := range []string{"", "null", "[]", "[null]", "[1]", "[{\"type\":\"compaction\",\"encrypted_content\":\"opaque\"}]"} {
 		f.Add(seed)

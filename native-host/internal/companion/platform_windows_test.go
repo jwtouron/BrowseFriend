@@ -131,13 +131,18 @@ func TestWindowsNativeSecurityEnforcement(t *testing.T) {
 	if os.Getenv("BROWSEFRIEND_TEST_WINE") != "" {
 		t.Skip("pending native Windows: Wine cannot validate Windows ACL/reparse security guarantees")
 	}
-	for _, name := range []string{"registration.json", "registration.lock"} {
+	for _, name := range []string{"registration.json", "registration.lock", credentialFile} {
 		t.Run("unsafe ACL "+name, func(t *testing.T) {
 			store := testStore(t)
 			if err := store.WithLock(context.Background(), func(a *Account) error {
 				return store.UpdateRegistration(context.Background(), a, func(r *Registration) error { r.HostID = "test-host"; return nil })
 			}); err != nil {
 				t.Fatal(err)
+			}
+			if name == credentialFile {
+				if err := store.Reset(context.Background()); err != nil {
+					t.Fatal(err)
+				}
 			}
 			path := filepath.Join(store.Directory, name)
 			sd, err := windows.SecurityDescriptorFromString("D:P(A;;FA;;;WD)")

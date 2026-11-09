@@ -262,13 +262,13 @@ func TestOAuthRejectsInvalidIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-func TestRefreshRecoveryWithinProcess(t *testing.T) {
+func TestRefreshRecoveryAcrossRestart(t *testing.T) {
 	f := newFixture(t)
 	f.login(t)
 	ctx := context.Background()
 	if err := f.c.Store.WithLock(ctx, func(a *Account) error {
 		a.Credentials.ExpiresAt = time.Now().Add(-time.Hour).UnixMilli()
-		return nil
+		return f.c.Store.save(ctx, a)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -289,6 +289,9 @@ func TestRefreshRecoveryWithinProcess(t *testing.T) {
 	f.mu.Lock()
 	f.jwksDown = false
 	f.mu.Unlock()
+	fresh := NewConnection(NewStore(f.c.Store.Directory), nil)
+	fresh.issuer, fresh.api, fresh.HTTP = f.c.issuer, f.c.api, f.c.HTTP
+	f.c = fresh
 	if _, err := f.c.Models(ctx); err != nil {
 		t.Fatal(err)
 	}

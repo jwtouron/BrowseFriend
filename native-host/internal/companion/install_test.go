@@ -2,6 +2,7 @@ package companion
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -66,6 +67,53 @@ func TestInstallUninstall(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+func TestUpdatePreservesLoginAndExplicitUninstallClearsIt(t *testing.T) {
+	paths := testPaths(t)
+	source := filepath.Join(t.TempDir(), "host")
+	if err := os.WriteFile(source, []byte("synthetic-binary"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(paths, source, false, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(paths.Data)
+	if err := store.withRegistration(context.Background(), func(r *Registration) error {
+		*r = Registration{HostID: "host", ClientID: "client", Subject: "subject"}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WithLock(context.Background(), func(a *Account) error {
+		a.Credentials = &Credentials{Access: "synthetic-access", Refresh: "synthetic-refresh", ExpiresAt: 1}
+		a.IDToken = "synthetic-id"
+		return store.save(context.Background(), a)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before := savedCredentials(t, store)
+	if err := Install(paths, source, false, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, savedCredentials(t, store)) {
+		t.Fatal("update changed login")
+	}
+	if err := Uninstall(paths, true, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, savedCredentials(t, store)) {
+		t.Fatal("dry uninstall changed login")
+	}
+	if err := Uninstall(paths, false, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(paths.Data, credentialFile)); !os.IsNotExist(err) {
+		t.Fatal("uninstall retained credentials", err)
+	}
+	if r, err := store.readRegistration(); err != nil || r.Subject != "subject" {
+		t.Fatal("uninstall removed registration", err)
+	}
+}
+
 func TestInstallationFailurePreservesRegistration(t *testing.T) {
 	paths := testPaths(t)
 	source := filepath.Join(t.TempDir(), "host")

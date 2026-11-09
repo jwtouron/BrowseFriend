@@ -25,8 +25,9 @@ go run ./native-host/cmd/build --check --uninstall
 ```
 
 Reload the extension from `chrome://extensions` after installing. The install command copies the
-binary and atomically writes the Chrome registration. Uninstall removes its own registration and
-executable but preserves non-secret registration data. Uninstall preserves and reports a conflicting registration.
+binary and atomically writes the Chrome registration. Uninstall removes its own registration,
+executable, and current credential file while preserving non-secret registration data. Uninstall
+preserves and reports a conflicting registration.
 npm build/test/install commands are development shortcuts; standalone registration needs no Node.
 
 The built executable also accepts `install`, `uninstall`, and `--dry-run` directly. Windows builds
@@ -39,23 +40,34 @@ reports that the installed executable is in use; the installer does not kill pro
 macOS stores files under `~/Library/Application Support/BrowseFriend/native-host/`.
 Linux uses `$XDG_CONFIG_HOME/browsefriend/native-host/`, defaulting to `~/.config/`.
 Windows uses `%LOCALAPPDATA%\BrowseFriend\native-host\`, discovered through the Windows known-folder API.
-The directory contains the installed `browsefriend-native-host`, `registration.json`, and
-`registration.lock`. The JSON file contains only non-secret `hostId`, `clientId`, and `subject`.
-Credentials, ID tokens, profile details, scopes, and pending refresh successors live only in Go
-memory. Chrome restart, extension reload, bridge disconnect, or companion exit requires sign-in
-again. A new process reuses registration identifiers without restoring authentication.
+The directory contains the installed `browsefriend-native-host`, `registration.json`,
+`registration.lock`, and `credentials.json`. Registration contains only non-secret `hostId`,
+`clientId`, and `subject`. The versioned credential record (maximum 2 MiB) contains tokens, validated
+profile details, scopes, expiry information, and pending refresh successors. Credentials restore
+automatically after browser restart, extension reload, bridge reconnection, or companion exit.
 
-Directories and files receive owner-only Unix modes or protected Windows ACLs for the current user
-and SYSTEM. Ownership, permissions, and symlink/reparse targets are validated. Existing unsafe
-Windows ACLs are rejected rather than repaired. Registration updates use `gofrs/flock` with a
-45-second cancellable acquisition limit and held-file identity checks, followed by atomic writes
-using flushed private temporary files. Credential operations serialize within the process.
+The credential file has no application-level encryption and needs no OS keyring. Directories/files
+use `0700`/`0600` on Unix or protected current-user/SYSTEM ACLs on Windows. Ownership, permissions,
+and symlink/reparse targets are validated. Existing unsafe Windows ACLs are rejected rather than
+repaired. Each account operation reloads both records under `gofrs/flock`, with a 45-second
+cancellable acquisition limit and held-file identity checks. Writes use flushed private temporary
+files and atomic replacement. Normal updates preserve compatible saved credentials.
 
-A refresh successor is retained in memory before identity verification; cancellation or a signing-key
-outage can recover it in the same process without replaying rotation. Exit discards that checkpoint.
-Logout attempts remote revocation and clears local tokens, including pending successors, even if
-revocation fails after starting. No account encryption, OS-keyring dependency, migration, legacy
-account loading, or cleanup utility remains. Old encrypted files and keyring entries are ignored.
+A refresh successor commits before identity verification. Cancellation or a signing-key outage can
+recover it after restart without replaying rotation. Failed writes retain the successor in memory
+and block model use until storage recovery; newer durable logout/reset/refresh revisions supersede
+it. Exit before a successful save may require fresh sign-in.
+
+Logout attempts remote revocation, then clears local credentials even if remote revocation fails.
+Logout/reset leave a token-free record with a fresh revision; explicit uninstall removes that file.
+Corrupt and unsupported records are preserved until confirmed **Reset saved login** in Account
+settings. Permission, disk-space, and temporary network failures preserve data and offer Retry.
+Reset keeps registration identifiers and preferences and does not open OAuth automatically.
+Reset/uninstall perform local cleanup only; use Logout or ChatGPT Settings for remote revocation.
+Old encrypted files and keyring entries remain ignored, without migration or cleanup tooling.
+
+The live evaluation helper uses a memory-only store: it shares registration but cannot read, save,
+or reset production credentials. Each evaluator still requires its own interactive sign-in.
 
 Windows keeps the host manifest beside its executable and registers its absolute path in the
 default string value of
@@ -84,7 +96,7 @@ docker run --rm browsefriend-native-tests
 
 The tests use local simulated OAuth/TLS providers and synthetic signed identities. They exercise
 PKCE binding, identity validation, consent, expiry, pending-refresh recovery, cancellation,
-registration locks, registration reuse and credential loss across actual process restarts, unsafe paths,
+registration locks, registration reuse and login restoration across actual process restarts, unsafe paths,
 framing, tool continuations, compaction, and atomic installation. The test driver is separate
 from the production binary and adds no injectable credentials/endpoints to the shipped executable.
 
@@ -151,8 +163,19 @@ installer checks still run. Their success under Wine does not certify Windows se
 
 ## Verification record
 
-Records dated before the process-local authentication change describe the former persistent
-credential implementation. They do not verify the current replacement.
+Earlier records describe the historical encrypted or process-only implementations; they do not
+verify the current protected-file implementation.
+
+On 2026-11-09, protected-file login persistence passed Linux x64 Go race tests/vet, the native
+protocol suite, and all 170 JavaScript tests. Actual child-process tests verified login restoration
+and serialized refresh; synthetic tests covered durable pending successors, failed-write recovery,
+newer reset/logout winning over stale work, update preservation, uninstall cleanup, and evaluator
+isolation. All six production targets built and both Windows architectures' tests compiled.
+Disposable Brave pages using production UI assets passed four light/dark and narrow/wide reset
+layouts, keyboard confirmation/cancellation, restored-login presentation, storage-error recovery,
+and console checks. Those UI checks used synthetic state and no Native Messaging permission.
+Docker, Wine, native Windows/macOS runtime checks, and real ChatGPT browser sign-in/restart/logout
+verification remain pending. No live OAuth or model requests were made for this change.
 
 On 2026-11-03, process-local authentication passed Linux x64 Go race/vet and the native protocol
 suite, all 128 JavaScript tests, workflow linting, and builds for all six targets. Both Windows

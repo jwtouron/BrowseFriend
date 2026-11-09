@@ -7,7 +7,8 @@ reuse a login from the extension or an earlier run. No API key, browser automati
 browser registration, or model-facing local web server is needed. OAuth uses the normal temporary
 loopback listener. Credentials and refresh recovery stay in Go memory. The evaluation-only
 `eval.configure` operation changes baseline/candidate/grading mode only while idle and clears task
-context; it is absent from the production host. Normal compaction is available; logout is disabled.
+context; it is absent from the production host. Normal compaction is available; logout and saved-login reset are disabled. Its explicit memory-only
+store never reads or overwrites the production credential file.
 
 Install development dependencies with `npm ci`. Node must satisfy
 `^22.22.2 || ^24.15.0 || >=26.0.0`; Go 1.25+ is required. The command builds its separate

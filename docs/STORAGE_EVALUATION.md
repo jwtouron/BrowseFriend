@@ -157,8 +157,16 @@ without a migration framework.
 
 ## Retirement
 
-Authentication now remains exclusively in Go process memory. Only three non-secret registration
-identifiers persist, using the existing protected-file helpers and `gofrs/flock`. Credential
+Stage 1 moved authentication exclusively into Go process memory. Only three non-secret registration
+identifiers persisted, using the existing protected-file helpers and `gofrs/flock`. Credential
 encryption, keyring dependencies, and this evaluation module are retired without migration or
 cleanup tooling. The broader Windows permission-policy proposal remains deferred pending native
 validation. Historical results above do not establish verification of the replacement.
+
+## Current protected-file storage
+
+The current companion restores login through a versioned, owner-protected `credentials.json`,
+without application encryption, databases, or OS-keyring dependencies. Registration remains
+separate, and refresh checkpoints commit under the shared interprocess lock. Historical encrypted
+files and keyring entries remain ignored. See [Native companion](NATIVE_HOST.md#storage) for the
+current format, recovery policy, and verification record.

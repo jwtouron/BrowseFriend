@@ -2,6 +2,7 @@ package companion
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -104,15 +105,28 @@ func Install(paths HostPaths, source string, dry bool, out io.Writer) error {
 	return registerHost(paths)
 }
 func Uninstall(paths HostPaths, dry bool, out io.Writer) error {
-	fmt.Fprintf(out, "Remove BrowseFriend registration: %s\nSaved account data is preserved.\n", paths.Manifest)
+	fmt.Fprintf(out, "Remove BrowseFriend registration: %s\nSaved login credentials will be removed; non-secret registration data is preserved.\n", paths.Manifest)
 	if dry {
 		return nil
 	}
 	if err := checkRegistration(paths); err != nil {
 		return err
 	}
+	if _, err := os.Stat(paths.Data); os.IsNotExist(err) {
+		return unregisterHost(paths)
+	}
+	store := NewStore(paths.Data)
+	return store.withDiskLock(context.Background(), func() error { return uninstallLocked(paths, store) })
+}
+func uninstallLocked(paths HostPaths, store *Store) error {
+	if err := store.validateCredentialFile(); err != nil {
+		return err
+	}
 	data, err := os.ReadFile(paths.Manifest)
 	if os.IsNotExist(err) {
+		if err := store.removeCredentials(); err != nil {
+			return err
+		}
 		return unregisterHost(paths)
 	}
 	if err != nil {
@@ -123,6 +137,9 @@ func Uninstall(paths HostPaths, dry bool, out io.Writer) error {
 		return registrationConflict()
 	}
 	if err := removeBinary(paths.Binary); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := store.removeCredentials(); err != nil {
 		return err
 	}
 	if err := unregisterHost(paths); err != nil {

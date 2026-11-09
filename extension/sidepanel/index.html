@@ -228,6 +228,7 @@
                     hidden
                   >Manage usage</a>
                   <button class="danger-button" id="sign-out" type="button" hidden>Log out</button>
+                  <button class="danger-button" id="reset-login" type="button" hidden>Reset saved login</button>
                 </div>
                 <p class="status-message" id="settings-auth-error" role="alert" hidden></p>
               </div>
@@ -418,6 +419,17 @@
           <div class="action-dialog__actions">
             <button class="secondary-button" id="cancel-action" type="button">Cancel</button>
             <button class="primary-button" id="confirm-action" type="button">Continue</button>
+          </div>
+        </section>
+      </div>
+
+      <div class="modal-backdrop" id="reset-login-confirmation" hidden>
+        <section class="action-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-login-title" aria-describedby="reset-login-description">
+          <h2 id="reset-login-title">Reset saved login?</h2>
+          <p id="reset-login-description">This clears the saved ChatGPT login on this computer. You will need to sign in again. Your settings and app registration will be kept. To revoke the remote connection, disconnect BrowseFriend in ChatGPT Settings.</p>
+          <div class="action-dialog__actions">
+            <button class="secondary-button" id="cancel-reset-login" type="button">Cancel</button>
+            <button class="danger-button" id="confirm-reset-login" type="button">Reset saved login</button>
           </div>
         </section>
       </div>

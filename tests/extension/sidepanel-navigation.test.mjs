@@ -12,7 +12,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-async function createPanel(t, { connection, initialRequest } = {}) {
+async function createPanel(t, { connection, initialRequest, resetError } = {}) {
   const html = await readFile(new URL("../../extension/sidepanel/index.html", import.meta.url), "utf8");
   const dom = new JSDOM(html);
   const { document } = dom.window;
@@ -37,6 +37,11 @@ async function createPanel(t, { connection, initialRequest } = {}) {
           const { method } = message;
           requests.push(message);
           if (method === "app.state" && initialRequest) await initialRequest.promise;
+          if (method === "app.resetLogin") {
+            if (resetError) return { ok: false, error: resetError };
+            state = { ...state, connection: { phase: "auth_required", auth: { state: "signed_out" }, error: null }, messages: [], models: [] };
+            return { ok: true, result: { state, warning: null } };
+          }
           return method === "app.models" ? refresh.promise : { ok: true, result: state };
         },
       },
@@ -203,4 +208,55 @@ test("leaving and reopening Settings cancels a pending model shortcut", async (t
   await panel.finishRefresh();
   assert.equal(panel.content.scrollTop, 250);
   assert.equal(panel.document.activeElement.id, "close-settings");
+});
+
+
+test("damaged saved login exposes a cancel-first reset and returns to explicit sign-in", async (t) => {
+  const panel = await createPanel(t, { connection: {
+    phase: "error", auth: { state: "signed_out" },
+    error: { code: "credentials_invalid", message: "The saved login is damaged." },
+  } });
+  panel.click("open-settings");
+  const reset = panel.document.querySelector("#reset-login");
+  const modal = panel.document.querySelector("#reset-login-confirmation");
+  assert.equal(reset.hidden, false);
+  assert.equal(panel.document.querySelector("#settings-sign-in").disabled, true);
+  panel.click("reset-login"); panel.frame();
+  assert.equal(modal.hidden, false);
+  assert.equal(panel.document.activeElement.id, "cancel-reset-login");
+  assert.equal(panel.document.querySelector("#view-stack").inert, true);
+  panel.document.dispatchEvent(new panel.document.defaultView.KeyboardEvent("keydown", { key: "Tab" }));
+  assert.equal(panel.document.activeElement.id, "confirm-reset-login");
+  panel.document.dispatchEvent(new panel.document.defaultView.KeyboardEvent("keydown", { key: "Escape" }));
+  assert.equal(modal.hidden, true);
+  assert.equal(panel.requests.some(({ method }) => method === "app.resetLogin"), false);
+  panel.click("reset-login"); panel.frame(); panel.click("confirm-reset-login");
+  await settle();
+  assert.equal(modal.hidden, true);
+  assert.equal(reset.hidden, true);
+  assert.equal(panel.document.querySelector("#settings-sign-in").disabled, false);
+  assert.equal(panel.document.activeElement.id, "settings-sign-in");
+  assert.equal(panel.requests.filter(({ method }) => method === "app.resetLogin").length, 1);
+  assert.equal(panel.requests.some(({ method }) => method === "app.signIn"), false);
+});
+
+test("storage and network errors never expose destructive reset", async (t) => {
+  const panel = await createPanel(t);
+  for (const code of ["storage_unavailable", "storage_unsafe", "registration_invalid", "companion_unavailable"]) {
+    await panel.updateState({ connection: { phase: "error", auth: { state: "signed_out" }, error: { code, message: "Retry after fixing the problem." } } });
+    assert.equal(panel.document.querySelector("#reset-login").hidden, true);
+    assert.equal(panel.document.querySelector("#settings-sign-in").disabled, code !== "companion_unavailable");
+  }
+});
+
+test("failed reset displays storage failure without claiming the saved login was cleared", async (t) => {
+  const panel = await createPanel(t, {
+    connection: { phase: "error", auth: { state: "signed_out" }, error: { code: "credentials_version_unsupported", message: "Unsupported saved login." } },
+    resetError: { code: "storage_unavailable", message: "Check permissions and available disk space." },
+  });
+  panel.click("open-settings"); panel.click("reset-login"); panel.frame(); panel.click("confirm-reset-login");
+  await settle();
+  assert.equal(panel.document.querySelector("#reset-login-confirmation").hidden, true);
+  assert.equal(panel.document.querySelector("#reset-login").hidden, false);
+  assert.match(panel.document.querySelector("#settings-auth-error").textContent, /Check permissions/);
 });

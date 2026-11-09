@@ -34,7 +34,7 @@ type Registration struct {
 	Subject  string `json:"subject"`
 }
 
-// Account exists only in the Store's owning process. Only Registration is serializable to disk.
+// Account is private to the native runtime; only Session may cross the browser boundary.
 type Account struct {
 	Registration
 	Identity    object
@@ -45,10 +45,14 @@ type Account struct {
 }
 
 type Store struct {
-	Directory string
-	once      sync.Once
-	gate      chan struct{}
-	account   *Account
+	Directory   string
+	once        sync.Once
+	gate        chan struct{}
+	sessionOnly bool
+	account     *Account
+	active      *Account
+	revision    string
+	retry       *credentialCheckpoint
 }
 
 func DefaultDirectory() (string, error) {
@@ -57,9 +61,14 @@ func DefaultDirectory() (string, error) {
 }
 func NewStore(directory string) *Store { return &Store{Directory: directory} }
 
-// WithLock serializes access to this process's account, including refresh rotation.
-// Mutations remain in memory even if the callback returns an error after receiving a successor.
-func (s *Store) WithLock(ctx context.Context, op func(*Account) error) error {
+// NewMemoryStore shares registration identifiers but never reads or writes credentials.
+// Live evaluations use this to keep their independent logins out of production storage.
+func NewMemoryStore(directory string) *Store {
+	return &Store{Directory: directory, sessionOnly: true}
+}
+
+// withDiskLock owns both registration and credentials, including network refresh rotation.
+func (s *Store) withDiskLock(ctx context.Context, op func() error) (err error) {
 	s.once.Do(func() { s.gate = make(chan struct{}, 1) })
 	if err := ctx.Err(); err != nil {
 		return err
@@ -73,56 +82,91 @@ func (s *Store) WithLock(ctx context.Context, op func(*Account) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if s.account == nil {
-		var registration Registration
-		if err := s.withRegistration(ctx, func(r *Registration) error { registration = *r; return nil }); err != nil {
-			return err
-		}
-		s.account = &Account{Registration: registration}
-	}
-	return op(s.account)
-}
-
-// UpdateRegistration must run inside WithLock. It reloads only the public metadata so independent
-// companion processes cannot overwrite a different registration. Authentication is never shared.
-func (s *Store) UpdateRegistration(ctx context.Context, a *Account, op func(*Registration) error) error {
-	var updated Registration
-	if err := s.withRegistration(ctx, func(r *Registration) error {
-		if err := op(r); err != nil {
-			return err
-		}
-		updated = *r
-		return nil
-	}); err != nil {
-		return err
-	}
-	a.Registration = updated
-	return nil
-}
-
-func (s *Store) withRegistration(ctx context.Context, op func(*Registration) error) (err error) {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	if err := privateDirectory(s.Directory); err != nil {
-		return err
+		return storageError(err)
 	}
 	lock, err := acquireRegistrationLock(ctx, filepath.Join(s.Directory, "registration.lock"), 45*time.Second)
 	if err != nil {
-		return err
+		return storageError(err)
 	}
-	defer func() { err = errors.Join(err, lock.Close()) }()
-	r, err := s.readRegistration()
-	if err != nil {
-		return err
+	defer func() { err = errors.Join(err, storageError(lock.Close())) }()
+	return op()
+}
+
+// WithLock reloads the latest durable account before each operation. Writes are explicit:
+// a checkpoint committed inside a callback survives a subsequent callback error.
+func (s *Store) WithLock(ctx context.Context, op func(*Account) error) error {
+	return s.withAccount(ctx, true, op)
+}
+
+func (s *Store) withAccount(ctx context.Context, commitPending bool, op func(*Account) error) error {
+	return s.withDiskLock(ctx, func() error {
+		r, err := s.readRegistration()
+		if err != nil {
+			return storageError(err)
+		}
+		var a *Account
+		if s.sessionOnly {
+			if s.account == nil || s.account.Registration != r {
+				s.account = &Account{Registration: r}
+			}
+			a = s.account
+		} else {
+			a, s.revision, err = s.readCredentials(r)
+			if err != nil {
+				return err
+			}
+		}
+		s.active = a
+		defer func() { s.active = nil }()
+		if pending := s.retry; pending != nil {
+			// A newer logout, reset, or another process's refresh always wins.
+			if pending.revision != s.revision || pending.account.Registration != r {
+				s.retry = nil
+			} else {
+				*a = pending.account
+				if commitPending {
+					if err := s.checkpoint(ctx, a); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		return op(a)
+	})
+}
+
+// UpdateRegistration runs inside WithLock, under its already-held interprocess lock.
+func (s *Store) UpdateRegistration(ctx context.Context, a *Account, op func(*Registration) error) error {
+	if s.active != a {
+		return errors.New("registration update requires an active account operation")
 	}
-	before := r
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+	r := a.Registration
 	if err := op(&r); err != nil {
 		return err
 	}
+	if err := s.writeRegistration(ctx, a.Registration, r); err != nil {
+		return err
+	}
+	a.Registration = r
+	return nil
+}
+
+func (s *Store) withRegistration(ctx context.Context, op func(*Registration) error) error {
+	return s.withDiskLock(ctx, func() error {
+		r, err := s.readRegistration()
+		if err != nil {
+			return storageError(err)
+		}
+		before := r
+		if err := op(&r); err != nil {
+			return err
+		}
+		return s.writeRegistration(ctx, before, r)
+	})
+}
+
+func (s *Store) writeRegistration(ctx context.Context, before, r Registration) error {
 	if !validRegistration(r) {
 		return failure("registration_invalid", "The ChatGPT registration is invalid.", false)
 	}
@@ -134,9 +178,9 @@ func (s *Store) withRegistration(ctx context.Context, op func(*Registration) err
 	}
 	data, err := json.Marshal(r)
 	if err != nil {
-		return err
+		return storageError(err)
 	}
-	return atomicFile(filepath.Join(s.Directory, "registration.json"), bytes.NewReader(data), 0600)
+	return storageError(atomicFile(filepath.Join(s.Directory, "registration.json"), bytes.NewReader(data), 0600))
 }
 
 func validRegistration(r Registration) bool {
@@ -188,7 +232,7 @@ func acquireRegistrationLock(ctx context.Context, path string, timeout time.Dura
 			return nil, ctx.Err()
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, failure("storage_busy", "Another process is updating the registration. Try again shortly.", true)
+			return nil, failure("storage_busy", "Another process is updating the saved login. Try again shortly.", true)
 		}
 		return nil, err
 	}

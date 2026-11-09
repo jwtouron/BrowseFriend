@@ -1215,7 +1215,7 @@ textarea::placeholder {
   margin-top: 0;
 }
 
-.new-chat-dialog .action-dialog__actions {
+.action-dialog > p + .action-dialog__actions {
   margin-top: 16px;
 }
 

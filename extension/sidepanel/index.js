@@ -1,3 +1,4 @@
+import { canResetSavedLogin, isLoginStorageError } from "../auth/errors.js";
 import { createAppClient } from "../app/client.js";
 import { createAuthView } from "../auth/view-model.js";
 import { renderMarkdown } from "../chat/markdown.js";
@@ -60,6 +61,10 @@ const cancelSignInButton = document.querySelector("#cancel-sign-in");
 const settingsSignInButton = document.querySelector("#settings-sign-in");
 const settingsSignInLabel = settingsSignInButton.querySelector("span:last-child");
 const signOutButton = document.querySelector("#sign-out");
+const resetLoginButton = document.querySelector("#reset-login");
+const resetLoginConfirmation = document.querySelector("#reset-login-confirmation");
+const cancelResetLoginButton = document.querySelector("#cancel-reset-login");
+const confirmResetLoginButton = document.querySelector("#confirm-reset-login");
 const manageUsageLink = document.querySelector("#manage-usage");
 const accountName = document.querySelector("#account-name");
 const accountEmail = document.querySelector("#account-email");
@@ -129,6 +134,7 @@ let preferencesLoaded = false;
 let contextViewerOpen = false;
 let actionModalOpen = false;
 let newChatModalOpen = false;
+let resetLoginModalOpen = false;
 let settingsError = null;
 let localRecovery = null;
 let settingsNavigationEpoch = 0;
@@ -282,7 +288,7 @@ function renderMode() {
 }
 
 function syncModalInert() {
-  const modalOpen = contextViewerOpen || actionModalOpen || newChatModalOpen;
+  const modalOpen = contextViewerOpen || actionModalOpen || newChatModalOpen || resetLoginModalOpen;
   topbar.inert = modalOpen;
   viewStack.inert = modalOpen;
 }
@@ -331,7 +337,10 @@ function renderAccount() {
   settingsSignInLabel.textContent = view.signInLabel;
   manageUsageLink.hidden = !view.connected;
   signOutButton.hidden = !view.connected;
-  setStatusMessage(settingsAuthError, settingsError);
+  const connectionError = currentState.connection.error;
+  resetLoginButton.hidden = !canResetSavedLogin(connectionError);
+  settingsSignInButton.disabled = view.signingIn || isLoginStorageError(connectionError);
+  setStatusMessage(settingsAuthError, settingsError || connectionError);
   clearButton.hidden = !view.signedIn;
 }
 
@@ -364,7 +373,7 @@ function renderApp(state, {
 
   if (!restoreCompletionFocus || !document.hasFocus() ||
       viewStack.classList.contains("view-stack--settings") || contextViewerOpen || actionModalOpen ||
-      newChatModalOpen) return;
+      newChatModalOpen || resetLoginModalOpen) return;
 
   const nextView = deriveViewState(currentState, optimisticSubmission);
   const submissionFinished = previousSubmission && !state.submission;
@@ -411,7 +420,7 @@ function hideContext({ restoreFocus = true } = {}) {
 }
 
 function showNewChatConfirmation() {
-  if (newChatModalOpen) return;
+  if (newChatModalOpen || resetLoginModalOpen) return;
   newChatModalOpen = true;
   newChatConfirmation.hidden = false;
   syncModalInert();
@@ -921,6 +930,41 @@ async function clearConversation() {
   clearComposer({ focus: false });
 }
 
+function showResetLoginConfirmation() {
+  if (resetLoginModalOpen || !canResetSavedLogin(currentState.connection.error)) return;
+  resetLoginModalOpen = true;
+  resetLoginConfirmation.hidden = false;
+  syncModalInert();
+  requestAnimationFrame(() => cancelResetLoginButton.focus({ preventScroll: true }));
+}
+
+function hideResetLoginConfirmation() {
+  resetLoginModalOpen = false;
+  resetLoginConfirmation.hidden = true;
+  syncModalInert();
+  const target = resetLoginButton.hidden ? settingsSignInButton : resetLoginButton;
+  target.focus({ preventScroll: true });
+}
+
+async function resetSavedLogin() {
+  if (!resetLoginModalOpen || confirmResetLoginButton.disabled) return;
+  confirmResetLoginButton.disabled = true;
+  cancelResetLoginButton.disabled = true;
+  settingsError = null;
+  try {
+    const result = await appClient.resetLogin();
+    renderApp(result.state, { restoreCompletionFocus: false });
+    clearComposer({ focus: false });
+  } catch (error) {
+    settingsError = error;
+    renderAccount();
+  } finally {
+    confirmResetLoginButton.disabled = false;
+    cancelResetLoginButton.disabled = false;
+    hideResetLoginConfirmation();
+  }
+}
+
 async function signOut() {
   signOutButton.disabled = true;
   settingsError = null;
@@ -999,6 +1043,9 @@ signInButton.addEventListener("click", () => void signIn());
 settingsSignInButton.addEventListener("click", () => void signIn());
 cancelSignInButton.addEventListener("click", () => void cancelSignIn());
 signOutButton.addEventListener("click", () => void signOut());
+resetLoginButton.addEventListener("click", showResetLoginConfirmation);
+cancelResetLoginButton.addEventListener("click", hideResetLoginConfirmation);
+confirmResetLoginButton.addEventListener("click", () => void resetSavedLogin());
 modelSelect.addEventListener("change", () => void updateModel());
 reasoningSelect.addEventListener("change", () => void updateReasoningEffort());
 themeSelect.addEventListener("change", () => void updateTheme());
@@ -1009,6 +1056,23 @@ debugModeSwitch.addEventListener("change", () => void updateDebugMode());
 closeContextButton.addEventListener("click", hideContext);
 
 document.addEventListener("keydown", (event) => {
+  if (resetLoginModalOpen) {
+    if (event.key === "Escape" && !confirmResetLoginButton.disabled) {
+      event.preventDefault();
+      hideResetLoginConfirmation();
+    }
+    if (event.key === "Tab") {
+      const buttons = [cancelResetLoginButton, confirmResetLoginButton].filter((button) => !button.disabled);
+      if (buttons.length) {
+        const index = buttons.indexOf(document.activeElement);
+        const next = event.shiftKey ? (index <= 0 ? buttons.length - 1 : index - 1)
+          : (index < 0 || index === buttons.length - 1 ? 0 : index + 1);
+        event.preventDefault();
+        buttons[next].focus({ preventScroll: true });
+      } else event.preventDefault();
+    }
+    return;
+  }
   if (newChatModalOpen) {
     if (event.key === "Escape") {
       event.preventDefault();

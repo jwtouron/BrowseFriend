@@ -33,6 +33,7 @@ export function createAppClient(runtime) {
     signIn: () => request("app.signIn"),
     cancelSignIn: () => request("app.cancelSignIn"),
     signOut: () => request("app.signOut"),
+    resetLogin: () => request("app.resetLogin"),
     getModels: (refresh = false) => request("app.models", { refresh }),
     subscribe,
   };

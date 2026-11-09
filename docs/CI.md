@@ -29,10 +29,10 @@ registration data intact when removed.
 
 ## Authentication and storage isolation
 
-All native jobs use simulated OAuth/TLS providers and synthetic identities. Credentials remain in
-process memory, and registration/installation tests use temporary directories and a dedicated
-Windows registry subtree. Tests prove that restarting retains registration identifiers and loses
-authentication. No OS-keyring service, OpenAI account, real tokens, or live model requests are needed.
+All native jobs use simulated OAuth/TLS providers and synthetic identities. Credential files and
+registration/installation tests use temporary directories and a dedicated Windows registry subtree.
+Tests prove login restoration across actual process restarts, serialized refresh across processes,
+durable successor recovery, explicit reset/logout, update preservation, and uninstall cleanup. No OS-keyring service, OpenAI account, real tokens, or live model requests are needed.
 Windows additionally exercises locked files, ACLs, and reparse targets without Wine exclusions.
 
 ## Downloadable builds

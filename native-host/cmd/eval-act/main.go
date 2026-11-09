@@ -63,6 +63,9 @@ func (h *evaluationHandler) Dispatch(ctx context.Context, r companion.Request) {
 	h.Handler.Dispatch(ctx, r)
 }
 
+func (e *evaluator) ResetLogin(context.Context) (companion.Session, error) {
+	return companion.Session{}, fmt.Errorf("evaluation cannot reset saved login")
+}
 func (e *evaluator) SignOut(context.Context) (companion.Session, error) {
 	return companion.Session{}, fmt.Errorf("evaluation cannot log out")
 }
@@ -95,7 +98,7 @@ func run() error {
 		return err
 	}
 	writer := &companion.Writer{Out: os.Stdout}
-	connection := companion.NewConnection(companion.NewStore(dir), nil)
+	connection := companion.NewConnection(companion.NewMemoryStore(dir), nil)
 	client := &evaluator{Client: connection, instructions: instructions, baseline: instructions, judge: *judge}
 	handler := &evaluationHandler{evaluator: client, pending: map[string]bool{}}
 	handler.Handler = companion.NewHandler(client, func(v any) {

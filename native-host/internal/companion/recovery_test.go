@@ -60,7 +60,7 @@ func expire(t *testing.T, f *fixture) {
 	t.Helper()
 	if err := f.c.Store.WithLock(context.Background(), func(a *Account) error {
 		a.Credentials.ExpiresAt = time.Now().Add(-time.Hour).UnixMilli()
-		return nil
+		return f.c.Store.save(context.Background(), a)
 	}); err != nil {
 		t.Fatal(err)
 	}

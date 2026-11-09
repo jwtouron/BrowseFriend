@@ -123,8 +123,14 @@ func (h *Handler) Dispatch(_ context.Context, r Request) {
 		}
 		h.mu.Unlock()
 		h.reply(r, object{"cancelled": active}, nil)
-	case "auth.status", "auth.signIn", "auth.signOut":
+	case "auth.status", "auth.signIn", "auth.signOut", "auth.reset":
 		h.mu.Lock()
+		if r.Method == "auth.reset" || r.Method == "auth.signOut" {
+			h.authEpoch++
+			if h.signInCancel != nil {
+				h.signInCancel()
+			}
+		}
 		r.authEpoch = h.authEpoch
 		h.mu.Unlock()
 		select {
@@ -176,7 +182,7 @@ func (h *Handler) auth(r Request) {
 		h.signInDone = nil
 		close(done)
 		h.mu.Unlock()
-	case "auth.signOut":
+	case "auth.signOut", "auth.reset":
 		h.mu.Lock()
 		h.actTask = nil
 		h.invalidateContext()
@@ -184,7 +190,11 @@ func (h *Handler) auth(r Request) {
 			h.modelCancel()
 		}
 		h.mu.Unlock()
-		s, err = h.Client.SignOut(ctx)
+		if r.Method == "auth.reset" {
+			s, err = h.Client.ResetLogin(ctx)
+		} else {
+			s, err = h.Client.SignOut(ctx)
+		}
 		if publicError(err).Code == "revocation_failed" {
 			h.Send(object{"id": r.ID, "ok": true, "result": s, "warning": publicError(err)})
 			return

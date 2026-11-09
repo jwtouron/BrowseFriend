@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func TestOnlyRegistrationPersists(t *testing.T) {
+func TestLoginPersistsAndLegacyFilesRemainIgnored(t *testing.T) {
 	f := newFixture(t)
 	f.login(t)
 	path := filepath.Join(f.c.Store.Directory, "registration.json")
@@ -46,15 +46,12 @@ func TestOnlyRegistrationPersists(t *testing.T) {
 	}
 	fresh := NewConnection(NewStore(f.c.Store.Directory), nil)
 	status, err := fresh.Status(context.Background())
-	if err != nil || status.State != "signed_out" || status.Profile != nil {
+	if err != nil || status.State != "signed_in" || status.Profile == nil {
 		t.Fatal(status, err)
 	}
-	if _, err := fresh.Models(context.Background()); publicError(err).Code != "sign_in_required" {
-		t.Fatal(err)
-	}
 	if err := fresh.Store.WithLock(context.Background(), func(a *Account) error {
-		if a.ClientID != saved["clientId"] || a.HostID != saved["hostId"] || a.Subject != saved["subject"] || a.Credentials != nil || a.Identity != nil || a.Pending != nil || a.IDToken != "" || len(a.Scopes) != 0 {
-			t.Fatal("session crossed store lifetime")
+		if a.ClientID != saved["clientId"] || a.HostID != saved["hostId"] || a.Subject != saved["subject"] || a.Credentials == nil || a.Identity == nil || a.Pending != nil || a.IDToken == "" || len(a.Scopes) == 0 {
+			t.Fatal("saved session was not restored")
 		}
 		return nil
 	}); err != nil {
@@ -64,7 +61,7 @@ func TestOnlyRegistrationPersists(t *testing.T) {
 	if err != nil || !bytes.Equal(after, marker) {
 		t.Fatal("legacy data was changed", err)
 	}
-	// A returning sign-in must reuse registration, not restore previous authentication.
+	// Explicit reauthorization still reuses the same registration.
 	opener := f.c.OpenBrowser
 	fresh.issuer, fresh.api, fresh.HTTP, fresh.OpenBrowser = f.c.issuer, f.c.api, f.c.HTTP, opener
 	f.c = fresh
@@ -76,7 +73,7 @@ func TestOnlyRegistrationPersists(t *testing.T) {
 }
 
 func TestAccountMemorySerializesAndCancellationReleasesWaiters(t *testing.T) {
-	s := testStore(t)
+	s := NewMemoryStore(filepath.Join(t.TempDir(), "account"))
 	started, release := make(chan struct{}), make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
@@ -93,8 +90,12 @@ func TestAccountMemorySerializesAndCancellationReleasesWaiters(t *testing.T) {
 	if err := s.WithLock(ctx, func(*Account) error { t.Error("overlapping account operations"); return nil }); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal(err)
 	}
-	// Independent processes/stores share registration, not login or refresh locks.
-	other := NewStore(s.Directory)
+	close(release)
+	if err := <-done; err == nil {
+		t.Fatal("callback error lost")
+	}
+	// Explicit session-only stores never share their credentials.
+	other := NewMemoryStore(s.Directory)
 	if err := other.WithLock(context.Background(), func(a *Account) error {
 		if a.IDToken != "" {
 			t.Fatal("memory shared across stores")
@@ -102,10 +103,6 @@ func TestAccountMemorySerializesAndCancellationReleasesWaiters(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
-	}
-	close(release)
-	if err := <-done; err == nil {
-		t.Fatal("callback error lost")
 	}
 	if err := s.WithLock(context.Background(), func(a *Account) error {
 		if a.IDToken != "synthetic-in-memory" {
